@@ -8,6 +8,10 @@ import { addGlobalOptions } from "./lib/options.js";
 import { registerMeta } from "./commands/meta.js";
 import { registerApi } from "./commands/api.js";
 import { registerCompletion } from "./commands/completion.js";
+import { registerIssue } from "./commands/issue.js";
+import { Context, type GlobalOptions } from "./context.js";
+import { currentIssueId } from "./git.js";
+import { getIssueDetail } from "./services/issue.js";
 
 export const VERSION = "0.1.0";
 
@@ -27,6 +31,26 @@ export function createProgram(): Command {
   registerMeta(program);
   registerApi(program);
   registerCompletion(program);
+  // Phase 1: issues.
+  registerIssue(program);
+
+  // Bare `linear` (no subcommand): show the current branch's issue if one can
+  // be inferred, otherwise help.
+  program.action(async (_opts: unknown, command: Command) => {
+    const id = currentIssueId();
+    if (!id) {
+      command.help();
+      return;
+    }
+    const ctx = new Context(command.optsWithGlobals() as GlobalOptions);
+    const d = await getIssueDetail(ctx.client, id);
+    ctx.output.detail(d, [
+      ["Issue", `${d.identifier}  ${d.title}`],
+      ["State", d.state],
+      ["Assignee", d.assignee],
+      ["URL", d.url],
+    ]);
+  });
 
   // Make global options usable in any position (e.g. `linear whoami --json`),
   // not just before the subcommand. Commander's optsWithGlobals() correctly

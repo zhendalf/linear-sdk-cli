@@ -17,7 +17,26 @@ const UPDATE = process.argv.includes("--update");
 const CURATED: Record<string, string[]> = {
   // phase 0
   meta: ["viewer", "organization"],
-  // later phases append here (issues, teams, projects, …)
+  // phase 1 — issues
+  issue: [
+    "issue",
+    "issues",
+    "createIssue",
+    "updateIssue",
+    "deleteIssue",
+    "archiveIssue",
+    "unarchiveIssue",
+    "issueSubscribe",
+    "issueUnsubscribe",
+    "searchIssues",
+    "issueSearch",
+    "createIssueRelation",
+    "deleteIssueRelation",
+    "issueRelation",
+    "issueRelations",
+    "createComment",
+  ],
+  // later phases append here (teams, projects, …)
 };
 
 /**

@@ -87,7 +87,7 @@ export function renderDetail(
   opts: { color?: boolean } = {},
 ): string {
   const color = opts.color ?? false;
-  const visible = pairs.filter(([, v]) => v !== undefined);
+  const visible = pairs.filter(([, v]) => v !== undefined && v !== null);
   const keyWidth = visible.reduce((m, [k]) => Math.max(m, k.length), 0);
   return visible
     .map(([k, v]) => {
