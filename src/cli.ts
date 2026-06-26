@@ -20,6 +20,11 @@ import { registerComment } from "./commands/comment.js";
 import { registerDocument } from "./commands/document.js";
 import { registerAttachment } from "./commands/attachment.js";
 import { registerFavorite } from "./commands/favorite.js";
+import { registerInitiative } from "./commands/initiative.js";
+import { registerRoadmap } from "./commands/roadmap.js";
+import { registerNotification } from "./commands/notification.js";
+import { registerOrganization } from "./commands/organization.js";
+import { registerWebhook } from "./commands/webhook.js";
 import { Context, type GlobalOptions } from "./context.js";
 import { currentIssueId } from "./git.js";
 import { getIssueDetail } from "./services/issue.js";
@@ -57,6 +62,12 @@ export function createProgram(): Command {
   registerDocument(program);
   registerAttachment(program);
   registerFavorite(program);
+  // Phase 4: initiatives, roadmaps, notifications, organization, webhooks.
+  registerInitiative(program);
+  registerRoadmap(program);
+  registerNotification(program);
+  registerOrganization(program);
+  registerWebhook(program);
 
   // Bare `linear` (no subcommand): show the current branch's issue if one can
   // be inferred, otherwise help.

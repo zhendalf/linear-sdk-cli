@@ -69,6 +69,27 @@ const CURATED: Record<string, string[]> = {
   document: ["documents", "document", "createDocument", "updateDocument", "deleteDocument"],
   attachment: ["attachments", "attachment", "createAttachment", "deleteAttachment"],
   favorite: ["favorites", "favorite", "createFavorite", "deleteFavorite"],
+  // phase 4 — initiatives, roadmaps, notifications, organization invites, webhooks
+  // (`organization` member is already curated under `meta` — not duplicated here)
+  initiative: [
+    "initiatives",
+    "initiative",
+    "createInitiative",
+    "updateInitiative",
+    "deleteInitiative",
+    "archiveInitiative",
+    "unarchiveInitiative",
+  ],
+  roadmap: ["roadmaps", "roadmap", "createRoadmap", "updateRoadmap", "deleteRoadmap"],
+  notification: [
+    "notifications",
+    "notification",
+    "updateNotification",
+    "archiveNotification",
+    "notificationMarkReadAll",
+  ],
+  organization: ["organizationInvites", "organizationInvite"],
+  webhook: ["webhooks", "webhook", "createWebhook", "updateWebhook", "deleteWebhook"],
   // later phases append here (…)
 };
 
