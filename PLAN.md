@@ -1,5 +1,10 @@
 # Linear CLI — Implementation Plan
 
+> **Design document / project history.** This is the original implementation plan the project
+> was built against (reviewed before any code was written). For usage and installation see
+> [README.md](./README.md); for SDK coverage see [COVERAGE.md](./COVERAGE.md). Kept for
+> provenance — it may not track every later refinement.
+
 A command-line interface for [Linear](https://linear.app) built on the official
 [`@linear/sdk`](https://www.npmjs.com/package/@linear/sdk) (v87). Ergonomics
 modeled on [`schpet/linear-cli`](https://github.com/schpet/linear-cli) (human-first,
