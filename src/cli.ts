@@ -9,6 +9,10 @@ import { registerMeta } from "./commands/meta.js";
 import { registerApi } from "./commands/api.js";
 import { registerCompletion } from "./commands/completion.js";
 import { registerIssue } from "./commands/issue.js";
+import { registerTeam } from "./commands/team.js";
+import { registerProject } from "./commands/project.js";
+import { registerMilestone } from "./commands/milestone.js";
+import { registerCycle } from "./commands/cycle.js";
 import { Context, type GlobalOptions } from "./context.js";
 import { currentIssueId } from "./git.js";
 import { getIssueDetail } from "./services/issue.js";
@@ -33,6 +37,11 @@ export function createProgram(): Command {
   registerCompletion(program);
   // Phase 1: issues.
   registerIssue(program);
+  // Phase 2: teams, projects, milestones, cycles.
+  registerTeam(program);
+  registerProject(program);
+  registerMilestone(program);
+  registerCycle(program);
 
   // Bare `linear` (no subcommand): show the current branch's issue if one can
   // be inferred, otherwise help.

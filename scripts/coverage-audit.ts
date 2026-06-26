@@ -36,7 +36,25 @@ const CURATED: Record<string, string[]> = {
     "issueRelations",
     "createComment",
   ],
-  // later phases append here (teams, projects, …)
+  // phase 2 — teams, projects, milestones, cycles
+  team: ["teams", "team", "createTeam", "updateTeam"],
+  project: [
+    "projects",
+    "project",
+    "createProject",
+    "updateProject",
+    "archiveProject",
+    "projectStatuses",
+  ],
+  milestone: [
+    "projectMilestone",
+    "projectMilestones",
+    "createProjectMilestone",
+    "updateProjectMilestone",
+    "deleteProjectMilestone",
+  ],
+  cycle: ["cycles", "cycle", "createCycle", "updateCycle"],
+  // later phases append here (…)
 };
 
 /**
