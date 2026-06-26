@@ -13,6 +13,13 @@ import { registerTeam } from "./commands/team.js";
 import { registerProject } from "./commands/project.js";
 import { registerMilestone } from "./commands/milestone.js";
 import { registerCycle } from "./commands/cycle.js";
+import { registerUser } from "./commands/user.js";
+import { registerLabel } from "./commands/label.js";
+import { registerState } from "./commands/state.js";
+import { registerComment } from "./commands/comment.js";
+import { registerDocument } from "./commands/document.js";
+import { registerAttachment } from "./commands/attachment.js";
+import { registerFavorite } from "./commands/favorite.js";
 import { Context, type GlobalOptions } from "./context.js";
 import { currentIssueId } from "./git.js";
 import { getIssueDetail } from "./services/issue.js";
@@ -42,6 +49,14 @@ export function createProgram(): Command {
   registerProject(program);
   registerMilestone(program);
   registerCycle(program);
+  // Phase 3: users, labels, workflow states, comments, documents, attachments, favorites.
+  registerUser(program);
+  registerLabel(program);
+  registerState(program);
+  registerComment(program);
+  registerDocument(program);
+  registerAttachment(program);
+  registerFavorite(program);
 
   // Bare `linear` (no subcommand): show the current branch's issue if one can
   // be inferred, otherwise help.

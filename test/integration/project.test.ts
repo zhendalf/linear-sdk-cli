@@ -60,7 +60,9 @@ suite("project — project lifecycle (live)", () => {
     expect(d.lead).toBeTruthy();
   });
 
-  it("lists projects filtered by team", () => {
+  // Linear's team-filtered project list is eventually consistent, so a just-created
+  // project may not appear immediately; retry to absorb that lag.
+  it("lists projects filtered by team", { retry: 3 }, () => {
     const { id } = makeProject("list");
     const rows = runJson<Array<{ id: string }>>([
       "project",

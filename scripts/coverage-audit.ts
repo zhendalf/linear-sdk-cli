@@ -54,6 +54,21 @@ const CURATED: Record<string, string[]> = {
     "deleteProjectMilestone",
   ],
   cycle: ["cycles", "cycle", "createCycle", "updateCycle"],
+  // phase 3 — users, labels, workflow states, comments, documents, attachments, favorites
+  // (viewer is already curated under `meta`; createComment under `issue` — not duplicated here)
+  user: ["users", "user"],
+  label: [
+    "issueLabels",
+    "issueLabel",
+    "createIssueLabel",
+    "updateIssueLabel",
+    "deleteIssueLabel",
+  ],
+  state: ["workflowStates", "workflowState"],
+  comment: ["comments", "comment", "updateComment", "deleteComment", "commentResolve", "commentUnresolve"],
+  document: ["documents", "document", "createDocument", "updateDocument", "deleteDocument"],
+  attachment: ["attachments", "attachment", "createAttachment", "deleteAttachment"],
+  favorite: ["favorites", "favorite", "createFavorite", "deleteFavorite"],
   // later phases append here (…)
 };
 

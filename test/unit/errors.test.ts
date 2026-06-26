@@ -34,6 +34,15 @@ describe("normalizeError", () => {
     expect(normalizeError(new Error("boom")).code).toBe("runtime");
     expect(normalizeError("string error").code).toBe("runtime");
   });
+
+  it("reclassifies 'could not find referenced X' validation errors as not_found", () => {
+    class InvalidInputLinearError extends Error {
+      errors = [{ message: "Could not find referenced WorkflowState." }];
+    }
+    const e = normalizeError(new InvalidInputLinearError("invalid"));
+    expect(e.code).toBe("not_found");
+    expect(e.exitCode).toBe(ExitCode.NotFound);
+  });
 });
 
 describe("CliError", () => {

@@ -82,7 +82,15 @@ export function normalizeError(err: unknown): CliError {
       anyErr.type ?? gqlErrors[0]?.extensions?.type ?? gqlErrors[0]?.extensions?.code;
     const message = pickMessage(err, gqlErrors);
 
-    const code = classify(name, type);
+    let code = classify(name, type);
+    // Linear surfaces "could not find referenced X" as a validation error, but
+    // semantically it is a not-found — reclassify so `view <bad-id>` exits 3.
+    if (
+      (code === "validation" || code === "api") &&
+      /could ?n[o']t find|not found|does not exist|no such|referenced \w+\.?$/i.test(message)
+    ) {
+      code = "not_found";
+    }
     return new CliError(message, code, gqlErrors.length ? gqlErrors : undefined);
   }
 
