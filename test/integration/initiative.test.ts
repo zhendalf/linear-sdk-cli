@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll } from "bun:test";
 import { run, runJson, LIVE, ensureBuilt, FIXTURE_PREFIX } from "./_helpers.js";
 
 const suite = LIVE ? describe : describe.skip;
@@ -38,27 +38,27 @@ suite("initiative lifecycle (live)", () => {
     }
   });
 
-  it("creates an initiative and returns id + name", (ctx) => {
+  it("creates an initiative and returns id + name", () => {
     const created = createInitiativeOrLimit(`${FIXTURE_PREFIX}create`);
-    if (created === "limit") return ctx.skip();
+    if (created === "limit") return;
     expect(created.id).toMatch(/^[0-9a-f-]{36}$/);
     expect(created.name).toBe(`${FIXTURE_PREFIX}create`);
     // cleanup
     run(["initiative", "delete", created.id, "--yes", "--json"]);
   });
 
-  it("views an initiative by id", (ctx) => {
+  it("views an initiative by id", () => {
     const created = createInitiativeOrLimit(`${FIXTURE_PREFIX}view`);
-    if (created === "limit") return ctx.skip();
+    if (created === "limit") return;
     const d = runJson<{ id: string; name: string }>(["initiative", "view", created.id]);
     expect(d.id).toBe(created.id);
     expect(d.name).toBe(`${FIXTURE_PREFIX}view`);
     run(["initiative", "delete", created.id, "--yes", "--json"]);
   });
 
-  it("updates an initiative's name and status", (ctx) => {
+  it("updates an initiative's name and status", () => {
     const created = createInitiativeOrLimit(`${FIXTURE_PREFIX}update`);
-    if (created === "limit") return ctx.skip();
+    if (created === "limit") return;
     const renamed = `${FIXTURE_PREFIX}updated`;
     const upd = runJson<{ name: string }>([
       "initiative",
@@ -75,18 +75,18 @@ suite("initiative lifecycle (live)", () => {
     run(["initiative", "delete", created.id, "--yes", "--json"]);
   });
 
-  it("resolves an initiative by name", (ctx) => {
+  it("resolves an initiative by name", () => {
     const name = `${FIXTURE_PREFIX}byname`;
     const created = createInitiativeOrLimit(name);
-    if (created === "limit") return ctx.skip();
+    if (created === "limit") return;
     const d = runJson<{ id: string }>(["initiative", "view", name]);
     expect(d.id).toBe(created.id);
     run(["initiative", "delete", created.id, "--yes", "--json"]);
   });
 
-  it("archives an initiative", (ctx) => {
+  it("archives an initiative", () => {
     const created = createInitiativeOrLimit(`${FIXTURE_PREFIX}archive`);
-    if (created === "limit") return ctx.skip();
+    if (created === "limit") return;
     const archived = runJson<{ archived: boolean }>([
       "initiative",
       "archive",
@@ -97,9 +97,9 @@ suite("initiative lifecycle (live)", () => {
     run(["initiative", "delete", created.id, "--yes", "--json"]);
   });
 
-  it("deletes an initiative", (ctx) => {
+  it("deletes an initiative", () => {
     const created = createInitiativeOrLimit(`${FIXTURE_PREFIX}delete`);
-    if (created === "limit") return ctx.skip();
+    if (created === "limit") return;
     const deleted = runJson<{ deleted: boolean }>([
       "initiative",
       "delete",
@@ -109,9 +109,9 @@ suite("initiative lifecycle (live)", () => {
     expect(deleted.deleted).toBe(true);
   });
 
-  it("errors when update is given no fields", (ctx) => {
+  it("errors when update is given no fields", () => {
     const created = createInitiativeOrLimit(`${FIXTURE_PREFIX}nofields`);
-    if (created === "limit") return ctx.skip();
+    if (created === "limit") return;
     const res = run(["initiative", "update", created.id, "--json"]);
     expect(res.code).toBe(2);
     expect(JSON.parse(res.stderr).error.code).toBe("usage");

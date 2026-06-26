@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll } from "bun:test";
 import { run, runJson, LIVE, ensureBuilt } from "./_helpers.js";
 
 const suite = LIVE ? describe : describe.skip;

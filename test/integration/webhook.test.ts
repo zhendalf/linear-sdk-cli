@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import { LinearClient } from "@linear/sdk";
 import { run, runJson, LIVE, ensureBuilt, FIXTURE_PREFIX } from "./_helpers.js";
 
@@ -48,7 +48,7 @@ suite("webhook lifecycle (live)", () => {
     return wh;
   }
 
-  it("creates a webhook scoped to the default team", (ctx) => {
+  it("creates a webhook scoped to the default team", () => {
     const wh = createOrLimit([
       "--url",
       hookUrl("create"),
@@ -59,14 +59,14 @@ suite("webhook lifecycle (live)", () => {
       "--team",
       TEAM,
     ]);
-    if (wh === "limit") return ctx.skip();
+    if (wh === "limit") return;
     expect(wh.id).toMatch(/^[0-9a-f-]{36}$/);
     expect(wh.url).toBe(hookUrl("create"));
   });
 
-  it("lists webhooks with the expected columns", (ctx) => {
+  it("lists webhooks with the expected columns", () => {
     const wh = createOrLimit(["--url", hookUrl("list"), "--resource", "Issue", "--team", TEAM]);
-    if (wh === "limit") return ctx.skip();
+    if (wh === "limit") return;
     const rows = runJson<Array<{ id: string; url: string; enabled: boolean; resourceTypes: string[] }>>(
       ["webhook", "list"],
     );
@@ -77,9 +77,9 @@ suite("webhook lifecycle (live)", () => {
     expect(found!.resourceTypes).toContain("Issue");
   });
 
-  it("views a webhook by id", (ctx) => {
+  it("views a webhook by id", () => {
     const wh = createOrLimit(["--url", hookUrl("view"), "--resource", "Issue", "--team", TEAM]);
-    if (wh === "limit") return ctx.skip();
+    if (wh === "limit") return;
     const d = runJson<{ id: string; url: string; enabled: boolean; resourceTypes: string[] }>([
       "webhook",
       "view",
@@ -89,9 +89,9 @@ suite("webhook lifecycle (live)", () => {
     expect(d.resourceTypes).toContain("Issue");
   });
 
-  it("updates a webhook (disable + change resources)", (ctx) => {
+  it("updates a webhook (disable + change resources)", () => {
     const wh = createOrLimit(["--url", hookUrl("update"), "--resource", "Issue", "--team", TEAM]);
-    if (wh === "limit") return ctx.skip();
+    if (wh === "limit") return;
     const upd = runJson<{ id: string; enabled: boolean; resourceTypes: string[] }>([
       "webhook",
       "update",
@@ -104,9 +104,9 @@ suite("webhook lifecycle (live)", () => {
     expect(upd.resourceTypes).toEqual(["Project"]);
   });
 
-  it("deletes a webhook", (ctx) => {
+  it("deletes a webhook", () => {
     const wh = createOrLimit(["--url", hookUrl("delete"), "--resource", "Issue", "--team", TEAM]);
-    if (wh === "limit") return ctx.skip();
+    if (wh === "limit") return;
     const res = runJson<{ id: string; deleted: boolean }>(["webhook", "delete", wh.id, "--yes"]);
     expect(res.deleted).toBe(true);
     // It is gone; drop it from the cleanup list so afterAll doesn't double-delete.
@@ -120,9 +120,9 @@ suite("webhook lifecycle (live)", () => {
     expect(JSON.parse(res.stderr).error.code).toBe("usage");
   });
 
-  it("errors when update is given no fields", (ctx) => {
+  it("errors when update is given no fields", () => {
     const wh = createOrLimit(["--url", hookUrl("noop"), "--resource", "Issue", "--team", TEAM]);
-    if (wh === "limit") return ctx.skip();
+    if (wh === "limit") return;
     const res = run(["webhook", "update", wh.id, "--json"]);
     expect(res.code).toBe(2);
     expect(JSON.parse(res.stderr).error.code).toBe("usage");

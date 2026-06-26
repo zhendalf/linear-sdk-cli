@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- **Bun-only distribution.** The CLI now ships as raw TypeScript and runs directly on
+  [Bun](https://bun.sh) (≥ 1.1) — no build step, no bundle, no Node. Install with
+  `bun add -g linear-sdk-cli`. The toolchain (install, test, run) is Bun end-to-end.
+
 ## [0.1.0]
 
 Initial release. An ergonomic CLI for Linear built on `@linear/sdk`, with human-readable output

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi } from "bun:test";
 import {
   listComments,
   addComment,
@@ -64,8 +64,8 @@ describe("addComment", () => {
 
     const res = await addComment(client, ISSUE_UUID, "hi");
     expect(createComment).toHaveBeenCalledWith({ issueId: ISSUE_UUID, body: "hi" });
-    expect(res.comment).toBe(created);
-    expect(res.issue).toBe(issue);
+    expect(res.comment).toBe(created as any);
+    expect(res.issue).toBe(issue as any);
   });
 
   it("throws a usage error when the payload has no comment", async () => {
@@ -100,7 +100,7 @@ describe("replyToComment", () => {
       issueId: "issue-id",
       body: "re",
     });
-    expect(res.comment).toBe(created);
+    expect(res.comment).toBe(created as any);
     expect(res.issue).toBe(parentIssue);
   });
 
@@ -123,7 +123,7 @@ describe("updateComment", () => {
 
     const res = await updateComment(client, "c1", "new body");
     expect(updateCommentFn).toHaveBeenCalledWith("c1", { body: "new body" });
-    expect(res).toBe(updated);
+    expect(res).toBe(updated as any);
   });
 });
 
@@ -153,7 +153,7 @@ describe("setResolved", () => {
     const res = await setResolved(client, "c1", true);
     expect(commentResolve).toHaveBeenCalledWith("c1");
     expect(commentUnresolve).not.toHaveBeenCalled();
-    expect(res).toBe(resolved);
+    expect(res).toBe(resolved as any);
   });
 
   it("dispatches to commentUnresolve when unresolving", async () => {
@@ -165,6 +165,6 @@ describe("setResolved", () => {
     const res = await setResolved(client, "c1", false);
     expect(commentUnresolve).toHaveBeenCalledWith("c1");
     expect(commentResolve).not.toHaveBeenCalled();
-    expect(res).toBe(unresolved);
+    expect(res).toBe(unresolved as any);
   });
 });

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "bun:test";
 import { collect, pageSize, type Connection } from "../../src/lib/pagination.js";
 
 /** Build a fake connection over `total` items, `per` per page. */

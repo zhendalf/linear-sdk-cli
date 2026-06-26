@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "bun:test";
 import { buildFilter } from "../../src/services/project.js";
 
 const client = {} as any;

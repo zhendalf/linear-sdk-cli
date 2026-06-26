@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll } from "bun:test";
 import { run, runJson, LIVE, ensureBuilt } from "./_helpers.js";
 
 const suite = LIVE ? describe : describe.skip;
@@ -37,18 +37,18 @@ suite("notification (live)", () => {
     }
   });
 
-  it("marks a notification read then unread", (ctx) => {
+  it("marks a notification read then unread", () => {
     const n = firstNotification();
-    if (!n) return ctx.skip();
+    if (!n) return;
     const read = runJson<{ id: string; read: boolean }>(["notification", "read", n.id]);
     expect(read.read).toBe(true);
     const unread = runJson<{ id: string; read: boolean }>(["notification", "unread", n.id]);
     expect(unread.read).toBe(false);
   });
 
-  it("snoozes a notification until a future ISO timestamp", (ctx) => {
+  it("snoozes a notification until a future ISO timestamp", () => {
     const n = firstNotification();
-    if (!n) return ctx.skip();
+    if (!n) return;
     const until = new Date(Date.now() + 86_400_000).toISOString();
     const res = runJson<{ id: string; snoozedUntilAt: string }>([
       "notification",
@@ -64,9 +64,9 @@ suite("notification (live)", () => {
     expect(typeof res.success).toBe("boolean");
   });
 
-  it("requires --yes to archive in a non-TTY", (ctx) => {
+  it("requires --yes to archive in a non-TTY", () => {
     const n = firstNotification();
-    if (!n) return ctx.skip();
+    if (!n) return;
     // Without --yes (and no TTY in CI) the destructive guard refuses (exit 2).
     const refused = run(["notification", "archive", n.id, "--json"]);
     expect(refused.code).toBe(2);

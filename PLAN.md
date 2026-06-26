@@ -41,10 +41,10 @@ git-branch-aware, dual human/JSON output) with the agent-friendly JSON disciplin
 | Config | `.linear.toml` (hierarchical) + env vars | Mirrors schpet; `smol-toml` parser |
 | Tables | small in-house formatter (no heavy dep) | predictable widths, color via `picocolors` |
 | Prompts | `@inquirer/prompts` | interactive `create`/`start` flows |
-| Build | **tsup** (esbuild) → single ESM bundle + shebang bin | fast, simple |
-| Test | **vitest** | unit (mocked SDK) + live integration (gated by env) |
+| Build | **none** — ship raw TS, executed directly by Bun (shebang `#!/usr/bin/env bun`) | no bundler, no artifacts; source is the types |
+| Test | **`bun test`** | unit (mocked SDK) + live integration (gated by env) |
 | Lint/format | eslint + prettier | consistency |
-| Pkg mgr | pnpm | user default |
+| Pkg mgr / runtime | bun | single toolchain for install/test/run; Bun-only by design |
 
 Binary names: `linear` (primary) and `lin` (alias). Package: `linear-sdk-cli`.
 
@@ -229,9 +229,9 @@ is display/URL-building only and is validated against the org returned by the ke
     `LINEAR_CLI_LIVE_ADMIN=1`, since they may be permission-limited/destructive/flaky);
   - cleanup in `afterEach`/`afterAll` **and** a standalone `test/janitor.ts` that sweeps any
     fixture matching the prefix (because `afterAll` is not guaranteed to run).
-- **CI-style scripts:** `pnpm verify` = typecheck + lint + unit + contract; `pnpm test:live`
-  (core) and `pnpm test:live:admin`; `pnpm audit:coverage` regenerates `COVERAGE.md` and fails
-  on unclassified members; `pnpm janitor` cleans leaked fixtures.
+- **CI-style scripts:** `bun run verify` = typecheck + lint + unit + contract; `bun run test:live`
+  (core) and `bun run test:live:admin`; `bun run audit:coverage` regenerates `COVERAGE.md` and fails
+  on unclassified members; `bun run janitor` cleans leaked fixtures.
 - Manual smoke at each phase using the real key before codex review.
 
 ## 7. Phasing (codex-reviewed; commit per phase)

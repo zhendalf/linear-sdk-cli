@@ -13,45 +13,45 @@
     "graphql"
   ],
   "bin": {
-    "linear": "./dist/bin/linear.js",
-    "lin": "./dist/bin/linear.js"
+    "linear": "./src/bin/linear.ts",
+    "lin": "./src/bin/linear.ts"
   },
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "types": "./src/index.ts",
+      "bun": "./src/index.ts",
+      "import": "./src/index.ts"
     },
     "./package.json": "./package.json"
   },
   "sideEffects": false,
   "files": [
-    "dist",
+    "src",
     "README.md",
     "LICENSE",
     "CHANGELOG.md",
     "COVERAGE.md"
   ],
   "engines": {
-    "node": ">=18"
+    "bun": ">=1.1.0"
   },
   "scripts": {
-    "build": "tsup",
-    "prepublishOnly": "pnpm verify && pnpm build",
-    "dev": "tsx src/bin/linear.ts",
-    "lin": "tsx src/bin/linear.ts",
+    "prepublishOnly": "bun run verify",
+    "dev": "bun run src/bin/linear.ts",
+    "lin": "bun run src/bin/linear.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "test": "vitest run test/unit test/contract",
-    "test:unit": "vitest run test/unit",
-    "test:contract": "vitest run test/contract",
-    "test:live": "pnpm build && vitest run test/integration",
-    "test:live:admin": "pnpm build && LINEAR_CLI_LIVE_ADMIN=1 vitest run test/integration",
-    "verify": "pnpm typecheck && pnpm lint && pnpm test",
-    "audit:coverage": "tsx scripts/coverage-audit.ts",
-    "janitor": "tsx test/janitor.ts"
+    "test": "bun test test/unit test/contract",
+    "test:unit": "bun test test/unit",
+    "test:contract": "bun test test/contract",
+    "test:live": "LINEAR_CLI_LIVE=1 bun test --timeout 60000 test/integration",
+    "test:live:admin": "LINEAR_CLI_LIVE=1 LINEAR_CLI_LIVE_ADMIN=1 bun test --timeout 60000 test/integration",
+    "verify": "bun run typecheck && bun run lint && bun run test",
+    "audit:coverage": "bun run scripts/coverage-audit.ts",
+    "janitor": "bun run test/janitor.ts"
   },
   "dependencies": {
     "@inquirer/prompts": "^7.2.1",
@@ -60,16 +60,14 @@
     "picocolors": "^1.1.1",
     "smol-toml": "^1.3.1"
   },
-  "packageManager": "pnpm@11.9.0",
+  "packageManager": "bun@1.3.14",
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/bun": "^1.3.14",
     "@types/node": "^22.10.5",
     "eslint": "^9.18.0",
     "prettier": "^3.4.2",
-    "tsup": "^8.3.5",
-    "tsx": "^4.19.2",
     "typescript": "^5.7.3",
-    "typescript-eslint": "^8.20.0",
-    "vitest": "^3.0.2"
+    "typescript-eslint": "^8.20.0"
   }
 }

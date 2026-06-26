@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * CLI entry point + central error boundary. All commands throw; failures —
  * including commander's own parse/usage errors — are normalized here into the

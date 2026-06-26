@@ -16,13 +16,13 @@ git-aware) and [`linearis`](https://github.com/linearis-oss/linearis) (JSON-firs
 
 ## Requirements
 
-- Node.js **18 or newer**
+- [Bun](https://bun.sh) **1.1 or newer** — the CLI ships as TypeScript and runs directly on Bun (no build step, no Node)
 - A Linear API key (Settings → Security & access → **Personal API keys**)
 
 ## Install
 
 ```sh
-npm install -g linear-sdk-cli      # or: pnpm add -g linear-sdk-cli  /  bun add -g linear-sdk-cli
+bun add -g linear-sdk-cli      # or, for a one-off: bunx linear-sdk-cli --help
 linear --help
 ```
 
@@ -34,9 +34,8 @@ have a different tool named `linear` on your `PATH`, use `lin` (or rename on ins
 
 ```sh
 git clone <this-repo> && cd linear-sdk-cli
-pnpm install
-pnpm build
-node dist/bin/linear.js --help     # or, without building: pnpm dev -- --help
+bun install
+bun run src/bin/linear.ts --help     # or: bun run dev -- --help
 ```
 </details>
 
@@ -173,11 +172,11 @@ await createProgram().parseAsync(["node", "linear", "issue", "list", "--json"]);
 ## Development
 
 ```sh
-pnpm verify           # typecheck + lint + unit/contract tests
-pnpm test:live        # live integration tests (needs LINEAR_API_KEY + LINEAR_CLI_LIVE=1)
-pnpm test:live:admin  # also runs admin-tier suites (e.g. team create/update)
-pnpm audit:coverage   # regenerate COVERAGE.md (add --update to re-baseline the snapshot)
-pnpm janitor          # sweep leaked `clitest-` fixtures from the test workspace
+bun run verify           # typecheck + lint + unit/contract tests
+bun run test:live        # live integration tests (needs LINEAR_API_KEY + LINEAR_CLI_LIVE=1)
+bun run test:live:admin  # also runs admin-tier suites (e.g. team create/update)
+bun run audit:coverage   # regenerate COVERAGE.md (add --update to re-baseline the snapshot)
+bun run janitor          # sweep leaked `clitest-` fixtures from the test workspace
 ```
 
 Architecture is three layers — **commands** (commander wiring) → **services** (one module per

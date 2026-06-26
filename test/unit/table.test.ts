@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "bun:test";
 import { renderTable, renderDetail, selectColumns, type Column } from "../../src/output/table.js";
 
 interface Row {

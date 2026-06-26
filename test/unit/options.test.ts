@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "bun:test";
 import { collectKeyVal, collectArray, parseList, parseIntOption } from "../../src/lib/options.js";
 import { CliError } from "../../src/lib/errors.js";
 

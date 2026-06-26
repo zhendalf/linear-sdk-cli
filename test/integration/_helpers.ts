@@ -1,6 +1,7 @@
 /**
- * Helpers for live integration tests. These spawn the built CLI binary
- * (true end-to-end) against the designated test workspace and parse --json.
+ * Helpers for live integration tests. These spawn the CLI entry directly with
+ * Bun (true end-to-end, no build step) against the designated test workspace
+ * and parse --json.
  *
  * Gated by LINEAR_CLI_LIVE=1 and a LINEAR_API_KEY. Admin-tier suites also
  * require LINEAR_CLI_LIVE_ADMIN=1.
@@ -12,7 +13,7 @@ import { dirname, join } from "node:path";
 import { existsSync } from "node:fs";
 
 const here = dirname(fileURLToPath(import.meta.url));
-export const BIN = join(here, "..", "..", "dist", "bin", "linear.js");
+export const BIN = join(here, "..", "..", "src", "bin", "linear.ts");
 
 /** A stable, identifiable prefix so leaked fixtures are easy to sweep. */
 export const FIXTURE_PREFIX = `clitest-${process.env.LINEAR_CLI_RUN_ID || "local"}-`;
@@ -26,16 +27,21 @@ export interface RunResult {
   stderr: string;
 }
 
+/**
+ * Sanity-check that the CLI entry is present. There is no build step (we ship
+ * and run raw TS on Bun), so this just guards against a moved/renamed entry.
+ * Kept for call-site compatibility across the integration suites.
+ */
 export function ensureBuilt(): void {
   if (!existsSync(BIN)) {
-    throw new Error(`CLI not built at ${BIN}. Run \`pnpm build\` first (test:live does this).`);
+    throw new Error(`CLI entry not found at ${BIN}.`);
   }
 }
 
 /** Run the CLI; never throws on non-zero exit — returns the captured result. */
 export function run(args: string[]): RunResult {
   try {
-    const stdout = execFileSync("node", [BIN, ...args], {
+    const stdout = execFileSync("bun", [BIN, ...args], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
     });

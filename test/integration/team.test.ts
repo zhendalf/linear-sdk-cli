@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import { LinearClient } from "@linear/sdk";
 import { run, runJson, LIVE, LIVE_ADMIN, ensureBuilt, FIXTURE_PREFIX } from "./_helpers.js";
 
@@ -105,17 +105,17 @@ adminSuite("team — create/update (live, admin)", () => {
     return team;
   }
 
-  it("creates a team and returns key + id", (ctx) => {
+  it("creates a team and returns key + id", () => {
     const name = `${FIXTURE_PREFIX}team`;
     const res = createTeamOrLimit(name);
-    if (res === "limit") return ctx.skip();
+    if (res === "limit") return;
     expect(res.id).toMatch(/^[0-9a-f-]{36}$/);
     expect(res.name).toBe(name);
   });
 
-  it("updates a team's name", (ctx) => {
+  it("updates a team's name", () => {
     const created = createTeamOrLimit(`${FIXTURE_PREFIX}team-upd`);
-    if (created === "limit") return ctx.skip();
+    if (created === "limit") return;
     const updatedName = `${FIXTURE_PREFIX}team-renamed`;
     const upd = runJson<{ name: string }>(["team", "update", created.key, "--name", updatedName]);
     expect(upd.name).toBe(updatedName);

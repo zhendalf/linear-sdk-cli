@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi } from "bun:test";
 import {
   toRow,
   listRoadmaps,
@@ -48,7 +48,7 @@ describe("createRoadmap", () => {
       }),
     } as any;
     const out = await createRoadmap(client, { name: "New", description: "desc" });
-    expect(out).toBe(created);
+    expect(out).toBe(created as any);
   });
 
   it("resolves owner 'me' to the viewer id", async () => {

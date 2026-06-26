@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import { run, runJson, LIVE, ensureBuilt, FIXTURE_PREFIX } from "./_helpers.js";
 
 const suite = LIVE ? describe : describe.skip;
@@ -62,18 +62,22 @@ suite("project — project lifecycle (live)", () => {
 
   // Linear's team-filtered project list is eventually consistent, so a just-created
   // project may not appear immediately; retry to absorb that lag.
-  it("lists projects filtered by team", { retry: 3 }, () => {
-    const { id } = makeProject("list");
-    const rows = runJson<Array<{ id: string }>>([
-      "project",
-      "list",
-      "--team",
-      TEAM,
-      "--limit",
-      "100",
-    ]);
-    expect(rows.some((r) => r.id === id)).toBe(true);
-  });
+  it(
+    "lists projects filtered by team",
+    () => {
+      const { id } = makeProject("list");
+      const rows = runJson<Array<{ id: string }>>([
+        "project",
+        "list",
+        "--team",
+        TEAM,
+        "--limit",
+        "100",
+      ]);
+      expect(rows.some((r) => r.id === id)).toBe(true);
+    },
+    { retry: 3 },
+  );
 
   it("lists project milestones and updates (possibly empty)", () => {
     const { id } = makeProject("ms");

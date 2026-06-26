@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "bun:test";
 import { listUsers, getUserDetail, getViewer } from "../../src/services/user.js";
 
 /** Build a fake User SDK model. */

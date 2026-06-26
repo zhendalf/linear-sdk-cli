@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll } from "bun:test";
 import { run, runJson, LIVE, ensureBuilt, FIXTURE_PREFIX } from "./_helpers.js";
 
 const suite = LIVE ? describe : describe.skip;
@@ -47,18 +47,18 @@ suite("roadmap lifecycle (live)", () => {
     }
   });
 
-  it("creates a roadmap and returns id + url", (ctx) => {
+  it("creates a roadmap and returns id + url", () => {
     const res = createRoadmapOrLimit(`${FIXTURE_PREFIX}create`);
-    if (res === "limit") return ctx.skip();
+    if (res === "limit") return;
     expect(res.id).toMatch(/^[0-9a-f-]{36}$/);
     expect(res.url).toBeTruthy();
     // cleanup
     run(["roadmap", "delete", res.id, "--yes"]);
   });
 
-  it("views a created roadmap by id with its projects array", (ctx) => {
+  it("views a created roadmap by id with its projects array", () => {
     const created = createRoadmapOrLimit(`${FIXTURE_PREFIX}view`);
-    if (created === "limit") return ctx.skip();
+    if (created === "limit") return;
     try {
       const d = runJson<{ id: string; name: string; projects: string[] }>([
         "roadmap",
@@ -72,9 +72,9 @@ suite("roadmap lifecycle (live)", () => {
     }
   });
 
-  it("updates a roadmap's name by id", (ctx) => {
+  it("updates a roadmap's name by id", () => {
     const created = createRoadmapOrLimit(`${FIXTURE_PREFIX}update`);
-    if (created === "limit") return ctx.skip();
+    if (created === "limit") return;
     try {
       const renamed = `${FIXTURE_PREFIX}renamed`;
       runJson(["roadmap", "update", created.id, "--name", renamed]);
@@ -85,9 +85,9 @@ suite("roadmap lifecycle (live)", () => {
     }
   });
 
-  it("deletes a roadmap by id", (ctx) => {
+  it("deletes a roadmap by id", () => {
     const created = createRoadmapOrLimit(`${FIXTURE_PREFIX}delete`);
-    if (created === "limit") return ctx.skip();
+    if (created === "limit") return;
     const del = runJson<{ id: string; deleted: boolean }>([
       "roadmap",
       "delete",
@@ -106,9 +106,9 @@ suite("roadmap lifecycle (live)", () => {
     expect(JSON.parse(res.stderr).error.code).toBe("not_found");
   });
 
-  it("errors when update is given no fields", (ctx) => {
+  it("errors when update is given no fields", () => {
     const created = createRoadmapOrLimit(`${FIXTURE_PREFIX}noop`);
-    if (created === "limit") return ctx.skip();
+    if (created === "limit") return;
     try {
       const res = run(["roadmap", "update", created.id, "--json"]);
       expect(res.code).toBe(2);

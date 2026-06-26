@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "bun:test";
 import {
   resolveStatus,
   createInitiative,
@@ -47,7 +47,7 @@ describe("createInitiative (mocked client)", () => {
       targetDate: "2026-09-30",
     });
 
-    expect(created).toEqual({ id: "i1", name: "Q3 Roadmap" });
+    expect(created).toEqual({ id: "i1", name: "Q3 Roadmap" } as any);
     expect(captured).toEqual({
       name: "Q3 Roadmap",
       description: "ship it",

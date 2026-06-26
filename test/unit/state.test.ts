@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "bun:test";
 import { listStates, getStateDetail } from "../../src/services/state.js";
 
 /** A team whose key matches the resolveTeam lookup, exposing a states() connection. */

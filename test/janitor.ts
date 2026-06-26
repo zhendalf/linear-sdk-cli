@@ -5,7 +5,7 @@
  * (`clitest-…`). If a run dies before `afterAll` cleans up, this script removes
  * the strays. Safe to run anytime; only touches prefixed resources.
  *
- * Run: pnpm janitor   (needs LINEAR_API_KEY)
+ * Run: bun run janitor   (needs LINEAR_API_KEY)
  */
 
 import { LinearClient } from "@linear/sdk";

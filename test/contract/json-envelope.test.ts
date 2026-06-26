@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach } from "bun:test";
 import { Output } from "../../src/output/format.js";
 import { CliError } from "../../src/lib/errors.js";
 import type { Column } from "../../src/output/table.js";

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "bun:test";
 import { normalizeError, CliError, ExitCode, usageError } from "../../src/lib/errors.js";
 
 describe("normalizeError", () => {
