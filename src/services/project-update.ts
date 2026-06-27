@@ -7,10 +7,9 @@
 
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
-import { usageError } from "../lib/errors.js";
 import { resolveProjectId } from "../lib/resolve.js";
-import type { Health } from "../lib/status-update.js";
-import { listUpdates, type UpdateRow } from "./project.js";
+import { normalizeUpdatePayload, type Health, type UpdateRow } from "../lib/status-update.js";
+import { listUpdates } from "./project.js";
 
 export type { UpdateRow };
 
@@ -33,15 +32,5 @@ export async function createProjectUpdate(
   if (opts.health) input.health = opts.health;
 
   const payload = await withRetry(() => client.createProjectUpdate(input as any));
-  const update = await payload.projectUpdate;
-  if (!update) throw usageError("Project update creation returned no update.");
-  const user = await update.user;
-  return {
-    id: update.id,
-    createdAt: update.createdAt?.toISOString?.() ?? String(update.createdAt),
-    user: user?.displayName ?? "unknown",
-    body: update.body ?? "",
-    health: update.health ?? null,
-    url: update.url,
-  };
+  return normalizeUpdatePayload(payload, "projectUpdate");
 }

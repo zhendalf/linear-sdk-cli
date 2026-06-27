@@ -125,7 +125,7 @@ export async function updateCycle(
   if (opts.endsAt !== undefined) input.endsAt = opts.endsAt;
 
   if (Object.keys(input).length === 0)
-    throw usageError("Nothing to update; pass at least one of --name, --startsAt, --endsAt.");
+    throw usageError("Nothing to update; pass at least one of --name, --start, --end.");
 
   const payload = await withRetry(() => client.updateCycle(cycleId, input as any));
   const cycle = await payload.cycle;

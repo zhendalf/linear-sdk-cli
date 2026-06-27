@@ -7,7 +7,7 @@
 
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
-import { collect } from "../lib/pagination.js";
+import { collect, collectRawQuery } from "../lib/pagination.js";
 import { usageError, notFound } from "../lib/errors.js";
 import {
   resolveUserId,
@@ -133,43 +133,28 @@ export async function listIssues(
   defaultTeamKey: string | undefined,
 ): Promise<IssueRow[]> {
   const filter = await buildFilter(client, filters, defaultTeamKey);
-  const pageLimit = limit === Infinity ? 100 : Math.min(limit, 100);
-  const rows: IssueRow[] = [];
-  let after: string | undefined;
-
-  for (;;) {
-    const data: any = await withRetry(() =>
-      (client.client as any).rawRequest(LIST_QUERY, {
-        filter,
-        first: pageLimit,
-        after,
-        sort: sortSpec(filters.sort),
-        includeArchived: !!filters.includeArchived,
-      }),
-    );
-    const conn = data.data.issues;
-    for (const n of conn.nodes) {
-      rows.push({
-        id: n.id,
-        identifier: n.identifier,
-        title: n.title,
-        priority: n.priority,
-        priorityLabel: n.priorityLabel,
-        estimate: n.estimate ?? null,
-        url: n.url,
-        updatedAt: n.updatedAt,
-        state: n.state ?? null,
-        assignee: n.assignee ?? null,
-        project: n.project ?? null,
-        labels: (n.labels?.nodes ?? []).map((l: any) => l.name),
-      });
-      if (rows.length >= limit) break;
-    }
-    if (rows.length >= limit || !conn.pageInfo.hasNextPage) break;
-    after = conn.pageInfo.endCursor;
-  }
   // Sorting is done server-side (see sortSpec), so it is correct across pages.
-  return rows;
+  return collectRawQuery<IssueRow>(
+    client as any,
+    LIST_QUERY,
+    { filter, sort: sortSpec(filters.sort), includeArchived: !!filters.includeArchived },
+    "issues",
+    limit,
+    (n) => ({
+      id: n.id,
+      identifier: n.identifier,
+      title: n.title,
+      priority: n.priority,
+      priorityLabel: n.priorityLabel,
+      estimate: n.estimate ?? null,
+      url: n.url,
+      updatedAt: n.updatedAt,
+      state: n.state ?? null,
+      assignee: n.assignee ?? null,
+      project: n.project ?? null,
+      labels: (n.labels?.nodes ?? []).map((l: any) => l.name),
+    }),
+  );
 }
 
 /** Free-text search via the dedicated searchIssues connection. */

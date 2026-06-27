@@ -192,6 +192,64 @@ Status/progress text always goes to stderr, never stdout.
 **Exit codes:** `0` ok · `1` runtime/API · `2` usage · `3` not-found/ambiguous · `4` auth ·
 `5` rate-limited.
 
+## Scripting & agents
+
+The CLI is designed to be driven by scripts and agents. Everything below is a stable contract.
+
+**The `--json` envelope.** With `--json`, stdout carries *only* machine JSON, pretty-printed,
+one value per command:
+
+- **list** commands emit a **bare array** (`[...]`) — even when empty (`[]`) and even for a
+  single result.
+- **single-resource** commands (`view`, `whoami`, …) emit a **bare object** (`{...}`).
+- **mutations** (`create`/`update`/`delete`/`archive`/…) emit the affected object — typically a
+  small shape like `{ "id": "...", "name": "...", "url": "..." }`, or `{ "id": "...",
+  "success": true }` when the API returns no body. Destructive commands add a flag such as
+  `{ "deleted": true }` / `{ "archived": true }`.
+- **errors** go to **stderr** as `{"error":{"message":"…","code":"…"}}` and never to stdout.
+
+Status, progress, and pagination notes always go to **stderr**, so `cmd --json` on stdout is
+safe to pipe into `jq` unconditionally:
+
+```sh
+linear issue list --json | jq -r '.[].identifier'
+linear issue view TES-42 --json | jq -r '.url'
+ID=$(linear issue create --title "Fix" --team TES --json | jq -r '.id')
+```
+
+**Exit codes** are stable and distinct, so a script can branch on failure class:
+
+| Code | Name | When |
+| ---: | --- | --- |
+| `0` | ok | success |
+| `1` | runtime/API | network/GraphQL/other runtime failure (also feature-not-accessible) |
+| `2` | usage | bad flags/arguments, missing required input, validation |
+| `3` | not-found/ambiguous | the referenced resource doesn't exist or a name matched many |
+| `4` | auth | missing/invalid API key or forbidden |
+| `5` | rate-limited | Linear rate limit hit |
+
+The error `code` field in the JSON envelope is one of: `usage`, `auth`, `not_found`,
+`ambiguous`, `forbidden`, `validation`, `rate_limited`, `network`, `feature_not_accessible`,
+`api`, `runtime`. (Several map to the same exit code — e.g. `ambiguous` → `3`, `validation` →
+`2`, `forbidden` → `4` — so prefer the `code` field for fine-grained handling and the exit code
+for coarse branching.)
+
+**Non-interactive flags** make runs deterministic in CI and agent loops:
+
+- **`--no-input`** — never prompt. Any input that would otherwise be prompted for becomes a
+  usage error (exit `2`) instead of hanging. Use this whenever there is no human at the keyboard.
+- **`-y, --yes`** — pre-confirm destructive actions (`delete`/`archive`). Without a TTY,
+  destructive commands *require* `--yes` (or they refuse rather than block).
+- **`-q, --quiet`** — suppress the success/status lines on stderr (errors still print).
+- **`--limit <n>` / `--all`** — `--limit` (alias `-n`) caps results; `--all` exhausts pagination
+  (fetches every page). With neither, the default cap is **50**. `--all` and a large `--limit`
+  can be slow and rate-limit-prone on big workspaces.
+
+```sh
+# agent-safe: no prompts, no chatter, fail fast with a parseable error
+linear issue delete TES-42 --yes --no-input --quiet --json
+```
+
 ## Configuration file
 
 Non-secret defaults can live in `~/.config/linear/config.toml` (user-wide) or a project-local

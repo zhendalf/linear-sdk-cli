@@ -8,10 +8,8 @@
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { collect } from "../lib/pagination.js";
-import { usageError } from "../lib/errors.js";
-import type { Health } from "../lib/status-update.js";
+import { normalizeUpdatePayload, type Health, type UpdateRow } from "../lib/status-update.js";
 import { resolveInitiative } from "./initiative.js";
-import type { UpdateRow } from "./project.js";
 
 export type { UpdateRow };
 
@@ -56,15 +54,5 @@ export async function createInitiativeUpdate(
   if (opts.health) input.health = opts.health;
 
   const payload = await withRetry(() => client.createInitiativeUpdate(input as any));
-  const update = await payload.initiativeUpdate;
-  if (!update) throw usageError("Initiative update creation returned no update.");
-  const user = await update.user;
-  return {
-    id: update.id,
-    createdAt: update.createdAt?.toISOString?.() ?? String(update.createdAt),
-    user: user?.displayName ?? "unknown",
-    body: update.body ?? "",
-    health: update.health ?? null,
-    url: update.url,
-  };
+  return normalizeUpdatePayload(payload, "initiativeUpdate");
 }

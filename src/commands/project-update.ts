@@ -4,17 +4,9 @@
 
 import { Command } from "commander";
 import { action } from "../lib/action.js";
-import { addUpdateFlags, resolveUpdateBody } from "../lib/status-update.js";
+import { addUpdateFlags, resolveUpdateBody, UPDATE_COLUMNS } from "../lib/status-update.js";
 import type { Context } from "../context.js";
 import * as svc from "../services/project-update.js";
-import type { Column } from "../output/table.js";
-
-const UPDATE_COLUMNS: Column<svc.UpdateRow>[] = [
-  { key: "createdAt", header: "Date", value: (u) => u.createdAt.slice(0, 10) },
-  { key: "user", header: "Author", value: (u) => u.user, max: 18 },
-  { key: "health", header: "Health", value: (u) => u.health ?? "—", max: 10 },
-  { key: "body", header: "Update", value: (u) => u.body.replace(/\n/g, " "), max: 60 },
-];
 
 export function registerProjectUpdate(program: Command): void {
   const group = program

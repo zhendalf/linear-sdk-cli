@@ -47,6 +47,12 @@ All notable changes to this project are documented here. The format is based on
   selector. Use `linear label create --shared` instead.
 - **BREAKING: `project updates <id>` removed.** Use `project-update list <project>` (alias
   `pu ls`), the canonical replacement, instead.
+- **BREAKING: consistent date flags.** `cycle create`/`update` now take `--start`/`--end`
+  (was `--startsAt`/`--endsAt`), and `initiative create`/`update` now take `--target` (was
+  `--target-date`). These align with the `--target`/`--start`/`--end` already used by `project`
+  and `milestone`, removing the lone camelCase pair. The accepted date/ISO values are unchanged.
+- **`roadmap delete` alias is now `rm`** (was `del`), matching the `rm` delete alias used by
+  every other group.
 
 ## [0.1.0]
 

@@ -62,8 +62,8 @@ export function registerCycle(program: Command): void {
     .command("create [team]")
     .alias("new")
     .description("Create a cycle")
-    .requiredOption("--startsAt <date>", "start date/time (ISO, e.g. 2026-07-01)")
-    .requiredOption("--endsAt <date>", "end date/time (ISO, e.g. 2026-07-14)")
+    .requiredOption("--start <date>", "start date/time (ISO, e.g. 2026-07-01)")
+    .requiredOption("--end <date>", "end date/time (ISO, e.g. 2026-07-14)")
     .option("--name <name>", "custom cycle name")
     .action(
       action(async (ctx: Context, opts, teamArg?: string) => {
@@ -72,8 +72,8 @@ export function registerCycle(program: Command): void {
           {
             team: teamArg ?? opts.team,
             name: opts.name,
-            startsAt: opts.startsAt,
-            endsAt: opts.endsAt,
+            startsAt: opts.start,
+            endsAt: opts.end,
           },
           ctx.defaultTeam,
         );
@@ -89,14 +89,14 @@ export function registerCycle(program: Command): void {
     .alias("edit")
     .description("Update a cycle (by id, number, or 'current')")
     .option("--name <name>", "custom cycle name")
-    .option("--startsAt <date>", "start date/time (ISO)")
-    .option("--endsAt <date>", "end date/time (ISO)")
+    .option("--start <date>", "start date/time (ISO)")
+    .option("--end <date>", "end date/time (ISO)")
     .action(
       action(async (ctx: Context, opts, id: string) => {
         const updated = await svc.updateCycle(
           ctx.client,
           id,
-          { name: opts.name, startsAt: opts.startsAt, endsAt: opts.endsAt },
+          { name: opts.name, startsAt: opts.start, endsAt: opts.end },
           opts.team ?? ctx.defaultTeam,
           ctx.defaultTeam,
         );

@@ -1,8 +1,5 @@
 /**
  * `linear roadmap` (alias `rm`) — work with workspace roadmaps.
- *
- * Note: `rm` is the GROUP alias here; no subcommand aliases `rm` (that would
- * collide with the group's own alias and read confusingly as a delete).
  */
 
 import { Command } from "commander";
@@ -117,10 +114,9 @@ export function registerRoadmap(program: Command): void {
     );
 
   // delete ------------------------------------------------------------------
-  // No `rm` alias here: `rm` is the group alias and a `roadmap rm rm` would be confusing.
   roadmap
     .command("delete <id>")
-    .alias("del")
+    .alias("rm")
     .description("Delete a roadmap")
     .action(
       action(async (ctx: Context, _opts, idArg: string) => {
