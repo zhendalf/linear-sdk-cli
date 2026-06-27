@@ -1,25 +1,39 @@
 # linear-sdk-cli
 
-An ergonomic command-line interface for [Linear](https://linear.app), built on the official
-[`@linear/sdk`](https://www.npmjs.com/package/@linear/sdk).
+**An ergonomic command-line interface for [Linear](https://linear.app), built on the official
+[`@linear/sdk`](https://www.npmjs.com/package/@linear/sdk).**
 
-- **Human-first by default** — clean, aligned tables and detail views in your terminal.
-- **Agent- and script-friendly** — `--json` everywhere emits a stable, machine-readable shape.
-- **Git-aware** — the "current issue" is inferred from your branch name (`tes-123-fix` → `TES-123`).
-- **Forgiving inputs** — refer to things the way you think about them: `TES-123`, team key `TES`,
-  `--assignee me`, state and label by name.
-- **Complete** — first-class commands for the core resource graph, plus a raw GraphQL escape
-  hatch (`linear api`) so nothing in the API is out of reach.
+It's designed to be pleasant for humans *and* dependable for scripts and agents. By default you
+get clean, aligned tables and detail views; add `--json` to any command for a stable,
+machine-readable shape. It's git-aware (the "current issue" comes from your branch name) and
+forgiving about input (`--assignee me`, team key `TES`, state and label by name). Anything the
+curated commands don't wrap is still reachable through a raw GraphQL escape hatch (`linear api`),
+so nothing in the Linear API is out of bounds.
 
-Design influenced by [`schpet/linear-cli`](https://github.com/schpet/linear-cli) (human-first,
-git-aware) and [`linearis`](https://github.com/linearis-oss/linearis) (JSON-first for agents).
+```sh
+linear issue list --assignee me --state started   # what's on my plate
+linear                                              # the issue for the branch you're on
+linear issue list --json | jq -r '.[].identifier'  # ready for scripts
+```
 
-## Requirements
+> Design influenced by [`schpet/linear-cli`](https://github.com/schpet/linear-cli) (human-first,
+> git-aware) and [`linearis`](https://github.com/linearis-oss/linearis) (JSON-first for agents).
 
-- [Bun](https://bun.sh) **1.1 or newer** — the CLI ships as TypeScript and runs directly on Bun (no build step, no Node)
-- A Linear API key (Settings → Security & access → **Personal API keys**)
+## Highlights
+
+- **Human-first by default** — aligned tables and readable detail views, color-aware, paged sanely.
+- **Agent- and script-friendly** — every data command takes `--json` and emits a stable, documented envelope on stdout; status text stays on stderr.
+- **Git-aware** — the current issue is inferred from your branch (`tes-123-fix` → `TES-123`), so most issue commands let you drop the id.
+- **Git + GitHub workflow** — `issue start` checks out the branch, `issue describe` prints a commit trailer, `issue pr` opens a GitHub PR — all linked back to the issue.
+- **Forgiving inputs** — refer to things the way you think of them: `TES-123`, team `TES`, `--assignee me`, `--cycle current`, state and label by name.
+- **Multi-workspace** — store credentials for several workspaces and switch with a global `--workspace`.
+- **Complete & honest** — first-class commands for the core resource graph, a raw `linear api` for everything else, and a [measured coverage audit](#coverage) that CI keeps honest.
 
 ## Install
+
+Requires [Bun](https://bun.sh) **1.1 or newer** and a Linear API key
+(Settings → Security & access → **Personal API keys**). The CLI ships as TypeScript and runs
+directly on Bun — no build step, no bundle, no Node.
 
 ```sh
 bun add -g linear-sdk-cli      # or, for a one-off: bunx linear-sdk-cli --help
@@ -27,7 +41,7 @@ linear --help
 ```
 
 This installs two equivalent binaries: **`linear`** and the shorter **`lin`**. If you already
-have a different tool named `linear` on your `PATH`, use `lin` (or rename on install).
+have a different tool named `linear` on your `PATH`, just use `lin`.
 
 <details>
 <summary>Run from source instead</summary>
@@ -39,24 +53,42 @@ bun run src/bin/linear.ts --help     # or: bun run dev -- --help
 ```
 </details>
 
-## Authenticate
-
-The CLI resolves your API key from, in order: the `--api-key` flag → the `LINEAR_API_KEY`
-environment variable → a stored credential in the user config file
-(`~/.config/linear/config.toml`, written `0600`). For safety it is **never** read from a
-project-local `.linear.toml`, so it can't be committed by accident.
+## Quickstart
 
 ```sh
-export LINEAR_API_KEY=lin_api_xxxxxxxx     # quickest
-linear auth login                          # or store it (prompts, then validates)
-linear auth status                         # shows where the key came from (value redacted)
+export LINEAR_API_KEY=lin_api_xxxxxxxx     # quickest way to get going
 linear whoami                              # confirm you're connected
+
+linear issue list --assignee me --state started        # my in-progress work
+linear issue view TES-42                                # full detail
+linear issue create --title "Fix login" --team TES -P 2 # new High-priority issue
+linear issue start TES-42 --move                        # check out its branch + mark started
+linear issue comment TES-42 "shipped — please review"
+```
+
+In a git repository, bare `linear` (and `linear issue`) shows the issue inferred from the current
+branch, so most issue commands let you omit the id entirely.
+
+## Authentication
+
+The CLI resolves your API key in this order: the `--api-key` flag → the `LINEAR_API_KEY`
+environment variable → a stored credential in the user config file
+(`~/.config/linear/config.toml`, written `0600`).
+
+> **Credential trust boundary.** The API key is **never** read from a project-local
+> `.linear.toml` — only non-secret settings live there — so a key can't be committed by accident,
+> and a checked-out project can never steer which credential you use.
+
+```sh
+linear auth login                          # store a key (prompts, then validates)
+linear auth status                         # where the key came from (value redacted)
+linear auth token                          # print the resolved key (for scripting)
 ```
 
 ### Multiple workspaces
 
-Credentials are stored per **workspace slug**. `auth login` validates the key and derives the
-slug from the key's organization (`viewer.organization.urlKey`) unless you pass `--workspace`:
+Credentials are stored per **workspace slug**. `auth login` validates the key and derives the slug
+from the key's organization unless you pass `--workspace`:
 
 ```sh
 linear auth login --workspace acme         # store a key for the "acme" workspace
@@ -64,87 +96,78 @@ linear auth login --workspace other-org    # …and another
 linear auth list                           # show configured workspaces + which is default
 linear auth default acme                   # choose the default workspace
 linear --workspace other-org issue list    # use a specific workspace for one command
-linear auth token --workspace acme         # print the resolved key (for scripting)
 linear auth logout --workspace acme        # remove one credential
 ```
 
-**Credential selection precedence** (strict — a project file can never steer it): the
-`--api-key` flag and `LINEAR_API_KEY` env are absolute and bypass selection entirely; otherwise
-the workspace is chosen by `--workspace` → `LINEAR_WORKSPACE` env → `default_workspace` in the
-user config. With no selection, the sole configured workspace is used; if several are configured
-with no default, the CLI asks you to pick one (via `--workspace` or `auth default`).
+**Selection precedence** (strict): the `--api-key` flag and `LINEAR_API_KEY` env are absolute and
+bypass selection entirely; otherwise the workspace is chosen by `--workspace` → `LINEAR_WORKSPACE`
+env → `default_workspace` in the user config. With one configured workspace it's used
+automatically; with several and no default, the CLI asks you to pick (via `--workspace` or
+`auth default`).
 
-The user config file looks like:
+## Core concepts
 
-```toml
-default_workspace = "acme"     # which credential is active
-team = "TES"                    # non-secret settings stay top-level
+A few ideas run through every command:
 
-[workspaces."acme"]
-api_key = "lin_api_xxxxxxxx"
-[workspaces."other-org"]        # hyphenated slugs are quoted automatically
-api_key = "lin_api_yyyyyyyy"
-```
+- **Git-branch awareness.** On a `tes-123-*` branch, bare `linear` shows `TES-123` (identical to
+  `issue view TES-123`), and nearly every issue subcommand infers the id from the branch — so
+  `linear issue comment "…"`, `linear issue start`, `linear issue pr` all "just work" in context.
+- **Human by default, `--json` for machines.** Without `--json` you get tables and detail views
+  meant to be read. With `--json`, stdout carries *only* machine JSON (a [stable
+  envelope](#scripting--agents)); status and progress always go to stderr.
+- **Forgiving inputs.** Resolve things by how you think about them: `--assignee me`, assignee by
+  email or name, team key `TES`, `--cycle current`, workflow state and label by name (case-
+  insensitively). Ambiguous names produce a clear error (exit `3`), not a wrong guess.
 
-## Quick start
+## Common workflows
 
-```sh
-linear issue list --assignee me --state started        # my in-progress work
-linear issue view TES-42                                # full detail (or just `linear` on its branch)
-linear issue create --title "Fix login" --team TES -P 2 # new High-priority issue
-linear issue start TES-42 --move                        # check out its git branch + mark started
-linear issue comment TES-42 "shipped — please review"
-linear issue list --json | jq -r '.[].identifier'      # scripting
-```
-
-In a git repository, bare `linear` (and `linear issue`) shows the issue inferred from the
-current branch, so most issue commands let you omit the id entirely.
-
-## Git workflow
-
-These commands turn a Linear issue into commits and a GitHub pull request. The issue id is
-optional everywhere — it's inferred from the current branch (`tes-123-foo` → `TES-123`).
-
-**`issue describe [id]`** prints the issue title and a commit-message trailer using Linear's
-[git magic words](https://linear.app/docs/github#link-prs-and-commits), so the issue is linked
-(and closed on merge) when the commit lands:
+**Issue lifecycle**
 
 ```sh
-linear issue describe                 # on a tes-123-* branch
-# Fix the login redirect loop
-#
-# Fixes TES-123
-
-linear issue describe -r              # link without closing
-# Fix the login redirect loop
-#
-# References TES-123
-
-# drop it straight into a commit
-git commit -m "$(linear issue describe)"
+linear issue create --title "Fix login redirect" --team TES -P 2 --assignee me
+linear issue list --assignee me --state started
+linear issue update TES-42 --state "In Review" --add-label backend
+linear issue comment TES-42 "ready for another look"
+linear issue archive TES-42 --yes
 ```
 
-**`issue pull-request [id]`** (alias **`pr`**) opens a GitHub PR for the issue via the
-[`gh`](https://cli.github.com) CLI. The PR title defaults to the issue title and the body is the
-issue description followed by a `Fixes <ID>` trailer plus the Linear URL, so the PR and the issue
-reference each other. The created PR URL is printed to stdout (and is the only thing on stdout in
-`--json` mode):
+**Git + GitHub PR** — turn an issue into commits and a pull request. The id is inferred from the
+branch everywhere below.
 
 ```sh
-linear issue pr                       # title/body from the inferred issue
-linear issue pr TES-123 --draft       # open as a draft
-linear issue pr --base main --title "Custom title"
-linear issue pr --web                 # open the PR creation page in the browser
-linear issue pr --json | jq -r .url   # scripting
+linear issue start TES-123 --move          # checkout tes-123-* branch and mark it started
+git commit -m "$(linear issue describe)"   # commit with a "Fixes TES-123" trailer
+linear issue pr                             # open a GitHub PR (title/body from the issue)
+linear issue pr --draft --base main        # …as a draft against a specific base
+linear issue pr --json | jq -r .url        # the created PR URL is the only thing on stdout
 ```
 
-`gh` must be installed and authenticated, the branch must be pushed, and the remote must be a
-GitHub repo — the command does **not** push or create branches for you. If `gh` is missing or
-fails (e.g. branch not pushed, not authenticated), you get a clear error, not a stack trace.
+`issue describe` prints the issue title plus a commit trailer using Linear's
+[git magic words](https://linear.app/docs/github#link-prs-and-commits) (`Fixes TES-123`, or
+`References TES-123` with `-r`), so the issue is linked — and closed on merge — when the commit
+lands. `issue pull-request` (alias `pr`) opens the PR via the [`gh`](https://cli.github.com) CLI:
+the body is the issue description followed by a `Fixes <ID>` trailer and the Linear URL, so the PR
+and issue reference each other. It never pushes or creates branches for you, and fails with a
+clear error (not a stack trace) when `gh` is missing, unauthenticated, or the branch isn't pushed.
 
-## Commands
+**Projects & status updates**
 
-Every group has `--help` with full options. Aliases are shown in parentheses.
+```sh
+linear project list --team TES
+linear project view "Q3 Launch"
+linear project-update create "Q3 Launch" --health onTrack --body "Beta is out to 10% of users."
+linear initiative-update create "Platform" --health atRisk --body-file update.md
+```
+
+Status updates (`project-update`/`pu`, `initiative-update`/`iu`) take the body from `--body`,
+`--body-file <path>` (`-` for stdin), or `--editor` (`$EDITOR`), plus an optional
+`--health <onTrack|atRisk|offTrack>`.
+
+## Command overview
+
+Every group has `--help` with full options and (for the busy ones) an Examples section. Aliases
+are shown in parentheses. For a machine-readable tree of *every* command, run
+`linear commands --json`.
 
 | Group | What you can do |
 | --- | --- |
@@ -172,12 +195,12 @@ Every group has `--help` with full options. Aliases are shown in parentheses.
 <sup>†</sup> Linear has **deprecated roadmaps** in favor of initiatives — reads still work, but the
 API rejects roadmap mutations with a deprecation notice. Use `initiative` for new work.
 
-## Output & global flags
+### Global flags
 
 | Flag | Effect |
 | --- | --- |
-| `--json` | Emit machine JSON only on stdout (see the contract below). |
-| `--fields a,b,c` | Choose which columns/fields to show. |
+| `--json` | Emit machine JSON only on stdout (see [the contract](#scripting--agents)). |
+| `-f, --fields a,b,c` | Choose which columns to show (table output). |
 | `-n, --limit <n>` / `--all` | Cap results, or fetch every page. |
 | `-t, --team <key>` | Set the default team for the command. |
 | `--workspace <slug>` | Select which stored workspace credential to use. |
@@ -185,31 +208,23 @@ API rejects roadmap mutations with a deprecation notice. Use `initiative` for ne
 | `--no-input` | Never prompt; fail with a usage error instead of hanging. |
 | `--no-color` · `-q, --quiet` · `--debug` | Disable color · silence status output · verbose errors. |
 
-**JSON contract** (stable — scripts can rely on it): a list is a **bare array**, a single
-resource is a **bare object**, and an error is `{"error":{"message","code"}}` on **stderr**.
-Status/progress text always goes to stderr, never stdout.
-
-**Exit codes:** `0` ok · `1` runtime/API · `2` usage · `3` not-found/ambiguous · `4` auth ·
-`5` rate-limited.
-
 ## Scripting & agents
 
-The CLI is designed to be driven by scripts and agents. Everything below is a stable contract.
+The CLI is built to be driven by scripts and agents. Everything in this section is a stable
+contract.
 
-**The `--json` envelope.** With `--json`, stdout carries *only* machine JSON, pretty-printed,
-one value per command:
+**The `--json` envelope.** With `--json`, stdout carries *only* machine JSON, pretty-printed, one
+value per command:
 
-- **list** commands emit a **bare array** (`[...]`) — even when empty (`[]`) and even for a
-  single result.
+- **list** commands emit a **bare array** (`[...]`) — even when empty (`[]`) and even for a single result.
 - **single-resource** commands (`view`, `whoami`, …) emit a **bare object** (`{...}`).
 - **mutations** (`create`/`update`/`delete`/`archive`/…) emit the affected object — typically a
-  small shape like `{ "id": "...", "name": "...", "url": "..." }`, or `{ "id": "...",
-  "success": true }` when the API returns no body. Destructive commands add a flag such as
-  `{ "deleted": true }` / `{ "archived": true }`.
+  small shape like `{ "id", "identifier", "url" }`, or `{ "id", "success": true }` when the API
+  returns no body. Destructive commands add a flag such as `{ "deleted": true }` / `{ "archived": true }`.
 - **errors** go to **stderr** as `{"error":{"message":"…","code":"…"}}` and never to stdout.
 
-Status, progress, and pagination notes always go to **stderr**, so `cmd --json` on stdout is
-safe to pipe into `jq` unconditionally:
+Status, progress, and pagination notes always go to **stderr**, so `cmd --json` is safe to pipe
+into `jq` unconditionally:
 
 ```sh
 linear issue list --json | jq -r '.[].identifier'
@@ -217,83 +232,95 @@ linear issue view TES-42 --json | jq -r '.url'
 ID=$(linear issue create --title "Fix" --team TES --json | jq -r '.id')
 ```
 
-**Exit codes** are stable and distinct, so a script can branch on failure class:
+**Exit codes** are stable and distinct, so a script can branch on the failure class:
 
 | Code | Name | When |
 | ---: | --- | --- |
 | `0` | ok | success |
 | `1` | runtime/API | network/GraphQL/other runtime failure (also feature-not-accessible) |
 | `2` | usage | bad flags/arguments, missing required input, validation |
-| `3` | not-found/ambiguous | the referenced resource doesn't exist or a name matched many |
-| `4` | auth | missing/invalid API key or forbidden |
+| `3` | not-found/ambiguous | the referenced resource doesn't exist, or a name matched many |
+| `4` | auth | missing/invalid API key, or forbidden |
 | `5` | rate-limited | Linear rate limit hit |
 
-The error `code` field in the JSON envelope is one of: `usage`, `auth`, `not_found`,
-`ambiguous`, `forbidden`, `validation`, `rate_limited`, `network`, `feature_not_accessible`,
-`api`, `runtime`. (Several map to the same exit code — e.g. `ambiguous` → `3`, `validation` →
-`2`, `forbidden` → `4` — so prefer the `code` field for fine-grained handling and the exit code
-for coarse branching.)
+The error `code` field in the JSON envelope is one of: `usage`, `auth`, `not_found`, `ambiguous`,
+`forbidden`, `validation`, `rate_limited`, `network`, `feature_not_accessible`, `api`, `runtime`.
+Several map to the same exit code (e.g. `ambiguous` → `3`, `validation` → `2`, `forbidden` → `4`),
+so prefer the `code` field for fine-grained handling and the exit code for coarse branching.
 
 **Non-interactive flags** make runs deterministic in CI and agent loops:
 
-- **`--no-input`** — never prompt. Any input that would otherwise be prompted for becomes a
-  usage error (exit `2`) instead of hanging. Use this whenever there is no human at the keyboard.
+- **`--no-input`** — never prompt; anything that would be prompted for becomes a usage error
+  (exit `2`) instead of hanging. Use this whenever there's no human at the keyboard.
 - **`-y, --yes`** — pre-confirm destructive actions (`delete`/`archive`). Without a TTY,
-  destructive commands *require* `--yes` (or they refuse rather than block).
-- **`-q, --quiet`** — suppress the success/status lines on stderr (errors still print).
-- **`--limit <n>` / `--all`** — `--limit` (alias `-n`) caps results; `--all` exhausts pagination
-  (fetches every page). With neither, the default cap is **50**. `--all` and a large `--limit`
-  can be slow and rate-limit-prone on big workspaces.
+  destructive commands *require* `--yes` (they refuse rather than block).
+- **`-q, --quiet`** — suppress success/status lines on stderr (errors still print).
+- **`-n, --limit <n>` / `--all`** — `--limit` caps results; `--all` exhausts pagination. With
+  neither, the default cap is **50**. `--all` (and very large `--limit`) can be slow and
+  rate-limit-prone on big workspaces.
 
 ```sh
 # agent-safe: no prompts, no chatter, fail fast with a parseable error
 linear issue delete TES-42 --yes --no-input --quiet --json
 ```
 
-**Discovery.** Two commands let an agent learn the surface area without scraping `--help`:
+**Discovery — learn the surface without scraping `--help`:**
 
-- **`linear commands`** — a machine-readable tree of every (sub)command. With `--json` it emits
-  a bare array of `{ path, description, aliases, arguments, options }`, so an agent can enumerate
-  what's available and how to call it.
-- **`linear schema`** — the Linear GraphQL schema. By default it prints SDL; `-o, --output <file>`
-  writes it to a file; `--json` prints the raw introspection result. Pair it with `linear api`
-  to reach anything the curated commands don't wrap.
+- **`linear commands --json`** — a bare array of `{ path, description, aliases, arguments, options }`
+  for every (sub)command, so an agent can enumerate what's available and how to call it.
+- **`linear schema`** — the Linear GraphQL schema as SDL (`-o, --output <file>` writes to a file;
+  `--json` prints raw introspection). Pair it with `linear api` to reach anything the curated
+  commands don't wrap.
 
 ```sh
-linear commands --json | jq -r '.[].path'           # every command path
-linear schema -o /tmp/linear.graphql                 # dump SDL to a file
-grep 'type Issue ' /tmp/linear.graphql               # then explore it
+linear commands --json | jq -r '.[].path'      # every command path
+linear schema -o /tmp/linear.graphql            # dump SDL, then explore
+grep 'type Issue ' /tmp/linear.graphql
 ```
 
-## Configuration file
+**File-based bodies & stdin.** Long text (issue descriptions, comments, status updates) can come
+from a file or stdin instead of a flag — e.g. `--body-file <path>` with `-` for stdin, or
+`--editor` to open `$EDITOR`. The raw `linear api` reads from `--query-file -` and `--vars-file -`
+too, so you can pipe GraphQL straight in.
 
-Non-secret defaults can live in `~/.config/linear/config.toml` (user-wide) or a project-local
-`.linear.toml` (walked up from the working directory):
+**Agent skill.** This repo ships a Claude agent skill at `skills/linear-sdk-cli/` that teaches an
+agent to drive the CLI (the JSON envelope, exit codes, discovery, and forgiving inputs). Point a
+compatible agent at it to get reliable Linear automation out of the box.
+
+## Configuration
+
+Non-secret defaults live in `~/.config/linear/config.toml` (user-wide) or a project-local
+`.linear.toml` (walked up from the working directory). **Secrets never go in `.linear.toml`** — the
+API key is only ever read from the user config, the env, or the flag.
 
 ```toml
-team = "TES"          # default team key
-workspace = "acme"    # workspace url slug (display only)
-sort = "priority"     # default issue-list sort: priority | updated | created
+# ~/.config/linear/config.toml
+default_workspace = "acme"     # which stored credential is active
+team = "TES"                   # default team key
+sort = "priority"              # default issue-list sort: priority | updated | created
 vcs = "git"
+
+[workspaces."acme"]            # per-workspace credentials (hyphenated slugs are quoted)
+api_key = "lin_api_xxxxxxxx"
+[workspaces."other-org"]
+api_key = "lin_api_yyyyyyyy"
 ```
 
-## Shell completion
+Relevant environment variables: **`LINEAR_API_KEY`** (absolute — bypasses workspace selection) and
+**`LINEAR_WORKSPACE`** (selects a stored credential when no flag is given).
+
+### Shell completion
 
 ```sh
-# bash — add to ~/.bashrc
-source <(linear completion bash)
-
-# zsh — add to ~/.zshrc (or drop into a directory on your fpath)
-source <(linear completion zsh)
-
-# fish
+source <(linear completion bash)                         # bash — add to ~/.bashrc
+source <(linear completion zsh)                          # zsh  — add to ~/.zshrc
 linear completion fish > ~/.config/fish/completions/linear.fish
 ```
 
 ## Raw API escape hatch
 
-Anything without a tailored command is reachable through raw GraphQL — queries or mutations,
-from an argument, a file, or stdin, with variables and optional auto-pagination:
+Anything without a tailored command is reachable through raw GraphQL — queries or mutations, from
+an argument, a file, or stdin, with variables and optional auto-pagination:
 
 ```sh
 linear api '{ viewer { id name } }'
@@ -302,13 +329,15 @@ echo '{ teams { nodes { key name } } }' | linear api --query-file -
 linear api --query-file q.graphql --vars-file vars.json --paginate
 ```
 
-## Coverage
+Use `linear schema` to discover types and fields first, then reach for `linear api`.
 
-Coverage of the SDK is **measured, not asserted.** `linear api` reaches the full GraphQL API,
-and a generated audit ([COVERAGE.md](./COVERAGE.md)) classifies every one of the ~460
-`LinearClient` members as `curated` (a first-class command), `raw-only` (reachable via
-`linear api`), or `excluded` (admin/integration/SDK plumbing). CI fails on any drift from the
-committed snapshot, so the claim stays honest as the SDK evolves.
+### Coverage
+
+Coverage of the SDK is **measured, not asserted.** `linear api` reaches the full GraphQL API, and
+a generated audit ([COVERAGE.md](./COVERAGE.md)) classifies every one of the ~460 `LinearClient`
+members as `curated` (a first-class command), `raw-only` (reachable via `linear api`), or
+`excluded` (admin/integration/SDK plumbing). CI fails on any drift from the committed snapshot, so
+the claim stays honest as the SDK evolves.
 
 ## Programmatic use
 

@@ -1,0 +1,20 @@
+{
+  "name": "linear-sdk-cli",
+  "owner": {
+    "name": "Eugene Beloded"
+  },
+  "description": "Marketplace for the linear-sdk-cli Claude Code plugin.",
+  "version": "0.1.0",
+  "plugins": [
+    {
+      "name": "linear-sdk-cli",
+      "description": "Skill for using the linear-sdk-cli CLI to manage and automate Linear.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Eugene Beloded"
+      },
+      "source": "./",
+      "skills": ["./skills/linear-sdk-cli"]
+    }
+  ]
+}

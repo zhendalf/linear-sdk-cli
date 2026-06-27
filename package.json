@@ -50,6 +50,7 @@
     "test:live": "LINEAR_CLI_LIVE=1 bun test --timeout 60000 test/integration",
     "test:live:admin": "LINEAR_CLI_LIVE=1 LINEAR_CLI_LIVE_ADMIN=1 bun test --timeout 60000 test/integration",
     "verify": "bun run typecheck && bun run lint && bun run test",
+    "skill:docs": "bun run skills/linear-sdk-cli/scripts/generate-docs.ts",
     "audit:coverage": "bun run scripts/coverage-audit.ts",
     "janitor": "bun run test/janitor.ts"
   },
