@@ -8,6 +8,12 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Status updates.** Two new command groups post and list project/initiative status updates:
+  `project-update` (alias `pu`) and `initiative-update` (alias `iu`), each with `create <ref>` and
+  `list <ref>` (alias `ls`). `create` takes the body from `--body`, `--body-file <path>` (`-` =
+  stdin), or `--editor` ($EDITOR), and an optional `--health <onTrack|atRisk|offTrack>`; an empty
+  body is a usage error. `create` emits the new update (bare object in `--json`); `list` emits the
+  usual bare array. The reference (project or initiative) is resolved by name or id.
 - **Git + GitHub PR workflow.** Two new issue subcommands bridge Linear and your VCS, with the
   issue id inferred from the current branch as usual. `issue describe [id]` prints the issue
   title plus a commit-message trailer using Linear's git magic words (`Fixes <ID>`, or
@@ -39,6 +45,8 @@ All notable changes to this project are documented here. The format is based on
 - **BREAKING: `label create --workspace` renamed to `--shared`.** The boolean that forces a
   workspace-level (shared) label collided with the new global `--workspace <slug>` credential
   selector. Use `linear label create --shared` instead.
+- **BREAKING: `project updates <id>` removed.** Use `project-update list <project>` (alias
+  `pu ls`), the canonical replacement, instead.
 
 ## [0.1.0]
 

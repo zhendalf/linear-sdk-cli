@@ -11,6 +11,7 @@ import { registerCompletion } from "./commands/completion.js";
 import { registerIssue } from "./commands/issue.js";
 import { registerTeam } from "./commands/team.js";
 import { registerProject } from "./commands/project.js";
+import { registerProjectUpdate } from "./commands/project-update.js";
 import { registerMilestone } from "./commands/milestone.js";
 import { registerCycle } from "./commands/cycle.js";
 import { registerUser } from "./commands/user.js";
@@ -21,6 +22,7 @@ import { registerDocument } from "./commands/document.js";
 import { registerAttachment } from "./commands/attachment.js";
 import { registerFavorite } from "./commands/favorite.js";
 import { registerInitiative } from "./commands/initiative.js";
+import { registerInitiativeUpdate } from "./commands/initiative-update.js";
 import { registerRoadmap } from "./commands/roadmap.js";
 import { registerNotification } from "./commands/notification.js";
 import { registerOrganization } from "./commands/organization.js";
@@ -52,6 +54,7 @@ export function createProgram(): Command {
   // Phase 2: teams, projects, milestones, cycles.
   registerTeam(program);
   registerProject(program);
+  registerProjectUpdate(program);
   registerMilestone(program);
   registerCycle(program);
   // Phase 3: users, labels, workflow states, comments, documents, attachments, favorites.
@@ -64,6 +67,7 @@ export function createProgram(): Command {
   registerFavorite(program);
   // Phase 4: initiatives, roadmaps, notifications, organization, webhooks.
   registerInitiative(program);
+  registerInitiativeUpdate(program);
   registerRoadmap(program);
   registerNotification(program);
   registerOrganization(program);

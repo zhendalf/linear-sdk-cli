@@ -150,7 +150,8 @@ Every group has `--help` with full options. Aliases are shown in parentheses.
 | --- | --- |
 | **`issue`** (`i`) | `view` · `list` · `search` · `create` · `update` · `delete` · `archive`/`unarchive` · `start` (git branch) · `describe` · `pull-request`/`pr` · `assign` · `state` · `label` · `comment`/`comments` · `relation` · `subscribe`/`unsubscribe` · `id`/`title`/`url`/`branch` |
 | **`team`** (`t`) | `list` · `view` · `members` · `states` · `labels` · `cycles` · `create` · `update` |
-| **`project`** (`p`) | `list` · `view` · `create` · `update` · `archive` · `milestones` · `updates` |
+| **`project`** (`p`) | `list` · `view` · `create` · `update` · `archive` · `milestones` |
+| **`project-update`** (`pu`) | `create` · `list` (project status updates, with `--health`) |
 | **`milestone`** (`m`) | `list` · `view` · `create` · `update` · `delete` |
 | **`cycle`** (`c`) | `list` · `view` · `current` · `create` · `update` |
 | **`user`** (`u`) | `list` · `view` · `me` |
@@ -161,6 +162,7 @@ Every group has `--help` with full options. Aliases are shown in parentheses.
 | **`attachment`** (`at`) | `list` · `create` · `delete` |
 | **`favorite`** (`fav`) | `list` · `add` · `remove` |
 | **`initiative`** (`init`) | `list` · `view` · `create` · `update` · `archive` · `delete` |
+| **`initiative-update`** (`iu`) | `create` · `list` (initiative status updates, with `--health`) |
 | **`roadmap`** (`rm`) | `list` · `view` · `create` · `update` · `delete` &nbsp;<sup>†</sup> |
 | **`notification`** (`notif`) | `list` · `read`/`unread` · `read-all` · `archive` · `snooze` |
 | **`organization`** (`org`) | `view` · `members` · `invites` |

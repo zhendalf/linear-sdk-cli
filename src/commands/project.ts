@@ -180,24 +180,4 @@ export function registerProject(program: Command): void {
         );
       }),
     );
-
-  // updates -----------------------------------------------------------------
-  project
-    .command("updates <id>")
-    .description("List a project's updates")
-    .action(
-      action(async (ctx: Context, _opts, idArg: string) => {
-        const rows = await svc.listUpdates(ctx.client, idArg, ctx.limit);
-        ctx.output.list(
-          rows,
-          [
-            { key: "createdAt", header: "Date", value: (u) => u.createdAt.slice(0, 10) },
-            { key: "user", header: "Author", value: (u) => u.user, max: 18 },
-            { key: "health", header: "Health", value: (u) => u.health ?? "—", max: 10 },
-            { key: "body", header: "Update", value: (u) => u.body.replace(/\n/g, " "), max: 60 },
-          ],
-          rows,
-        );
-      }),
-    );
 }
