@@ -1,13 +1,21 @@
 /**
- * Top-level meta commands: whoami, auth (login/status/logout), config.
+ * Top-level meta commands: whoami, auth (login/list/default/token/status/logout),
+ * config.
  */
 
 import { Command } from "commander";
 import { LinearClient } from "@linear/sdk";
 import { action } from "../lib/action.js";
 import { withRetry } from "../client.js";
-import { writeApiKey, clearApiKey, redactKey, resolveConfig } from "../config.js";
-import { authError } from "../lib/errors.js";
+import {
+  writeCredential,
+  removeCredential,
+  setDefaultWorkspace,
+  listCredentials,
+  redactKey,
+  resolveConfig,
+} from "../config.js";
+import { authError, usageError } from "../lib/errors.js";
 import { promptInput } from "../lib/prompt.js";
 import type { Context } from "../context.js";
 
@@ -42,31 +50,99 @@ export function registerMeta(program: Command): void {
 
   const auth = program.command("auth").description("Manage authentication");
 
+  // login -------------------------------------------------------------------
   auth
     .command("login")
-    .description("Store a Linear API key in the user config")
+    .description("Validate and store a Linear API key for a workspace")
     .option("--key <key>", "API key (otherwise prompted)")
     .action(
+      // The global `--workspace <slug>` selects the slug to store under
+      // (default: derived from the key's organization urlKey).
       action(async (ctx: Context, opts) => {
         let key: string | undefined = opts.key;
         if (!key) key = await promptInput(ctx, "Linear API key:", { required: true });
         key = key.trim();
-        // Validate before persisting.
+        // Validate before persisting and learn the workspace slug.
         const client = new LinearClient({ apiKey: key });
         let me;
+        let org;
         try {
           me = await client.viewer;
+          org = await client.organization;
         } catch {
           throw authError("That API key was rejected by Linear.");
         }
-        const path = writeApiKey(key);
+        const slug: string = ctx.options.workspace ?? org.urlKey;
+        const path = writeCredential(slug, key);
         ctx.output.emit(
-          { success: true, user: { id: me.id, name: me.name, email: me.email }, path },
-          () => ctx.output.success(`Authenticated as ${me.name} <${me.email}>. Key saved to ${path}`),
+          {
+            success: true,
+            workspace: slug,
+            user: { id: me.id, name: me.name, email: me.email },
+            path,
+          },
+          () =>
+            ctx.output.success(
+              `Authenticated as ${me.name} <${me.email}> for workspace '${slug}'. Key saved to ${path}`,
+            ),
         );
       }),
     );
 
+  // list --------------------------------------------------------------------
+  auth
+    .command("list")
+    .alias("ls")
+    .description("List configured workspace credentials")
+    .action(
+      action(async (ctx: Context) => {
+        const entries = listCredentials();
+        ctx.output.list(
+          entries,
+          [
+            { key: "slug", header: "Workspace", value: (e) => e.slug },
+            { key: "isDefault", header: "Default", value: (e) => (e.isDefault ? "yes" : "") },
+          ],
+          entries,
+        );
+      }),
+    );
+
+  // default -----------------------------------------------------------------
+  auth
+    .command("default <slug>")
+    .description("Set the default workspace credential")
+    .action(
+      action(async (ctx: Context, _opts, slug: string) => {
+        const path = setDefaultWorkspace(slug);
+        ctx.output.emit({ success: true, default_workspace: slug, path }, () =>
+          ctx.output.success(`Default workspace set to '${slug}'.`),
+        );
+      }),
+    );
+
+  // token -------------------------------------------------------------------
+  auth
+    .command("token")
+    .description("Print the resolved API key for the active workspace (for scripting)")
+    .action(
+      action(async (ctx: Context) => {
+        const c = ctx.config;
+        if (!c.apiKey) {
+          // Surface the precise selection error (ambiguous / unstored slug) if any.
+          throw (
+            c.apiKeyError ??
+            authError("No API key resolved. Run `linear auth login` or pass --workspace/--api-key.")
+          );
+        }
+        // This command intentionally prints the secret — that is its purpose.
+        ctx.output.emit({ apiKey: c.apiKey, workspace: c.credentialWorkspace ?? null }, () =>
+          process.stdout.write(c.apiKey + "\n"),
+        );
+      }),
+    );
+
+  // status ------------------------------------------------------------------
   auth
     .command("status")
     .description("Show where the API key is resolved from (key redacted)")
@@ -74,26 +150,48 @@ export function registerMeta(program: Command): void {
       action(async (ctx) => {
         const c = ctx.config;
         ctx.output.detail(
-          { authenticated: !!c.apiKey, source: c.apiKeySource, key: redactKey(c.apiKey) },
+          {
+            authenticated: !!c.apiKey,
+            source: c.apiKeySource,
+            workspace: c.credentialWorkspace ?? null,
+            key: redactKey(c.apiKey),
+          },
           [
             ["Authenticated", !!c.apiKey],
             ["Source", c.apiKeySource],
+            ["Workspace", c.credentialWorkspace ?? "(none)"],
             ["Key", redactKey(c.apiKey)],
           ],
         );
       }),
     );
 
+  // logout ------------------------------------------------------------------
   auth
     .command("logout")
-    .description("Remove the stored API key from the user config")
+    .description("Remove a stored workspace credential (select with --workspace <slug>)")
     .action(
-      action(async (ctx) => {
-        const removed = clearApiKey();
-        ctx.output.emit({ success: true, removed }, () =>
+      // Targets the global `--workspace <slug>`. When omitted, the sole
+      // configured workspace is used; if several exist, this errors.
+      action(async (ctx: Context) => {
+        let slug: string | undefined = ctx.options.workspace;
+        if (!slug) {
+          const configured = listCredentials();
+          if (configured.length === 1) slug = configured[0]!.slug;
+          else if (configured.length === 0)
+            throw usageError("No workspace credentials are configured.");
+          else
+            throw usageError(
+              `Multiple workspaces are configured (${configured
+                .map((e) => e.slug)
+                .join(", ")}). Pass --workspace <slug> to choose which to remove.`,
+            );
+        }
+        const removed = removeCredential(slug);
+        ctx.output.emit({ success: true, workspace: slug, removed }, () =>
           removed
-            ? ctx.output.success("Removed stored API key.")
-            : ctx.output.info("No stored API key to remove."),
+            ? ctx.output.success(`Removed workspace '${slug}'.`)
+            : ctx.output.info(`No credential for workspace '${slug}' to remove.`),
         );
       }),
     );
@@ -105,12 +203,17 @@ export function registerMeta(program: Command): void {
       action(async (ctx) => {
         // Re-resolve to expose sources/paths beyond what Context keeps.
         const c = resolveConfig({
-          flags: { apiKey: ctx.options.apiKey, team: ctx.options.team },
+          flags: {
+            apiKey: ctx.options.apiKey,
+            team: ctx.options.team,
+            workspace: ctx.options.workspace,
+          },
         });
         ctx.output.detail(
           {
             apiKey: redactKey(c.apiKey),
             apiKeySource: c.apiKeySource,
+            credentialWorkspace: c.credentialWorkspace ?? null,
             team: c.team ?? null,
             workspace: c.workspace ?? null,
             sort: c.sort,
@@ -120,6 +223,7 @@ export function registerMeta(program: Command): void {
           },
           [
             ["API key", `${redactKey(c.apiKey)} (${c.apiKeySource})`],
+            ["Credential workspace", c.credentialWorkspace ?? "(none)"],
             ["Team", c.team],
             ["Workspace", c.workspace],
             ["Sort", c.sort],

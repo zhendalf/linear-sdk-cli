@@ -6,12 +6,17 @@
  *    .linear.toml (cwd→ancestors) > user config.
  *  - The API key has a STRICTER boundary and is never read from a project file
  *    (avoids committing secrets): flag > LINEAR_API_KEY env > user config.
+ *
+ * Multi-workspace credentials live under quoted `[workspaces."<slug>"]` tables
+ * in the user config, with an optional top-level `default_workspace`. Credential
+ * selection is lazy: resolution never throws, stashing any selection error in
+ * `apiKeyError` so it surfaces only when a client is actually needed.
  */
 
 import { homedir } from "node:os";
 import { join, dirname, parse as parsePath } from "node:path";
 import { readFileSync, existsSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
-import { parse as parseToml } from "smol-toml";
+import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { CliError } from "./lib/errors.js";
 
 export interface RawSettings {
@@ -27,7 +32,18 @@ export type ConfigSource = "flag" | "env" | "project" | "user" | "none";
 export interface ResolvedConfig {
   apiKey?: string;
   apiKeySource: ConfigSource;
+  /**
+   * Deferred credential-selection error. Resolution is total (it never throws
+   * for selection problems) so commands that REPAIR auth state — `auth list`,
+   * `auth default`, `auth logout`, `auth login --workspace new-org` — can still
+   * build a Context. The error is surfaced only when an API client is actually
+   * needed (see createClient / `auth token`).
+   */
+  apiKeyError?: CliError;
+  /** Workspace slug whose stored credential was used, if any. */
+  credentialWorkspace?: string;
   team?: string;
+  /** Non-secret display workspace setting (separate from credentialWorkspace). */
   workspace?: string;
   sort: string;
   vcs: string;
@@ -54,16 +70,24 @@ export function userConfigPath(env: NodeJS.ProcessEnv = process.env): string {
   return join(base, "linear", USER_CONFIG_FILE);
 }
 
-function readTomlFile(path: string): RawSettings {
+/** Parsed view of the user config: top-level settings + nested workspace creds. */
+interface UserConfig {
+  /** Top-level non-secret settings. */
+  settings: RawSettings;
+  /** default_workspace, if set. */
+  defaultWorkspace?: string;
+  /** slug → api_key from `[workspaces."<slug>"]`. */
+  workspaces: Record<string, string>;
+}
+
+function asString(v: unknown): string | undefined {
+  return typeof v === "string" && v.length > 0 ? v : undefined;
+}
+
+/** Raw parse of a TOML file into a plain object, with a friendly error. */
+function parseTomlFile(path: string): Record<string, unknown> {
   try {
-    const parsed = parseToml(readFileSync(path, "utf8")) as Record<string, unknown>;
-    return {
-      team: asString(parsed.team ?? parsed.team_id),
-      workspace: asString(parsed.workspace),
-      sort: asString(parsed.sort ?? parsed.issue_sort),
-      vcs: asString(parsed.vcs),
-      apiKey: asString(parsed.api_key ?? parsed.apiKey),
-    };
+    return parseToml(readFileSync(path, "utf8")) as Record<string, unknown>;
   } catch (err) {
     throw new CliError(
       `Failed to parse config at ${path}: ${(err as Error).message}`,
@@ -72,8 +96,44 @@ function readTomlFile(path: string): RawSettings {
   }
 }
 
-function asString(v: unknown): string | undefined {
-  return typeof v === "string" && v.length > 0 ? v : undefined;
+/**
+ * Read flat NON-SECRET settings from a TOML file. Used for project
+ * `.linear.toml`; the API key is intentionally NOT read here (trust boundary).
+ */
+function readTomlFile(path: string): RawSettings {
+  const parsed = parseTomlFile(path);
+  return {
+    team: asString(parsed.team ?? parsed.team_id),
+    workspace: asString(parsed.workspace),
+    sort: asString(parsed.sort ?? parsed.issue_sort),
+    vcs: asString(parsed.vcs),
+  };
+}
+
+/** Read the user config into its structured form (settings + workspaces). */
+function readUserConfig(path: string): UserConfig {
+  if (!existsSync(path)) return { settings: {}, workspaces: {} };
+  const parsed = parseTomlFile(path);
+  const workspaces: Record<string, string> = {};
+  const wsTable = parsed.workspaces;
+  if (wsTable && typeof wsTable === "object") {
+    for (const [slug, val] of Object.entries(wsTable as Record<string, unknown>)) {
+      if (val && typeof val === "object") {
+        const key = asString((val as Record<string, unknown>).api_key);
+        if (key) workspaces[slug] = key;
+      }
+    }
+  }
+  return {
+    settings: {
+      team: asString(parsed.team ?? parsed.team_id),
+      workspace: asString(parsed.workspace),
+      sort: asString(parsed.sort ?? parsed.issue_sort),
+      vcs: asString(parsed.vcs),
+    },
+    defaultWorkspace: asString(parsed.default_workspace),
+    workspaces,
+  };
 }
 
 /** Walk from cwd up to filesystem root collecting the first `.linear.toml`. */
@@ -110,32 +170,78 @@ export function resolveConfig(inputs: ConfigInputs = {}): ResolvedConfig {
 
   const envSettings = fromEnv(env);
   const userPath = userConfigPath(env);
-  const userSettings = existsSync(userPath) ? readTomlFile(userPath) : {};
+  const user = readUserConfig(userPath);
   const projectPath = findProjectConfig(cwd);
   const projectSettings = projectPath ? readTomlFile(projectPath) : {};
 
-  // API key: flag > env > user config ONLY (never project).
+  // ----- API key resolution (strict trust boundary) -----------------------
+  // Resolution is TOTAL: selection problems are stashed in `apiKeyError` rather
+  // than thrown, so auth-repair commands can still build a Context. The error
+  // is surfaced lazily, when an API client is actually needed.
   let apiKey: string | undefined;
   let apiKeySource: ConfigSource = "none";
+  let credentialWorkspace: string | undefined;
+  let apiKeyError: CliError | undefined;
+
   if (flags.apiKey) {
+    // 1. An explicit flag is absolute: it bypasses all workspace selection.
     apiKey = flags.apiKey;
     apiKeySource = "flag";
   } else if (envSettings.apiKey) {
+    // 1. LINEAR_API_KEY/LINEAR_API_TOKEN is absolute too.
     apiKey = envSettings.apiKey;
     apiKeySource = "env";
-  } else if (userSettings.apiKey) {
-    apiKey = userSettings.apiKey;
-    apiKeySource = "user";
+  } else {
+    // 2. Otherwise compute the credential workspace. Project config is NEVER
+    //    consulted here (secrets must not be steerable by project files).
+    const selected =
+      flags.workspace ?? env.LINEAR_WORKSPACE ?? user.defaultWorkspace;
+
+    if (selected) {
+      // 3. A workspace was selected: it must have a stored credential.
+      const key = user.workspaces[selected];
+      if (!key) {
+        apiKeyError = new CliError(
+          `No stored credential for workspace '${selected}'. Run \`linear auth list\` to see configured workspaces, or \`linear auth login --workspace ${selected}\`.`,
+          "not_found",
+        );
+      } else {
+        apiKey = key;
+        apiKeySource = "user";
+        credentialWorkspace = selected;
+      }
+    } else {
+      // 4. No selection: use the sole workspace if exactly one is configured.
+      const slugs = Object.keys(user.workspaces);
+      if (slugs.length === 1) {
+        const only = slugs[0]!;
+        apiKey = user.workspaces[only];
+        apiKeySource = "user";
+        credentialWorkspace = only;
+      } else if (slugs.length > 1) {
+        // Multiple workspaces but no default → ambiguous (deferred).
+        apiKeyError = new CliError(
+          `Multiple workspaces are configured (${slugs.join(", ")}) but none is selected. Pass --workspace <slug> or run \`linear auth default <slug>\`.`,
+          "usage",
+        );
+      }
+      // else: no key at all (unchanged "no API key" path).
+    }
   }
 
+  // ----- Non-secret settings (project config MAY participate) -------------
   const pick = <K extends keyof RawSettings>(key: K): string | undefined =>
-    flags[key] ?? envSettings[key] ?? projectSettings[key] ?? userSettings[key];
+    flags[key] ?? envSettings[key] ?? projectSettings[key] ?? user.settings[key];
 
   return {
     apiKey,
     apiKeySource,
+    apiKeyError,
+    credentialWorkspace,
     team: pick("team"),
-    workspace: pick("workspace"),
+    // The display `workspace` setting is separate from credential selection:
+    // flag > env > project > user. (Credential selection ignores project.)
+    workspace: flags.workspace ?? envSettings.workspace ?? projectSettings.workspace ?? user.settings.workspace,
     sort: pick("sort") ?? "priority",
     vcs: pick("vcs") ?? "git",
     userConfigPath: userPath,
@@ -143,35 +249,101 @@ export function resolveConfig(inputs: ConfigInputs = {}): ResolvedConfig {
   };
 }
 
-/** Persist the API key to the user config file with 0600 perms. */
-export function writeApiKey(apiKey: string): string {
-  const path = userConfigPath();
+// ---------------------------------------------------------------------------
+// Structured TOML writers
+//
+// We round-trip through a plain object and smol-toml's `stringify` so nested
+// `[workspaces."<slug>"]` tables and other settings are preserved. smol-toml
+// quotes keys only when required, but hyphenated slugs are valid bare TOML
+// keys and round-trip correctly.
+// ---------------------------------------------------------------------------
+
+/** Read the full user config as a mutable plain object (or {} if absent). */
+function readUserObject(path: string): Record<string, unknown> {
+  if (!existsSync(path)) return {};
+  return parseTomlFile(path);
+}
+
+/** Serialize + persist a config object with 0600 perms. */
+function writeUserObject(path: string, obj: Record<string, unknown>): void {
   mkdirSync(dirname(path), { recursive: true });
-  // Preserve any existing non-secret settings in the user file.
-  const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
-  const withoutKey = existing
-    .split("\n")
-    .filter((l) => !/^\s*api_key\s*=/.test(l) && !/^\s*apiKey\s*=/.test(l))
-    .join("\n")
-    .trim();
-  const body = [`api_key = ${JSON.stringify(apiKey)}`, withoutKey].filter(Boolean).join("\n");
-  writeFileSync(path, body + "\n", { mode: 0o600 });
+  writeFileSync(path, stringifyToml(obj) + "\n", { mode: 0o600 });
   chmodSync(path, 0o600);
+}
+
+function workspacesTable(obj: Record<string, unknown>): Record<string, { api_key?: string }> {
+  if (!obj.workspaces || typeof obj.workspaces !== "object") obj.workspaces = {};
+  return obj.workspaces as Record<string, { api_key?: string }>;
+}
+
+/**
+ * Upsert `[workspaces."<slug>"].api_key`. If no `default_workspace` is set, this
+ * slug becomes the default. All other content is preserved. Returns the path.
+ */
+export function writeCredential(slug: string, apiKey: string): string {
+  const path = userConfigPath();
+  const obj = readUserObject(path);
+  const ws = workspacesTable(obj);
+  ws[slug] = { ...(ws[slug] ?? {}), api_key: apiKey };
+  if (!asString(obj.default_workspace)) obj.default_workspace = slug;
+  writeUserObject(path, obj);
   return path;
 }
 
-/** Remove the stored API key from user config (used by `auth logout`). */
-export function clearApiKey(): boolean {
+/** Set `default_workspace`. Errors if that workspace has no stored credential. */
+export function setDefaultWorkspace(slug: string): string {
+  const path = userConfigPath();
+  const obj = readUserObject(path);
+  const ws = workspacesTable(obj);
+  if (!ws[slug] || !asString(ws[slug].api_key)) {
+    throw new CliError(
+      `Workspace '${slug}' is not configured. Run \`linear auth login --workspace ${slug}\` first.`,
+      "not_found",
+    );
+  }
+  obj.default_workspace = slug;
+  writeUserObject(path, obj);
+  return path;
+}
+
+/**
+ * Remove one `[workspaces."<slug>"]` table without touching anything else. If
+ * the removed slug was the default, the default is repointed to a remaining
+ * workspace (or cleared). Returns true if something was removed.
+ */
+export function removeCredential(slug: string): boolean {
   const path = userConfigPath();
   if (!existsSync(path)) return false;
-  const existing = readFileSync(path, "utf8");
-  const withoutKey = existing
-    .split("\n")
-    .filter((l) => !/^\s*api_key\s*=/.test(l) && !/^\s*apiKey\s*=/.test(l))
-    .join("\n")
-    .trim();
-  writeFileSync(path, withoutKey ? withoutKey + "\n" : "", { mode: 0o600 });
+  const obj = readUserObject(path);
+
+  const ws = workspacesTable(obj);
+  if (!ws[slug]) return false;
+  delete ws[slug];
+  if (Object.keys(ws).length === 0) delete obj.workspaces;
+
+  if (asString(obj.default_workspace) === slug) {
+    const remaining = obj.workspaces ? Object.keys(obj.workspaces as object) : [];
+    if (remaining.length > 0) obj.default_workspace = remaining[0]!;
+    else delete obj.default_workspace;
+  }
+  writeUserObject(path, obj);
   return true;
+}
+
+export interface CredentialEntry {
+  /** Workspace slug. */
+  slug: string;
+  isDefault: boolean;
+}
+
+/** List configured credentials: one entry per stored workspace. */
+export function listCredentials(env: NodeJS.ProcessEnv = process.env): CredentialEntry[] {
+  const path = userConfigPath(env);
+  const user = readUserConfig(path);
+  return Object.keys(user.workspaces).map((slug) => ({
+    slug,
+    isDefault: user.defaultWorkspace === slug,
+  }));
 }
 
 /** Redact a secret for display: keep the prefix and last 4 chars. */

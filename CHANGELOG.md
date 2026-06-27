@@ -6,11 +6,28 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- **Multi-workspace credentials.** Store API keys for several workspaces and switch between
+  them. New `auth` subcommands: `auth list` (configured workspaces + default), `auth default
+  <slug>` (set the default), and `auth token` (print the resolved key for scripting). `auth
+  login` now accepts the global `--workspace <slug>` (derived from the key's organization when
+  omitted) and `auth status` reports the active credential workspace. A new global
+  `--workspace <slug>` selects which stored credential to use for any command. Credentials live
+  in quoted `[workspaces."<slug>"]` tables under a top-level `default_workspace`. Credential
+  selection follows flag/`LINEAR_API_KEY` (absolute) →
+  `--workspace`/`LINEAR_WORKSPACE`/`default_workspace`, and is never steered by project
+  `.linear.toml`. When several workspaces are configured with no default, the error is deferred
+  until a command actually needs the API — so `auth list`/`default`/`login` still work.
+
 ### Changed
 
 - **Bun-only distribution.** The CLI now ships as raw TypeScript and runs directly on
   [Bun](https://bun.sh) (≥ 1.1) — no build step, no bundle, no Node. Install with
   `bun add -g linear-sdk-cli`. The toolchain (install, test, run) is Bun end-to-end.
+- **BREAKING: `label create --workspace` renamed to `--shared`.** The boolean that forces a
+  workspace-level (shared) label collided with the new global `--workspace <slug>` credential
+  selector. Use `linear label create --shared` instead.
 
 ## [0.1.0]
 

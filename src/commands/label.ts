@@ -43,7 +43,7 @@ export function registerLabel(program: Command): void {
     .option("--name <name>", "label name")
     .option("--color <hex>", "label color (e.g. #EB5757)")
     .option("-d, --description <text>", "label description")
-    .option("--workspace", "force a workspace-level label even when a default team is set")
+    .option("--shared", "create a workspace-level (shared) label even when a default team is set")
     .option("--parent <name>", "parent label (creates a sub-label)")
     .action(
       action(async (ctx: Context, opts) => {
@@ -55,8 +55,8 @@ export function registerLabel(program: Command): void {
             name,
             color: opts.color,
             description: opts.description,
-            // Scope to the global --team (ctx.defaultTeam) unless --workspace.
-            team: opts.workspace ? undefined : ctx.defaultTeam,
+            // Scope to the global --team (ctx.defaultTeam) unless --shared.
+            team: opts.shared ? undefined : ctx.defaultTeam,
             parent: opts.parent,
           },
           ctx.defaultTeam,

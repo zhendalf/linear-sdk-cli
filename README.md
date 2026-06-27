@@ -42,15 +42,48 @@ bun run src/bin/linear.ts --help     # or: bun run dev -- --help
 ## Authenticate
 
 The CLI resolves your API key from, in order: the `--api-key` flag → the `LINEAR_API_KEY`
-environment variable → the user config file (`~/.config/linear/config.toml`, written `0600`).
-For safety it is **never** read from a project-local `.linear.toml`, so it can't be committed
-by accident.
+environment variable → a stored credential in the user config file
+(`~/.config/linear/config.toml`, written `0600`). For safety it is **never** read from a
+project-local `.linear.toml`, so it can't be committed by accident.
 
 ```sh
 export LINEAR_API_KEY=lin_api_xxxxxxxx     # quickest
 linear auth login                          # or store it (prompts, then validates)
 linear auth status                         # shows where the key came from (value redacted)
 linear whoami                              # confirm you're connected
+```
+
+### Multiple workspaces
+
+Credentials are stored per **workspace slug**. `auth login` validates the key and derives the
+slug from the key's organization (`viewer.organization.urlKey`) unless you pass `--workspace`:
+
+```sh
+linear auth login --workspace acme         # store a key for the "acme" workspace
+linear auth login --workspace other-org    # …and another
+linear auth list                           # show configured workspaces + which is default
+linear auth default acme                   # choose the default workspace
+linear --workspace other-org issue list    # use a specific workspace for one command
+linear auth token --workspace acme         # print the resolved key (for scripting)
+linear auth logout --workspace acme        # remove one credential
+```
+
+**Credential selection precedence** (strict — a project file can never steer it): the
+`--api-key` flag and `LINEAR_API_KEY` env are absolute and bypass selection entirely; otherwise
+the workspace is chosen by `--workspace` → `LINEAR_WORKSPACE` env → `default_workspace` in the
+user config. With no selection, the sole configured workspace is used; if several are configured
+with no default, the CLI asks you to pick one (via `--workspace` or `auth default`).
+
+The user config file looks like:
+
+```toml
+default_workspace = "acme"     # which credential is active
+team = "TES"                    # non-secret settings stay top-level
+
+[workspaces."acme"]
+api_key = "lin_api_xxxxxxxx"
+[workspaces."other-org"]        # hyphenated slugs are quoted automatically
+api_key = "lin_api_yyyyyyyy"
 ```
 
 ## Quick start
@@ -90,7 +123,7 @@ Every group has `--help` with full options. Aliases are shown in parentheses.
 | **`notification`** (`notif`) | `list` · `read`/`unread` · `read-all` · `archive` · `snooze` |
 | **`organization`** (`org`) | `view` · `members` · `invites` |
 | **`webhook`** (`wh`) | `list` · `view` · `create` · `update` · `delete` |
-| **top-level** | `whoami` · `auth` · `config` · `api` · `completion` |
+| **top-level** | `whoami` · `auth` (`login` · `list` · `default` · `token` · `status` · `logout`) · `config` · `api` · `completion` |
 
 <sup>†</sup> Linear has **deprecated roadmaps** in favor of initiatives — reads still work, but the
 API rejects roadmap mutations with a deprecation notice. Use `initiative` for new work.
@@ -103,6 +136,7 @@ API rejects roadmap mutations with a deprecation notice. Use `initiative` for ne
 | `--fields a,b,c` | Choose which columns/fields to show. |
 | `-n, --limit <n>` / `--all` | Cap results, or fetch every page. |
 | `-t, --team <key>` | Set the default team for the command. |
+| `--workspace <slug>` | Select which stored workspace credential to use. |
 | `-y, --yes` | Skip confirmation prompts (required for destructive actions when not a TTY). |
 | `--no-input` | Never prompt; fail with a usage error instead of hanging. |
 | `--no-color` · `-q, --quiet` · `--debug` | Disable color · silence status output · verbose errors. |

@@ -2,7 +2,18 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveConfig, redactKey, userConfigPath } from "../../src/config.js";
+import {
+  resolveConfig,
+  redactKey,
+  userConfigPath,
+  writeCredential,
+  setDefaultWorkspace,
+  removeCredential,
+  listCredentials,
+} from "../../src/config.js";
+import { createClient } from "../../src/client.js";
+import { readFileSync } from "node:fs";
+import { parse as parseToml } from "smol-toml";
 
 let root: string;
 let xdg: string;
@@ -36,7 +47,8 @@ function writeProjectConfig(dir: string, body: string) {
 
 describe("resolveConfig precedence", () => {
   it("prefers flag over env over user config for the api key", () => {
-    writeUserConfig(`api_key = "lin_api_userkey0000"`);
+    // The only configured workspace supplies the user-config key.
+    writeUserConfig(`[workspaces."solo"]\napi_key = "lin_api_userkey0000"`);
     const env = baseEnv({ LINEAR_API_KEY: "lin_api_envkey00000" });
     expect(resolveConfig({ env, flags: { apiKey: "lin_api_flagkey0000" } }).apiKey).toBe(
       "lin_api_flagkey0000",
@@ -76,6 +88,235 @@ describe("resolveConfig precedence", () => {
     const cfg = resolveConfig({ env: baseEnv() });
     expect(cfg.sort).toBe("priority");
     expect(cfg.vcs).toBe("git");
+  });
+});
+
+describe("multi-workspace credential resolution", () => {
+  function writeWorkspaces(body: string) {
+    writeUserConfig(body);
+  }
+
+  it("selects credential by --workspace flag", () => {
+    writeWorkspaces(
+      `default_workspace = "org-a"\n` +
+        `[workspaces."org-a"]\napi_key = "lin_api_a000000000"\n` +
+        `[workspaces."org-b"]\napi_key = "lin_api_b000000000"\n`,
+    );
+    const cfg = resolveConfig({ env: baseEnv(), flags: { workspace: "org-b" } });
+    expect(cfg.apiKey).toBe("lin_api_b000000000");
+    expect(cfg.credentialWorkspace).toBe("org-b");
+    expect(cfg.apiKeySource).toBe("user");
+  });
+
+  it("selects credential by LINEAR_WORKSPACE env over default", () => {
+    writeWorkspaces(
+      `default_workspace = "org-a"\n` +
+        `[workspaces."org-a"]\napi_key = "lin_api_a000000000"\n` +
+        `[workspaces."org-b"]\napi_key = "lin_api_b000000000"\n`,
+    );
+    const cfg = resolveConfig({ env: baseEnv({ LINEAR_WORKSPACE: "org-b" }) });
+    expect(cfg.apiKey).toBe("lin_api_b000000000");
+    expect(cfg.credentialWorkspace).toBe("org-b");
+  });
+
+  it("falls back to default_workspace when nothing else selects", () => {
+    writeWorkspaces(
+      `default_workspace = "org-a"\n` +
+        `[workspaces."org-a"]\napi_key = "lin_api_a000000000"\n` +
+        `[workspaces."org-b"]\napi_key = "lin_api_b000000000"\n`,
+    );
+    const cfg = resolveConfig({ env: baseEnv() });
+    expect(cfg.apiKey).toBe("lin_api_a000000000");
+    expect(cfg.credentialWorkspace).toBe("org-a");
+  });
+
+  it("uses the only workspace when exactly one exists and no default", () => {
+    writeWorkspaces(`[workspaces."solo"]\napi_key = "lin_api_solo000000"\n`);
+    const cfg = resolveConfig({ env: baseEnv() });
+    expect(cfg.apiKey).toBe("lin_api_solo000000");
+    expect(cfg.credentialWorkspace).toBe("solo");
+  });
+
+  it("does NOT throw when multiple workspaces exist but none is selected", () => {
+    writeWorkspaces(
+      `[workspaces."org-a"]\napi_key = "lin_api_a000000000"\n` +
+        `[workspaces."org-b"]\napi_key = "lin_api_b000000000"\n`,
+    );
+    // Resolution is total: no throw, key undefined, deferred error stashed.
+    const cfg = resolveConfig({ env: baseEnv() });
+    expect(cfg.apiKey).toBeUndefined();
+    expect(cfg.apiKeyError?.message).toMatch(/Multiple workspaces/);
+    // createClient surfaces the deferred error only when a client is needed.
+    expect(() => createClient(cfg)).toThrow(/Multiple workspaces/);
+  });
+
+  it("does NOT throw when a selected workspace is not stored (so auth login --workspace new works)", () => {
+    writeWorkspaces(`[workspaces."org-a"]\napi_key = "lin_api_a000000000"\n`);
+    // flag selection
+    const byFlag = resolveConfig({ env: baseEnv(), flags: { workspace: "new-org" } });
+    expect(byFlag.apiKey).toBeUndefined();
+    expect(byFlag.apiKeyError?.message).toMatch(/No stored credential for workspace 'new-org'/);
+    expect(() => createClient(byFlag)).toThrow(/No stored credential/);
+    // env selection
+    const byEnv = resolveConfig({ env: baseEnv({ LINEAR_WORKSPACE: "ghost" }) });
+    expect(byEnv.apiKey).toBeUndefined();
+    expect(byEnv.apiKeyError?.message).toMatch(/No stored credential for workspace 'ghost'/);
+  });
+
+  it("flag api key bypasses workspace selection entirely", () => {
+    writeWorkspaces(
+      `default_workspace = "org-a"\n[workspaces."org-a"]\napi_key = "lin_api_a000000000"\n`,
+    );
+    const cfg = resolveConfig({
+      env: baseEnv(),
+      flags: { apiKey: "lin_api_flag0000000", workspace: "org-a" },
+    });
+    expect(cfg.apiKey).toBe("lin_api_flag0000000");
+    expect(cfg.apiKeySource).toBe("flag");
+    expect(cfg.credentialWorkspace).toBeUndefined();
+  });
+
+  it("env api key bypasses workspace selection entirely", () => {
+    writeWorkspaces(
+      `default_workspace = "org-a"\n[workspaces."org-a"]\napi_key = "lin_api_a000000000"\n`,
+    );
+    const cfg = resolveConfig({ env: baseEnv({ LINEAR_API_KEY: "lin_api_env00000000" }) });
+    expect(cfg.apiKey).toBe("lin_api_env00000000");
+    expect(cfg.apiKeySource).toBe("env");
+    expect(cfg.credentialWorkspace).toBeUndefined();
+  });
+
+  it("project config NEVER steers credential workspace selection", () => {
+    writeWorkspaces(
+      `default_workspace = "org-a"\n` +
+        `[workspaces."org-a"]\napi_key = "lin_api_a000000000"\n` +
+        `[workspaces."org-b"]\napi_key = "lin_api_b000000000"\n`,
+    );
+    // A project file claiming workspace=org-b must not change the credential.
+    writeProjectConfig(projectDir, `workspace = "org-b"`);
+    const cfg = resolveConfig({ env: baseEnv(), cwd: projectDir });
+    expect(cfg.apiKey).toBe("lin_api_a000000000");
+    expect(cfg.credentialWorkspace).toBe("org-a");
+    // ...but it does affect the non-secret display workspace setting.
+    expect(cfg.workspace).toBe("org-b");
+  });
+
+  it("--workspace flag still wins the display workspace setting", () => {
+    writeWorkspaces(`[workspaces."org-a"]\napi_key = "lin_api_a000000000"\n`);
+    writeProjectConfig(projectDir, `workspace = "proj-ws"`);
+    const cfg = resolveConfig({ env: baseEnv(), cwd: projectDir, flags: { workspace: "org-a" } });
+    expect(cfg.workspace).toBe("org-a");
+  });
+});
+
+describe("structured credential writers", () => {
+  let savedXdg: string | undefined;
+  let savedHome: string | undefined;
+
+  beforeEach(() => {
+    // The writers read the real process.env, so point it at the temp dir.
+    savedXdg = process.env.XDG_CONFIG_HOME;
+    savedHome = process.env.HOME;
+    process.env.XDG_CONFIG_HOME = xdg;
+    process.env.HOME = root;
+  });
+
+  afterEach(() => {
+    if (savedXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = savedXdg;
+    if (savedHome === undefined) delete process.env.HOME;
+    else process.env.HOME = savedHome;
+  });
+
+  function readBack(): Record<string, any> {
+    return parseToml(readFileSync(userConfigPath(baseEnv()), "utf8")) as Record<string, any>;
+  }
+
+  it("writeCredential upserts and sets default when none exists", () => {
+    writeCredential("my-org", "lin_api_first00000");
+    const obj = readBack();
+    expect(obj.default_workspace).toBe("my-org");
+    expect(obj.workspaces["my-org"].api_key).toBe("lin_api_first00000");
+  });
+
+  it("writeCredential preserves other workspaces and top-level settings", () => {
+    writeUserConfig(
+      `default_workspace = "org-a"\nteam = "TES"\nsort = "updated"\n` +
+        `[workspaces."org-a"]\napi_key = "lin_api_a000000000"\n`,
+    );
+    writeCredential("org-b", "lin_api_b000000000");
+    const obj = readBack();
+    expect(obj.default_workspace).toBe("org-a"); // unchanged
+    expect(obj.team).toBe("TES");
+    expect(obj.sort).toBe("updated");
+    expect(obj.workspaces["org-a"].api_key).toBe("lin_api_a000000000");
+    expect(obj.workspaces["org-b"].api_key).toBe("lin_api_b000000000");
+  });
+
+  it("round-trips quoted hyphenated slugs through resolveConfig", () => {
+    writeCredential("acme-corp", "lin_api_acme000000");
+    const cfg = resolveConfig({ env: baseEnv(), flags: { workspace: "acme-corp" } });
+    expect(cfg.apiKey).toBe("lin_api_acme000000");
+    expect(cfg.credentialWorkspace).toBe("acme-corp");
+  });
+
+  it("round-trips slugs needing real quoting (dots)", () => {
+    writeCredential("co.uk-org", "lin_api_couk000000");
+    const cfg = resolveConfig({ env: baseEnv(), flags: { workspace: "co.uk-org" } });
+    expect(cfg.apiKey).toBe("lin_api_couk000000");
+  });
+
+  it("setDefaultWorkspace updates the default", () => {
+    writeCredential("org-a", "lin_api_a000000000");
+    writeCredential("org-b", "lin_api_b000000000");
+    setDefaultWorkspace("org-b");
+    expect(readBack().default_workspace).toBe("org-b");
+  });
+
+  it("setDefaultWorkspace errors for an unconfigured workspace", () => {
+    writeCredential("org-a", "lin_api_a000000000");
+    expect(() => setDefaultWorkspace("ghost")).toThrow(/not configured/);
+  });
+
+  it("removeCredential removes only the target workspace", () => {
+    writeCredential("org-a", "lin_api_a000000000");
+    writeCredential("org-b", "lin_api_b000000000");
+    expect(removeCredential("org-a")).toBe(true);
+    const obj = readBack();
+    expect(obj.workspaces["org-a"]).toBeUndefined();
+    expect(obj.workspaces["org-b"].api_key).toBe("lin_api_b000000000");
+  });
+
+  it("removeCredential repoints the default when removing the default", () => {
+    writeCredential("org-a", "lin_api_a000000000"); // becomes default
+    writeCredential("org-b", "lin_api_b000000000");
+    removeCredential("org-a");
+    expect(readBack().default_workspace).toBe("org-b");
+  });
+
+  it("removeCredential clears default_workspace when removing the last workspace", () => {
+    writeCredential("solo", "lin_api_solo000000");
+    expect(removeCredential("solo")).toBe(true);
+    const obj = readBack();
+    expect(obj.default_workspace).toBeUndefined();
+    expect(obj.workspaces).toBeUndefined();
+  });
+
+  it("removeCredential returns false for an unknown workspace", () => {
+    writeCredential("org-a", "lin_api_a000000000");
+    expect(removeCredential("ghost")).toBe(false);
+  });
+
+  it("listCredentials shows one entry per workspace with the default flag", () => {
+    writeUserConfig(
+      `default_workspace = "org-a"\n` +
+        `[workspaces."org-a"]\napi_key = "lin_api_a000000000"\n` +
+        `[workspaces."org-b"]\napi_key = "lin_api_b000000000"\n`,
+    );
+    const list = listCredentials(baseEnv());
+    expect(list).toHaveLength(2);
+    expect(list.find((e) => e.slug === "org-a")?.isDefault).toBe(true);
+    expect(list.find((e) => e.slug === "org-b")?.isDefault).toBe(false);
   });
 });
 

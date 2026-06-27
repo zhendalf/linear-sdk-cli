@@ -45,6 +45,7 @@ export function addGlobalOptions(program: Command): Command {
     .option("--json", "output machine-readable JSON")
     .option("--no-color", "disable colored output")
     .option("--api-key <key>", "Linear API key (overrides env/config)")
+    .option("--workspace <slug>", "select workspace credential profile")
     .option("-t, --team <key>", "default team key (e.g. TES)")
     .option("-n, --limit <n>", "max results", parseIntOption)
     .option("--all", "fetch all results (exhaust pagination)")
