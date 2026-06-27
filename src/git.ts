@@ -1,6 +1,7 @@
 /**
- * Git integration: infer the "current issue" from the branch name, and build
- * suggested branch names. Pure parsing logic is separated for unit testing.
+ * Git integration: infer the "current issue" from the branch name, build
+ * suggested branch names, and assemble commit trailers / `gh pr create` argv.
+ * Pure parsing/building logic is separated for unit testing.
  */
 
 import { execFileSync } from "node:child_process";
@@ -46,6 +47,38 @@ export function currentIssueId(cwd?: string): string | undefined {
 
 export function isGitRepo(cwd?: string): boolean {
   return git(["rev-parse", "--is-inside-work-tree"], cwd) === "true";
+}
+
+/**
+ * Build the commit-message trailer that links a commit to a Linear issue via
+ * Linear's git magic words. `Fixes <ID>` closes the issue on merge; the
+ * `references` option emits `References <ID>` which links without closing.
+ */
+export function buildTrailer(identifier: string, opts: { references?: boolean } = {}): string {
+  return `${opts.references ? "References" : "Fixes"} ${identifier}`;
+}
+
+export interface PrArgsInput {
+  title: string;
+  body: string;
+  base?: string;
+  head?: string;
+  draft?: boolean;
+  web?: boolean;
+}
+
+/**
+ * Build the argv passed to `gh pr create`. Title and body are always present;
+ * base/head/draft/web are included only when set. Pure + unit-tested so the
+ * exact flag wiring is verifiable without shelling out to `gh`.
+ */
+export function buildPrArgs(input: PrArgsInput): string[] {
+  const args = ["pr", "create", "--title", input.title, "--body", input.body];
+  if (input.base) args.push("--base", input.base);
+  if (input.head) args.push("--head", input.head);
+  if (input.draft) args.push("--draft");
+  if (input.web) args.push("--web");
+  return args;
 }
 
 export interface CheckoutResult {

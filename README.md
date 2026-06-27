@@ -100,13 +100,55 @@ linear issue list --json | jq -r '.[].identifier'      # scripting
 In a git repository, bare `linear` (and `linear issue`) shows the issue inferred from the
 current branch, so most issue commands let you omit the id entirely.
 
+## Git workflow
+
+These commands turn a Linear issue into commits and a GitHub pull request. The issue id is
+optional everywhere — it's inferred from the current branch (`tes-123-foo` → `TES-123`).
+
+**`issue describe [id]`** prints the issue title and a commit-message trailer using Linear's
+[git magic words](https://linear.app/docs/github#link-prs-and-commits), so the issue is linked
+(and closed on merge) when the commit lands:
+
+```sh
+linear issue describe                 # on a tes-123-* branch
+# Fix the login redirect loop
+#
+# Fixes TES-123
+
+linear issue describe -r              # link without closing
+# Fix the login redirect loop
+#
+# References TES-123
+
+# drop it straight into a commit
+git commit -m "$(linear issue describe)"
+```
+
+**`issue pull-request [id]`** (alias **`pr`**) opens a GitHub PR for the issue via the
+[`gh`](https://cli.github.com) CLI. The PR title defaults to the issue title and the body is the
+issue description followed by a `Fixes <ID>` trailer plus the Linear URL, so the PR and the issue
+reference each other. The created PR URL is printed to stdout (and is the only thing on stdout in
+`--json` mode):
+
+```sh
+linear issue pr                       # title/body from the inferred issue
+linear issue pr TES-123 --draft       # open as a draft
+linear issue pr --base main --title "Custom title"
+linear issue pr --web                 # open the PR creation page in the browser
+linear issue pr --json | jq -r .url   # scripting
+```
+
+`gh` must be installed and authenticated, the branch must be pushed, and the remote must be a
+GitHub repo — the command does **not** push or create branches for you. If `gh` is missing or
+fails (e.g. branch not pushed, not authenticated), you get a clear error, not a stack trace.
+
 ## Commands
 
 Every group has `--help` with full options. Aliases are shown in parentheses.
 
 | Group | What you can do |
 | --- | --- |
-| **`issue`** (`i`) | `view` · `list` · `search` · `create` · `update` · `delete` · `archive`/`unarchive` · `start` (git branch) · `assign` · `state` · `label` · `comment`/`comments` · `relation` · `subscribe`/`unsubscribe` · `id`/`title`/`url`/`branch` |
+| **`issue`** (`i`) | `view` · `list` · `search` · `create` · `update` · `delete` · `archive`/`unarchive` · `start` (git branch) · `describe` · `pull-request`/`pr` · `assign` · `state` · `label` · `comment`/`comments` · `relation` · `subscribe`/`unsubscribe` · `id`/`title`/`url`/`branch` |
 | **`team`** (`t`) | `list` · `view` · `members` · `states` · `labels` · `cycles` · `create` · `update` |
 | **`project`** (`p`) | `list` · `view` · `create` · `update` · `archive` · `milestones` · `updates` |
 | **`milestone`** (`m`) | `list` · `view` · `create` · `update` · `delete` |

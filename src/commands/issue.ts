@@ -11,7 +11,15 @@ import { addFilterOptions, parseList, parseIntOption } from "../lib/options.js";
 import { resolveBody } from "../lib/body.js";
 import { confirmDestructive, promptInput } from "../lib/prompt.js";
 import { usageError } from "../lib/errors.js";
-import { currentIssueId, checkoutBranch, isGitRepo } from "../git.js";
+import {
+  currentIssueId,
+  checkoutBranch,
+  isGitRepo,
+  buildTrailer,
+  buildPrArgs,
+} from "../git.js";
+import { execFileSync } from "node:child_process";
+import { CliError } from "../lib/errors.js";
 import type { Context } from "../context.js";
 import * as svc from "../services/issue.js";
 import type { Column } from "../output/table.js";
@@ -338,6 +346,69 @@ export function registerIssue(program: Command): void {
       }),
     );
 
+  // describe ----------------------------------------------------------------
+  issue
+    .command("describe [id]")
+    .description("Print the issue title and a commit-message trailer (Fixes <ID>)")
+    .option("-r, --references", "use a 'References <ID>' trailer instead of 'Fixes <ID>'")
+    .action(
+      action(async (ctx: Context, opts, idArg?: string) => {
+        const detail = await svc.getIssueDetail(ctx.client, requireId(idArg));
+        const trailer = buildTrailer(detail.identifier, { references: opts.references });
+        ctx.output.emit({ identifier: detail.identifier, title: detail.title, trailer }, () => {
+          ctx.output.line(detail.title);
+          ctx.output.line();
+          ctx.output.line(trailer);
+        });
+      }),
+    );
+
+  // pull-request ------------------------------------------------------------
+  issue
+    .command("pull-request [id]")
+    .alias("pr")
+    .description("Create a GitHub PR for the issue via the gh CLI")
+    .option("--base <branch>", "base branch for the PR")
+    .option("--head <branch>", "head branch for the PR")
+    .option("--draft", "create the PR as a draft")
+    .option("--title <title>", "PR title (defaults to the issue title)")
+    .option("--web", "open the PR creation page in the browser")
+    .action(
+      action(async (ctx: Context, opts, idArg?: string) => {
+        if (!isGitRepo()) {
+          throw usageError("`issue pr` must be run inside a git repository.");
+        }
+        const detail = await svc.getIssueDetail(ctx.client, requireId(idArg));
+        const title = opts.title ?? detail.title;
+        // Body = issue description (may be empty), then a trailer linking Linear
+        // both ways: the magic word closes the issue on merge, the URL backlinks.
+        const description = detail.description?.trim();
+        const trailerBlock = `${buildTrailer(detail.identifier)}\n${detail.url}`;
+        const body = description ? `${description}\n\n${trailerBlock}` : trailerBlock;
+        const args = buildPrArgs({
+          title,
+          body,
+          base: opts.base,
+          head: opts.head,
+          draft: opts.draft,
+          web: opts.web,
+        });
+
+        if (opts.web) {
+          runGh(args);
+          ctx.output.emit({ web: true, identifier: detail.identifier }, () =>
+            ctx.output.info(`Opening a PR for ${detail.identifier} in the browser…`),
+          );
+          return;
+        }
+
+        const url = runGh(args).trim();
+        ctx.output.emit({ url, identifier: detail.identifier, title }, () =>
+          ctx.output.success(`Created PR for ${detail.identifier}: ${url}`),
+        );
+      }),
+    );
+
   // relation ----------------------------------------------------------------
   issue
     .command("relation <id> <op> [other]")
@@ -480,6 +551,27 @@ function oneOrTwo(a: string | undefined, b: string | undefined, valueName: strin
     throw usageError(`Missing ${valueName}. Usage: <id> <${valueName}>  (or just <${valueName}> on a matching branch)`);
   }
   return { value: a };
+}
+
+/**
+ * Invoke `gh` with the given argv, returning its stdout. `gh`'s stderr is
+ * captured (so it never pollutes our stdout / the `--json` contract) and only
+ * surfaced when gh fails — as the message of a clear CliError. Failures map to
+ * helpful errors: a missing `gh` becomes a usage error.
+ */
+function runGh(args: string[]): string {
+  try {
+    return execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException & { status?: number; stderr?: Buffer | string };
+    if (e.code === "ENOENT") {
+      throw usageError(
+        "GitHub CLI (gh) is required for `issue pr`. Install it from https://cli.github.com.",
+      );
+    }
+    const stderr = e.stderr ? e.stderr.toString().trim() : "";
+    throw new CliError(stderr || `gh exited with code ${e.status ?? 1}.`, "runtime");
+  }
 }
 
 async function openUrl(url: string): Promise<void> {

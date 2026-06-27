@@ -8,6 +8,17 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Git + GitHub PR workflow.** Two new issue subcommands bridge Linear and your VCS, with the
+  issue id inferred from the current branch as usual. `issue describe [id]` prints the issue
+  title plus a commit-message trailer using Linear's git magic words (`Fixes <ID>`, or
+  `References <ID>` with `-r`/`--references`) — drop it into `git commit -m "$(linear issue
+  describe)"`. `issue pull-request [id]` (alias `pr`) creates a GitHub PR via the `gh` CLI:
+  the title defaults to the issue title (`--title` to override) and the body is the issue
+  description followed by a `Fixes <ID>` trailer and the Linear URL, so the PR and issue
+  reference each other. Flags: `--base`, `--head`, `--draft`, `--web`. The created PR URL is the
+  only thing emitted to stdout (`{ url, identifier, title }` in `--json`). It never auto-pushes
+  or creates branches, and fails with clear errors when not in a git repo, when `gh` is missing,
+  or when `gh` itself fails.
 - **Multi-workspace credentials.** Store API keys for several workspaces and switch between
   them. New `auth` subcommands: `auth list` (configured workspaces + default), `auth default
   <slug>` (set the default), and `auth token` (print the resolved key for scripting). `auth
