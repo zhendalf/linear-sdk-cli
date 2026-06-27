@@ -1,5 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { renderTable, renderDetail, selectColumns, type Column } from "../../src/output/table.js";
+import { CliError } from "../../src/lib/errors.js";
 
 interface Row {
   id: string;
@@ -35,8 +36,12 @@ describe("selectColumns", () => {
     const picked = selectColumns(columns, ["title", "id"]);
     expect(picked.map((c) => c.key)).toEqual(["title", "id"]);
   });
-  it("ignores unknown fields and falls back to all when none match", () => {
-    expect(selectColumns(columns, ["nope"]).map((c) => c.key)).toEqual(["id", "title"]);
+  it("throws a usage error on an unknown field, listing available keys", () => {
+    expect(() => selectColumns(columns, ["nope"])).toThrow(CliError);
+    expect(() => selectColumns(columns, ["nope"])).toThrow(/Unknown field 'nope'\. Available: id, title\./);
+  });
+  it("matches by header (case-insensitive) as well as key", () => {
+    expect(selectColumns(columns, ["TITLE"]).map((c) => c.key)).toEqual(["title"]);
   });
   it("returns all columns when no fields given", () => {
     expect(selectColumns(columns).length).toBe(2);

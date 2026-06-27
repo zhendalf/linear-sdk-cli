@@ -7,7 +7,7 @@
 
 import { Command } from "commander";
 import { action } from "../lib/action.js";
-import { addFilterOptions, parseList, parseIntOption } from "../lib/options.js";
+import { addFilterOptions, parseList, parseIntOption, CYCLE_FLAG, CYCLE_DESC } from "../lib/options.js";
 import { resolveBody } from "../lib/body.js";
 import { confirmDestructive, promptInput } from "../lib/prompt.js";
 import { usageError } from "../lib/errors.js";
@@ -59,32 +59,13 @@ export function registerIssue(program: Command): void {
         const detail = await svc.getIssueDetail(ctx.client, requireId(idArg));
         if (opts.web) {
           await openUrl(detail.url);
-          ctx.output.success(`Opened ${detail.identifier}`);
+          ctx.output.emit(
+            { id: detail.id, identifier: detail.identifier, url: detail.url, opened: true },
+            () => ctx.output.success(`Opened ${detail.identifier}`),
+          );
           return;
         }
-        const comments = opts.comments ? await svc.listComments(ctx.client, detail.id, 10) : [];
-        ctx.output.detail({ ...detail, comments: opts.comments ? comments : undefined }, [
-          ["Issue", `${detail.identifier}  ${detail.title}`],
-          ["State", detail.state],
-          ["Priority", detail.priorityLabel],
-          ["Assignee", detail.assignee],
-          ["Team", detail.team],
-          ["Project", detail.project],
-          ["Milestone", detail.milestone],
-          ["Cycle", detail.cycle],
-          ["Parent", detail.parent],
-          ["Estimate", detail.estimate],
-          ["Labels", detail.labels.length ? detail.labels.join(", ") : null],
-          ["Due", detail.dueDate],
-          ["URL", detail.url],
-          ["Updated", detail.updatedAt],
-          ["Description", detail.description ? `\n${detail.description}` : null],
-          ...(opts.comments
-            ? comments.map(
-                (c) => [c.createdAt.slice(0, 10) + " " + c.user, c.body] as [string, unknown],
-              )
-            : []),
-        ]);
+        await renderIssueDetail(ctx, detail, !!opts.comments);
       }),
     );
 
@@ -93,6 +74,16 @@ export function registerIssue(program: Command): void {
     .command("list")
     .alias("ls")
     .description("List issues with filters")
+    .addHelpText(
+      "after",
+      [
+        "",
+        "Examples:",
+        "  linear issue list --assignee me --state 'In Progress'",
+        "  linear issue list --team TES --label bug --sort priority",
+        "  linear issue list --cycle current --json | jq -r '.[].identifier'",
+      ].join("\n"),
+    )
     .action(
       action(async (ctx: Context, opts) => {
         const rows = await svc.listIssues(
@@ -143,10 +134,21 @@ export function registerIssue(program: Command): void {
     .option("-l, --label <name>", "label (repeatable / comma-separated)", parseList)
     .option("-p, --project <name>", "project name or id")
     .option("--milestone <name>", "project milestone (requires --project)")
-    .option("--cycle <n>", "cycle number, id, or 'current'")
+    .option(CYCLE_FLAG, CYCLE_DESC)
     .option("--estimate <n>", "estimate points", parseIntOption)
     .option("--parent <id>", "parent issue id")
     .option("--due <date>", "due date (YYYY-MM-DD)")
+    .addHelpText(
+      "after",
+      [
+        "",
+        "Examples:",
+        "  linear issue create --title 'Fix login' --team TES --assignee me",
+        "  linear issue create --title 'Bug' -l bug -l urgent --priority 1",
+        "  linear issue create --title 'Sprint task' --cycle current --state 'In Progress'",
+        "  linear issue create --title 'API' --team TES --json | jq -r '.identifier'",
+      ].join("\n"),
+    )
     .action(
       action(async (ctx: Context, opts) => {
         let title: string | undefined = opts.title;
@@ -194,12 +196,22 @@ export function registerIssue(program: Command): void {
     .option("-P, --priority <0-4>", "priority", parseIntOption)
     .option("-p, --project <name>", "project name or id")
     .option("--milestone <name>", "project milestone")
-    .option("--cycle <n>", "cycle number, id, or 'current'")
+    .option(CYCLE_FLAG, CYCLE_DESC)
     .option("--estimate <n>", "estimate points", parseIntOption)
     .option("--parent <id>", "parent issue id")
     .option("--due <date>", "due date (YYYY-MM-DD)")
     .option("--add-label <name>", "add a label (repeatable)", parseList)
     .option("--remove-label <name>", "remove a label (repeatable)", parseList)
+    .addHelpText(
+      "after",
+      [
+        "",
+        "Examples:",
+        "  linear issue update TES-42 --state 'In Progress' --assignee me",
+        "  linear issue update --priority 1 --add-label regression   # id from branch",
+        "  linear issue update TES-42 --cycle current --json",
+      ].join("\n"),
+    )
     .action(
       action(async (ctx: Context, opts, idArg?: string) => {
         const description = resolveBody({
@@ -315,6 +327,17 @@ export function registerIssue(program: Command): void {
     .option("--state <name>", "also move the issue to this state")
     .option("--move", "move the issue to the first 'started' state")
     .option("--no-checkout", "do not touch git; only update state")
+    .addHelpText(
+      "after",
+      [
+        "",
+        "Examples:",
+        "  linear issue start TES-42            # checkout the issue's branch",
+        "  linear issue start TES-42 --move     # branch + move to first 'started' state",
+        "  linear issue start TES-42 --state 'In Progress' --no-checkout",
+        "  linear issue start --json | jq -r '.branch'   # id from branch",
+      ].join("\n"),
+    )
     .action(
       action(async (ctx: Context, opts, idArg?: string) => {
         const moved = !!opts.state || !!opts.move;
@@ -442,8 +465,19 @@ export function registerIssue(program: Command): void {
               ? "duplicate"
               : "related";
         const { issue: a, other: b } = await svc.addRemoveRelation(ctx.client, id, op, type as any, other);
-        ctx.output.emit({ issue: a.identifier, other: b.identifier, type, op }, () =>
-          ctx.output.success(`${op === "add" ? "Added" : "Removed"} ${type} relation ${a.identifier} ↔ ${b.identifier}`),
+        ctx.output.emit(
+          {
+            issueId: a.id,
+            issueIdentifier: a.identifier,
+            otherId: b.id,
+            otherIdentifier: b.identifier,
+            type,
+            op,
+          },
+          () =>
+            ctx.output.success(
+              `${op === "add" ? "Added" : "Removed"} ${type} relation ${a.identifier} ↔ ${b.identifier}`,
+            ),
         );
       }),
     );
@@ -455,7 +489,7 @@ export function registerIssue(program: Command): void {
     .action(
       action(async (ctx: Context, _opts, idArg?: string) => {
         const iss = await svc.setSubscription(ctx.client, requireId(idArg), true);
-        ctx.output.emit({ identifier: iss.identifier, subscribed: true }, () =>
+        ctx.output.emit({ id: iss.id, identifier: iss.identifier, subscribed: true }, () =>
           ctx.output.success(`Subscribed to ${iss.identifier}`),
         );
       }),
@@ -466,7 +500,7 @@ export function registerIssue(program: Command): void {
     .action(
       action(async (ctx: Context, _opts, idArg?: string) => {
         const iss = await svc.setSubscription(ctx.client, requireId(idArg), false);
-        ctx.output.emit({ identifier: iss.identifier, subscribed: false }, () =>
+        ctx.output.emit({ id: iss.id, identifier: iss.identifier, subscribed: false }, () =>
           ctx.output.success(`Unsubscribed from ${iss.identifier}`),
         );
       }),
@@ -478,8 +512,10 @@ export function registerIssue(program: Command): void {
     .description("Archive an issue")
     .action(
       action(async (ctx: Context, _opts, idArg?: string) => {
-        const iss = await svc.archiveIssue(ctx.client, requireId(idArg), false);
-        ctx.output.emit({ identifier: iss.identifier, archived: true }, () =>
+        const id = requireId(idArg);
+        if (!(await confirmDestructive(ctx, `Archive issue ${id}?`))) return;
+        const iss = await svc.archiveIssue(ctx.client, id, false);
+        ctx.output.emit({ id: iss.id, identifier: iss.identifier, archived: true }, () =>
           ctx.output.success(`Archived ${iss.identifier}`),
         );
       }),
@@ -490,7 +526,7 @@ export function registerIssue(program: Command): void {
     .action(
       action(async (ctx: Context, _opts, idArg?: string) => {
         const iss = await svc.archiveIssue(ctx.client, requireId(idArg), true);
-        ctx.output.emit({ identifier: iss.identifier, archived: false }, () =>
+        ctx.output.emit({ id: iss.id, identifier: iss.identifier, archived: false }, () =>
           ctx.output.success(`Unarchived ${iss.identifier}`),
         );
       }),
@@ -504,7 +540,7 @@ export function registerIssue(program: Command): void {
         const id = requireId(idArg);
         if (!(await confirmDestructive(ctx, `Delete issue ${id}?`))) return;
         const iss = await svc.deleteIssue(ctx.client, id);
-        ctx.output.emit({ identifier: iss.identifier, deleted: true }, () =>
+        ctx.output.emit({ id: iss.id, identifier: iss.identifier, deleted: true }, () =>
           ctx.output.success(`Deleted ${iss.identifier}`),
         );
       }),
@@ -515,6 +551,40 @@ export function registerIssue(program: Command): void {
   registerScalar(issue, "title", "Print the issue title", (d) => d.title);
   registerScalar(issue, "url", "Print the issue URL", (d) => d.url);
   registerScalar(issue, "branch", "Print the suggested git branch name", (d) => d.branchName);
+}
+
+/**
+ * Render a single issue's detail block. Shared by `issue view` and the bare
+ * `linear` command so `linear --json` === `issue view <id> --json`.
+ */
+export async function renderIssueDetail(
+  ctx: Context,
+  detail: svc.IssueDetail,
+  includeComments: boolean,
+): Promise<void> {
+  const comments = includeComments ? await svc.listComments(ctx.client, detail.id, 10) : [];
+  ctx.output.detail({ ...detail, comments: includeComments ? comments : undefined }, [
+    ["Issue", `${detail.identifier}  ${detail.title}`],
+    ["State", detail.state],
+    ["Priority", detail.priorityLabel],
+    ["Assignee", detail.assignee],
+    ["Team", detail.team],
+    ["Project", detail.project],
+    ["Milestone", detail.milestone],
+    ["Cycle", detail.cycle],
+    ["Parent", detail.parent],
+    ["Estimate", detail.estimate],
+    ["Labels", detail.labels.length ? detail.labels.join(", ") : null],
+    ["Due", detail.dueDate],
+    ["URL", detail.url],
+    ["Updated", detail.updatedAt],
+    ["Description", detail.description ? `\n${detail.description}` : null],
+    ...(includeComments
+      ? comments.map(
+          (c) => [c.createdAt.slice(0, 10) + " " + c.user, c.body] as [string, unknown],
+        )
+      : []),
+  ]);
 }
 
 function registerScalar(

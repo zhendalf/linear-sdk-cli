@@ -8,6 +8,44 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Discovery commands for scripts & agents.** `linear commands` prints a machine-readable tree
+  of every (sub)command — `--json` emits a bare array of
+  `{ path, description, aliases, arguments, options }` (human mode is a compact indented listing).
+  `linear schema` dumps the Linear GraphQL schema as SDL (`-o, --output <file>` writes to a file;
+  `--json` prints the raw introspection result), so an agent can do
+  `linear schema -o /tmp/s.graphql && grep 'type Issue' /tmp/s.graphql` and then reach anything
+  via `linear api`.
+- **Help examples.** `issue create`/`list`/`update`/`start` and `project create` now include an
+  Examples section in `--help` surfacing forgiving inputs (`--assignee me`, label-by-name,
+  `--cycle current`, `--state "In Progress"`) and a `--json` recipe.
+
+### Changed
+
+- **`issue archive` now confirms** before archiving, matching `issue delete` and the other
+  `archive` commands. Pass `-y/--yes` (required outside a TTY). `unarchive` stays un-gated.
+- **Stable `id` in mutation JSON.** Every issue mutation's `--json` output now carries the stable
+  UUID `id` alongside the human `identifier`: `archive`, `unarchive`, `delete`, `subscribe`,
+  `unsubscribe`. `issue relation add/remove` now emits `issueId`/`issueIdentifier` and
+  `otherId`/`otherIdentifier`.
+- **Bare `linear` is now consistent with `issue view`.** When an issue id is inferred from the
+  branch, `linear` (and `linear --json`) produces the exact same output as `issue view <id>`.
+  When no id can be inferred, `--json` fails with a usage error (so stdout is never non-JSON);
+  human mode still prints help.
+- **`issue view --web --json`** now emits `{ id, identifier, url, opened: true }` after opening
+  the browser (previously it produced no JSON).
+- **`api --paginate`** now warns on stderr when the result is truncated at the 1000-page safety
+  cap (previously it stopped silently).
+- **`--cycle`** uses a single metavar and description everywhere (`--cycle <n>`,
+  "cycle number, id, or 'current'") across filters and create/update.
+
+### Fixed
+
+- **Strict `--limit`.** `--limit` now accepts only a positive integer; `--limit 0`, `--limit -1`,
+  and `--limit 12x` are usage errors instead of silently falling back to the default.
+- **Strict `--fields`.** An unknown `--fields` name is now a usage error listing the available
+  columns, instead of silently showing all columns. (JSON output is unaffected — it stays
+  complete.) Fields also match by column header, case-insensitively.
+
 - **Status updates.** Two new command groups post and list project/initiative status updates:
   `project-update` (alias `pu`) and `initiative-update` (alias `iu`), each with `create <ref>` and
   `list <ref>` (alias `ls`). `create` takes the body from `--body`, `--body-file <path>` (`-` =

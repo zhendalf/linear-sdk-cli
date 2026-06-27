@@ -45,9 +45,13 @@ export function registerApi(program: Command): void {
         const variables = resolveVariables(opts);
 
         if (opts.paginate) {
-          const { nodes, pageCount } = await paginate(ctx, query, variables, opts.operation);
+          const { nodes, pageCount, truncated } = await paginate(ctx, query, variables, opts.operation);
           // Contract: stdout is a bare array; pagination metadata goes to stderr.
           ctx.output.info(`fetched ${nodes.length} node(s) across ${pageCount} page(s)`);
+          if (truncated)
+            ctx.output.warn(
+              `result truncated at the ${PAGE_CAP}-page safety cap; more pages may exist`,
+            );
           ctx.output.emit(nodes, () => process.stdout.write(JSON.stringify(nodes, null, 2) + "\n"));
           return;
         }
@@ -114,16 +118,19 @@ function parseJsonObject(text: string, label: string): Record<string, unknown> {
  * first `{ nodes, pageInfo }` connection in the result, and concatenate nodes.
  * The supplied query must accept an `$after: String` variable.
  */
+const PAGE_CAP = 1000;
+
 async function paginate(
   ctx: Context,
   query: string,
   variables: Record<string, unknown>,
   operation: string | undefined,
-): Promise<{ nodes: unknown[]; pageCount: number }> {
+): Promise<{ nodes: unknown[]; pageCount: number; truncated: boolean }> {
   let after: string | undefined = variables.after as string | undefined;
   let firstData: any;
   const allNodes: unknown[] = [];
   let pages = 0;
+  let truncated = false;
 
   for (;;) {
     const result: any = await withRetry(() =>
@@ -139,10 +146,13 @@ async function paginate(
     pages++;
     if (!conn.pageInfo?.hasNextPage || !conn.pageInfo?.endCursor) break;
     after = conn.pageInfo.endCursor as string;
-    if (pages > 1000) break; // safety bound
+    if (pages >= PAGE_CAP) {
+      truncated = true; // safety bound hit; more pages may exist
+      break;
+    }
   }
 
-  return { nodes: allNodes, pageCount: pages };
+  return { nodes: allNodes, pageCount: pages, truncated };
 }
 
 /** Find the first `{ nodes, pageInfo }` connection anywhere in the response. Exported for tests. */

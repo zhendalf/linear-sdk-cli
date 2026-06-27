@@ -37,6 +37,22 @@ export function parseIntOption(value: string): number {
 }
 
 /**
+ * Strict positive-integer parser for `--limit`: accepts only `1`, `2`, … (no
+ * leading zeros, no trailing junk, no `0`). Rejects `0`, `-1`, `12x`, `1.5`
+ * with a clear usage error instead of silently falling back.
+ */
+export function parsePositiveInt(value: string): number {
+  if (!/^[1-9]\d*$/.test(value)) {
+    throw usageError(`Expected --limit to be a positive integer, got '${value}'.`);
+  }
+  return Number.parseInt(value, 10);
+}
+
+/** Shared metavar + help for the cycle option (filter + create/update). */
+export const CYCLE_FLAG = "--cycle <n>";
+export const CYCLE_DESC = "cycle number, id, or 'current'";
+
+/**
  * Register the global options shared by all commands on the root program.
  * Commander makes these inheritable via `cmd.optsWithGlobals()`.
  */
@@ -47,9 +63,9 @@ export function addGlobalOptions(program: Command): Command {
     .option("--api-key <key>", "Linear API key (overrides env/config)")
     .option("--workspace <slug>", "select workspace credential profile")
     .option("-t, --team <key>", "default team key (e.g. TES)")
-    .option("-n, --limit <n>", "max results", parseIntOption)
+    .option("-n, --limit <n>", "max results (positive integer)", parsePositiveInt)
     .option("--all", "fetch all results (exhaust pagination)")
-    .option("-f, --fields <a,b,c>", "select output columns/fields", parseList)
+    .option("-f, --fields <a,b,c>", "select columns for human table output", parseList)
     .option("-y, --yes", "skip confirmation prompts")
     .option("-q, --quiet", "suppress status output")
     .option("--no-input", "never prompt; fail instead")
@@ -64,7 +80,7 @@ export function addFilterOptions(cmd: Command): Command {
     .addOption(new Option("-p, --project <name>", "filter by project"))
     .addOption(new Option("-l, --label <name>", "filter by label").argParser(parseList))
     .addOption(new Option("-P, --priority <0-4>", "filter by priority"))
-    .addOption(new Option("--cycle <id>", "filter by cycle"))
+    .addOption(new Option(CYCLE_FLAG, CYCLE_DESC))
     .addOption(new Option("--query <text>", "full-text search"))
     .addOption(new Option("--sort <field>", "sort order").choices(["priority", "updated", "created"]))
     .addOption(new Option("--include-archived", "include archived issues"));

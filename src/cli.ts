@@ -8,7 +8,7 @@ import { addGlobalOptions } from "./lib/options.js";
 import { registerMeta } from "./commands/meta.js";
 import { registerApi } from "./commands/api.js";
 import { registerCompletion } from "./commands/completion.js";
-import { registerIssue } from "./commands/issue.js";
+import { registerIssue, renderIssueDetail } from "./commands/issue.js";
 import { registerTeam } from "./commands/team.js";
 import { registerProject } from "./commands/project.js";
 import { registerProjectUpdate } from "./commands/project-update.js";
@@ -27,9 +27,11 @@ import { registerRoadmap } from "./commands/roadmap.js";
 import { registerNotification } from "./commands/notification.js";
 import { registerOrganization } from "./commands/organization.js";
 import { registerWebhook } from "./commands/webhook.js";
+import { registerCommands, registerSchema } from "./commands/discover.js";
 import { Context, type GlobalOptions } from "./context.js";
 import { currentIssueId } from "./git.js";
 import { getIssueDetail } from "./services/issue.js";
+import { usageError } from "./lib/errors.js";
 
 export const VERSION = "0.1.0";
 
@@ -73,22 +75,28 @@ export function createProgram(): Command {
   registerOrganization(program);
   registerWebhook(program);
 
+  // Discovery commands need the fully-built program tree, so register them last.
+  registerCommands(program);
+  registerSchema(program);
+
   // Bare `linear` (no subcommand): show the current branch's issue if one can
-  // be inferred, otherwise help.
+  // be inferred. With no inferable id: human mode shows help; --json fails with
+  // a usage error (so a bare `linear --json` never emits non-JSON to stdout).
+  // When an id IS inferred, the output matches `issue view <id>` exactly.
   program.action(async (_opts: unknown, command: Command) => {
+    const ctx = new Context(command.optsWithGlobals() as GlobalOptions);
     const id = currentIssueId();
     if (!id) {
+      if (ctx.output.json) {
+        throw usageError(
+          "No issue id inferred from the current branch. Pass an issue id or run `linear --help`.",
+        );
+      }
       command.help();
       return;
     }
-    const ctx = new Context(command.optsWithGlobals() as GlobalOptions);
-    const d = await getIssueDetail(ctx.client, id);
-    ctx.output.detail(d, [
-      ["Issue", `${d.identifier}  ${d.title}`],
-      ["State", d.state],
-      ["Assignee", d.assignee],
-      ["URL", d.url],
-    ]);
+    const detail = await getIssueDetail(ctx.client, id);
+    await renderIssueDetail(ctx, detail, false);
   });
 
   // Make global options usable in any position (e.g. `linear whoami --json`),

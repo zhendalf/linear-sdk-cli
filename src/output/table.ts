@@ -3,6 +3,7 @@
  */
 
 import pc from "picocolors";
+import { usageError } from "../lib/errors.js";
 
 export interface Column<T> {
   /** Stable key used by --fields selection. */
@@ -33,16 +34,29 @@ function cell(v: unknown): string {
   return String(v);
 }
 
-/** Filter columns to a requested subset (by key), preserving requested order. */
+/**
+ * Filter columns to a requested subset (by key or header, case-insensitive),
+ * preserving requested order. An unknown field is a usage error rather than a
+ * silent fall-through to all columns.
+ */
 export function selectColumns<T>(columns: Column<T>[], fields?: string[]): Column<T>[] {
   if (!fields || fields.length === 0) return columns;
-  const byKey = new Map(columns.map((c) => [c.key.toLowerCase(), c]));
+  const byName = new Map<string, Column<T>>();
+  for (const c of columns) {
+    byName.set(c.key.toLowerCase(), c);
+    if (c.header) byName.set(c.header.toLowerCase(), c);
+  }
   const picked: Column<T>[] = [];
   for (const f of fields) {
-    const col = byKey.get(f.toLowerCase());
-    if (col) picked.push(col);
+    const col = byName.get(f.toLowerCase());
+    if (!col) {
+      throw usageError(
+        `Unknown field '${f}'. Available: ${columns.map((c) => c.key).join(", ")}.`,
+      );
+    }
+    picked.push(col);
   }
-  return picked.length ? picked : columns;
+  return picked;
 }
 
 export function renderTable<T>(

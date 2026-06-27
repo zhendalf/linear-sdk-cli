@@ -105,7 +105,7 @@ suite("phase 1 — issue lifecycle (live)", () => {
 
   it("archives then deletes an issue", () => {
     const id = makeIssue("archive");
-    expect(runJson<{ archived: boolean }>(["issue", "archive", id]).archived).toBe(true);
+    expect(runJson<{ archived: boolean }>(["issue", "archive", id, "--yes"]).archived).toBe(true);
     runJson(["issue", "unarchive", id]);
     const del = runJson<{ deleted: boolean }>(["issue", "delete", id, "--yes"]);
     expect(del.deleted).toBe(true);

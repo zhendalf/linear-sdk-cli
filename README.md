@@ -167,7 +167,7 @@ Every group has `--help` with full options. Aliases are shown in parentheses.
 | **`notification`** (`notif`) | `list` · `read`/`unread` · `read-all` · `archive` · `snooze` |
 | **`organization`** (`org`) | `view` · `members` · `invites` |
 | **`webhook`** (`wh`) | `list` · `view` · `create` · `update` · `delete` |
-| **top-level** | `whoami` · `auth` (`login` · `list` · `default` · `token` · `status` · `logout`) · `config` · `api` · `completion` |
+| **top-level** | `whoami` · `auth` (`login` · `list` · `default` · `token` · `status` · `logout`) · `config` · `api` · `commands` · `schema` · `completion` |
 
 <sup>†</sup> Linear has **deprecated roadmaps** in favor of initiatives — reads still work, but the
 API rejects roadmap mutations with a deprecation notice. Use `initiative` for new work.
@@ -248,6 +248,21 @@ for coarse branching.)
 ```sh
 # agent-safe: no prompts, no chatter, fail fast with a parseable error
 linear issue delete TES-42 --yes --no-input --quiet --json
+```
+
+**Discovery.** Two commands let an agent learn the surface area without scraping `--help`:
+
+- **`linear commands`** — a machine-readable tree of every (sub)command. With `--json` it emits
+  a bare array of `{ path, description, aliases, arguments, options }`, so an agent can enumerate
+  what's available and how to call it.
+- **`linear schema`** — the Linear GraphQL schema. By default it prints SDL; `-o, --output <file>`
+  writes it to a file; `--json` prints the raw introspection result. Pair it with `linear api`
+  to reach anything the curated commands don't wrap.
+
+```sh
+linear commands --json | jq -r '.[].path'           # every command path
+linear schema -o /tmp/linear.graphql                 # dump SDL to a file
+grep 'type Issue ' /tmp/linear.graphql               # then explore it
 ```
 
 ## Configuration file

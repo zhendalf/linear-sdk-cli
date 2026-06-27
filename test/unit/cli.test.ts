@@ -46,6 +46,53 @@ describe("commander error boundary", () => {
   });
 });
 
+describe("discovery commands", () => {
+  function captureStdout(): { restore: () => void; text: () => string } {
+    let out = "";
+    const spy = vi.spyOn(process.stdout, "write").mockImplementation((c: any) => {
+      out += c;
+      return true;
+    });
+    return { restore: () => spy.mockRestore(), text: () => out };
+  }
+
+  it("registers `commands` and `schema` as top-level commands", () => {
+    const names = createProgram()
+      .commands.map((c) => c.name())
+      .sort();
+    expect(names).toContain("commands");
+    expect(names).toContain("schema");
+  });
+
+  it("`commands --json` emits a bare array of command nodes (no API call)", async () => {
+    const cap = captureStdout();
+    try {
+      await createProgram().parseAsync(["node", "linear", "commands", "--json"]);
+    } finally {
+      cap.restore();
+    }
+    const parsed = JSON.parse(cap.text());
+    expect(Array.isArray(parsed)).toBe(true);
+    const paths = parsed.map((n: any) => n.path);
+    expect(paths).toContain("issue create");
+    expect(paths).toContain("schema");
+    // Every node has the documented shape.
+    for (const n of parsed) {
+      expect(typeof n.path).toBe("string");
+      expect(Array.isArray(n.aliases)).toBe(true);
+      expect(Array.isArray(n.arguments)).toBe(true);
+      expect(Array.isArray(n.options)).toBe(true);
+    }
+  });
+
+  it("`schema --help` registers with -o/--output", () => {
+    const schema = createProgram().commands.find((c) => c.name() === "schema");
+    const help = schema?.helpInformation() ?? "";
+    expect(help).toContain("--output");
+    expect(help).toContain("SDL");
+  });
+});
+
 describe("auth commands operate in the ambiguous (multi-workspace, no default) state", () => {
   let root: string;
   let savedXdg: string | undefined;

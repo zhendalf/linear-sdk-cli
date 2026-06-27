@@ -84,6 +84,16 @@ export function registerProject(program: Command): void {
     .option("--state <name>", "initial status (name, type, or id)")
     .option("--start <date>", "planned start date (YYYY-MM-DD)")
     .option("--target <date>", "planned target date (YYYY-MM-DD)")
+    .addHelpText(
+      "after",
+      [
+        "",
+        "Examples:",
+        "  linear project create --name 'Q3 Launch' --teams TES --lead me",
+        "  linear project create --name Roadmap --teams TES,ENG --target 2026-09-30",
+        "  linear project create --name API --teams TES --json | jq -r '.id'",
+      ].join("\n"),
+    )
     .action(
       action(async (ctx: Context, opts) => {
         let name: string | undefined = opts.name;
