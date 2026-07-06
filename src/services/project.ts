@@ -7,7 +7,7 @@
 
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
-import { collect } from "../lib/pagination.js";
+import { collect, collectRawQuery } from "../lib/pagination.js";
 import { usageError, notFound, ambiguous } from "../lib/errors.js";
 import { resolveTeam, resolveUserId, resolveProjectId, isUuid } from "../lib/resolve.js";
 
@@ -65,38 +65,24 @@ export async function listProjects(
   defaultTeamKey: string | undefined,
 ): Promise<ProjectRow[]> {
   const filter = await buildFilter(client, filters, defaultTeamKey);
-  const pageLimit = limit === Infinity ? 100 : Math.min(limit, 100);
-  const rows: ProjectRow[] = [];
-  let after: string | undefined;
-
-  for (;;) {
-    const data: any = await withRetry(() =>
-      (client.client as any).rawRequest(LIST_QUERY, {
-        filter,
-        first: pageLimit,
-        after,
-        includeArchived: false,
-      }),
-    );
-    const conn = data.data.projects;
-    for (const n of conn.nodes) {
-      rows.push({
-        id: n.id,
-        name: n.name,
-        state: n.state ?? null,
-        progress: n.progress ?? null,
-        url: n.url,
-        startDate: n.startDate ?? null,
-        targetDate: n.targetDate ?? null,
-        status: n.status ?? null,
-        lead: n.lead ?? null,
-      });
-      if (rows.length >= limit) break;
-    }
-    if (rows.length >= limit || !conn.pageInfo.hasNextPage) break;
-    after = conn.pageInfo.endCursor;
-  }
-  return rows;
+  return collectRawQuery<ProjectRow>(
+    client as any,
+    LIST_QUERY,
+    { filter, includeArchived: false },
+    "projects",
+    limit,
+    (n) => ({
+      id: n.id,
+      name: n.name,
+      state: n.state ?? null,
+      progress: n.progress ?? null,
+      url: n.url,
+      startDate: n.startDate ?? null,
+      targetDate: n.targetDate ?? null,
+      status: n.status ?? null,
+      lead: n.lead ?? null,
+    }),
+  );
 }
 
 export interface ProjectDetail {

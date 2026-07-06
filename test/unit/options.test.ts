@@ -1,5 +1,11 @@
 import { describe, it, expect } from "bun:test";
-import { collectKeyVal, collectArray, parseList, parseIntOption } from "../../src/lib/options.js";
+import {
+  collectKeyVal,
+  collectArray,
+  parseList,
+  parseIntOption,
+  parsePositiveInt,
+} from "../../src/lib/options.js";
 import { CliError } from "../../src/lib/errors.js";
 
 describe("collectKeyVal", () => {
@@ -36,5 +42,23 @@ describe("parseIntOption", () => {
   });
   it("throws on non-numbers", () => {
     expect(() => parseIntOption("abc")).toThrow(CliError);
+  });
+});
+
+describe("parsePositiveInt (--limit)", () => {
+  it("accepts positive integers", () => {
+    expect(parsePositiveInt("1")).toBe(1);
+    expect(parsePositiveInt("50")).toBe(50);
+  });
+  it("rejects zero", () => {
+    expect(() => parsePositiveInt("0")).toThrow(/positive integer, got '0'/);
+  });
+  it("rejects negatives, decimals, and trailing junk", () => {
+    expect(() => parsePositiveInt("-1")).toThrow(CliError);
+    expect(() => parsePositiveInt("1.5")).toThrow(CliError);
+    expect(() => parsePositiveInt("12x")).toThrow(/got '12x'/);
+  });
+  it("rejects leading zeros", () => {
+    expect(() => parsePositiveInt("01")).toThrow(CliError);
   });
 });

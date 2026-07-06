@@ -9,6 +9,7 @@
 
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
+import { collectRawQuery } from "../lib/pagination.js";
 import { usageError, notFound, ambiguous } from "../lib/errors.js";
 import { resolveTeam, resolveLabelIds, isUuid } from "../lib/resolve.js";
 
@@ -51,34 +52,21 @@ export async function listLabels(
     filter.team = { key: { eq: team.key } };
   }
 
-  const pageLimit = limit === Infinity ? 100 : Math.min(limit, 100);
-  const rows: LabelRow[] = [];
-  let after: string | undefined;
-
-  for (;;) {
-    const data: any = await withRetry(() =>
-      (client.client as any).rawRequest(LIST_QUERY, {
-        filter: Object.keys(filter).length ? filter : undefined,
-        first: pageLimit,
-        after,
-      }),
-    );
-    const conn = data.data.issueLabels;
-    for (const n of conn.nodes) {
-      rows.push({
-        id: n.id,
-        name: n.name,
-        color: n.color,
-        isGroup: !!n.isGroup,
-        team: n.team ?? null,
-        parent: n.parent ?? null,
-      });
-      if (rows.length >= limit) break;
-    }
-    if (rows.length >= limit || !conn.pageInfo.hasNextPage) break;
-    after = conn.pageInfo.endCursor;
-  }
-  return rows;
+  return collectRawQuery<LabelRow>(
+    client as any,
+    LIST_QUERY,
+    { filter: Object.keys(filter).length ? filter : undefined },
+    "issueLabels",
+    limit,
+    (n) => ({
+      id: n.id,
+      name: n.name,
+      color: n.color,
+      isGroup: !!n.isGroup,
+      team: n.team ?? null,
+      parent: n.parent ?? null,
+    }),
+  );
 }
 
 export interface CreateOptions {

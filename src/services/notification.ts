@@ -11,6 +11,7 @@
 
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
+import { collectRawQuery } from "../lib/pagination.js";
 
 export interface NotificationRow {
   id: string;
@@ -63,36 +64,23 @@ export async function listNotifications(
   limit: number,
   includeArchived: boolean,
 ): Promise<NotificationRow[]> {
-  const pageLimit = limit === Infinity ? 100 : Math.min(limit, 100);
-  const rows: NotificationRow[] = [];
-  let after: string | undefined;
-
-  for (;;) {
-    const data: any = await withRetry(() =>
-      (client.client as any).rawRequest(LIST_QUERY, {
-        first: pageLimit,
-        after,
-        includeArchived,
-      }),
-    );
-    const conn = data.data.notifications;
-    for (const n of conn.nodes) {
-      rows.push({
-        id: n.id,
-        type: n.type ?? n.__typename ?? "",
-        subject: subjectOf(n),
-        read: !!n.readAt,
-        readAt: n.readAt ?? null,
-        snoozedUntilAt: n.snoozedUntilAt ?? null,
-        archivedAt: n.archivedAt ?? null,
-        createdAt: n.createdAt,
-      });
-      if (rows.length >= limit) break;
-    }
-    if (rows.length >= limit || !conn.pageInfo.hasNextPage) break;
-    after = conn.pageInfo.endCursor;
-  }
-  return rows;
+  return collectRawQuery<NotificationRow>(
+    client as any,
+    LIST_QUERY,
+    { includeArchived },
+    "notifications",
+    limit,
+    (n) => ({
+      id: n.id,
+      type: n.type ?? n.__typename ?? "",
+      subject: subjectOf(n),
+      read: !!n.readAt,
+      readAt: n.readAt ?? null,
+      snoozedUntilAt: n.snoozedUntilAt ?? null,
+      archivedAt: n.archivedAt ?? null,
+      createdAt: n.createdAt,
+    }),
+  );
 }
 
 /**

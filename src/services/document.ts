@@ -8,6 +8,7 @@
 
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
+import { collectRawQuery } from "../lib/pagination.js";
 import { usageError, notFound } from "../lib/errors.js";
 import { resolveProjectId, resolveIssue, resolveTeam, isUuid } from "../lib/resolve.js";
 
@@ -35,33 +36,20 @@ export async function listDocuments(
   client: LinearClient,
   limit: number,
 ): Promise<DocumentRow[]> {
-  const pageLimit = limit === Infinity ? 100 : Math.min(limit, 100);
-  const rows: DocumentRow[] = [];
-  let after: string | undefined;
-
-  for (;;) {
-    const data: any = await withRetry(() =>
-      (client.client as any).rawRequest(LIST_QUERY, {
-        first: pageLimit,
-        after,
-        includeArchived: false,
-      }),
-    );
-    const conn = data.data.documents;
-    for (const n of conn.nodes) {
-      rows.push({
-        id: n.id,
-        title: n.title,
-        url: n.url,
-        updatedAt: n.updatedAt,
-        project: n.project ?? null,
-      });
-      if (rows.length >= limit) break;
-    }
-    if (rows.length >= limit || !conn.pageInfo.hasNextPage) break;
-    after = conn.pageInfo.endCursor;
-  }
-  return rows;
+  return collectRawQuery<DocumentRow>(
+    client as any,
+    LIST_QUERY,
+    { includeArchived: false },
+    "documents",
+    limit,
+    (n) => ({
+      id: n.id,
+      title: n.title,
+      url: n.url,
+      updatedAt: n.updatedAt,
+      project: n.project ?? null,
+    }),
+  );
 }
 
 export interface DocumentDetail {

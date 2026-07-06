@@ -28,6 +28,9 @@ async function main(): Promise<void> {
     includeArchived: true,
   });
   for (const issue of issues.nodes) {
+    // `includeArchived` also returns already-trashed issues; deleting those just
+    // re-trashes the same set forever. Only act on live/archived (non-trashed) ones.
+    if (issue.trashed) continue;
     await client.deleteIssue(issue.id);
     console.error(`deleted issue ${issue.identifier} "${issue.title}"`);
     removed++;
@@ -41,9 +44,15 @@ async function main(): Promise<void> {
     removed++;
   }
 
-  // Projects.
-  const projects = await client.projects({ filter: { name: { startsWith: PREFIX } }, first: 100 });
+  // Projects. Tests archive (not delete) projects in teardown, so sweep archived
+  // ones too; skip already-trashed to avoid re-deleting the same returned set.
+  const projects = await client.projects({
+    filter: { name: { startsWith: PREFIX } },
+    first: 100,
+    includeArchived: true,
+  });
   for (const project of projects.nodes) {
+    if (project.trashed) continue;
     await client.deleteProject(project.id);
     console.error(`deleted project "${project.name}"`);
     removed++;

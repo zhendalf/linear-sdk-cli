@@ -8,8 +8,11 @@ import { authError, normalizeError, CliError } from "./lib/errors.js";
 
 export function createClient(config: ResolvedConfig): LinearClient {
   if (!config.apiKey) {
-    throw authError(
-      "No API key found. Set LINEAR_API_KEY, pass --api-key, or run `linear auth login`.",
+    // Surface the precise credential-selection error (ambiguous / unstored
+    // workspace) only now, when a client is actually required.
+    throw (
+      config.apiKeyError ??
+      authError("No API key found. Set LINEAR_API_KEY, pass --api-key, or run `linear auth login`.")
     );
   }
   return new LinearClient({ apiKey: config.apiKey });

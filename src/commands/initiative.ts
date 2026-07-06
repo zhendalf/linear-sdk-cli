@@ -69,7 +69,7 @@ export function registerInitiative(program: Command): void {
     .option("--name <name>", "initiative name")
     .option("-d, --description <text>", "initiative description")
     .option("--description-file <path>", "read description from a file ('-' = stdin)")
-    .option("--target-date <date>", "estimated completion date (YYYY-MM-DD)")
+    .option("--target <date>", "estimated completion date (YYYY-MM-DD)")
     .option("--owner <who>", "initiative owner (me|email|name|id)")
     .option("--status <name>", "status (Planned, Active, Completed, Canceled, Proposed)")
     .action(
@@ -84,7 +84,7 @@ export function registerInitiative(program: Command): void {
         const created = await svc.createInitiative(ctx.client, {
           name,
           description,
-          targetDate: opts.targetDate,
+          targetDate: opts.target,
           owner: opts.owner,
           status: opts.status,
         });
@@ -102,7 +102,7 @@ export function registerInitiative(program: Command): void {
     .option("--name <name>", "new name")
     .option("-d, --description <text>", "new description")
     .option("--description-file <path>", "read description from a file ('-' = stdin)")
-    .option("--target-date <date>", "estimated completion date (YYYY-MM-DD)")
+    .option("--target <date>", "estimated completion date (YYYY-MM-DD)")
     .option("--owner <who>", "initiative owner (me|email|name|id)")
     .option("--status <name>", "status (Planned, Active, Completed, Canceled, Proposed)")
     .action(
@@ -115,7 +115,7 @@ export function registerInitiative(program: Command): void {
         const updated = await svc.updateInitiative(ctx.client, idArg, {
           name: opts.name,
           description,
-          targetDate: opts.targetDate,
+          targetDate: opts.target,
           owner: opts.owner,
           status: opts.status,
         });

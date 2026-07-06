@@ -83,7 +83,7 @@ suite("project — project lifecycle (live)", () => {
     const { id } = makeProject("ms");
     const milestones = runJson<Array<unknown>>(["project", "milestones", id]);
     expect(Array.isArray(milestones)).toBe(true);
-    const updates = runJson<Array<unknown>>(["project", "updates", id]);
+    const updates = runJson<Array<unknown>>(["project-update", "list", id]);
     expect(Array.isArray(updates)).toBe(true);
   });
 

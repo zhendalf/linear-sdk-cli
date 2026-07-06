@@ -22,9 +22,9 @@ suite("cycle lifecycle (live)", () => {
       TEAM,
       "--name",
       `${FIXTURE_PREFIX}create`,
-      "--startsAt",
+      "--start",
       w.startsAt,
-      "--endsAt",
+      "--end",
       w.endsAt,
     ]);
     expect(res.id).toBeTruthy();
@@ -52,9 +52,9 @@ suite("cycle lifecycle (live)", () => {
       TEAM,
       "--name",
       `${FIXTURE_PREFIX}view`,
-      "--startsAt",
+      "--start",
       w.startsAt,
-      "--endsAt",
+      "--end",
       w.endsAt,
     ]);
     const d = runJson<{ id: string; number: number; team: string }>(["cycle", "view", created.id]);
@@ -70,9 +70,9 @@ suite("cycle lifecycle (live)", () => {
       TEAM,
       "--name",
       `${FIXTURE_PREFIX}update`,
-      "--startsAt",
+      "--start",
       w.startsAt,
-      "--endsAt",
+      "--end",
       w.endsAt,
     ]);
     runJson(["cycle", "update", created.id, "--name", `${FIXTURE_PREFIX}updated`]);

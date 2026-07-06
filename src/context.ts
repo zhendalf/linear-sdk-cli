@@ -14,6 +14,7 @@ export interface GlobalOptions {
   color?: boolean; // commander sets false for --no-color
   apiKey?: string;
   team?: string;
+  workspace?: string;
   limit?: number;
   all?: boolean;
   fields?: string[];
@@ -33,7 +34,7 @@ export class Context {
   constructor(options: GlobalOptions) {
     this.options = options;
     this.config = resolveConfig({
-      flags: { apiKey: options.apiKey, team: options.team },
+      flags: { apiKey: options.apiKey, team: options.team, workspace: options.workspace },
     });
     const color =
       options.color !== false && options.json !== true && process.stdout.isTTY === true;

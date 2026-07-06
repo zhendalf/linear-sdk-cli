@@ -9,6 +9,7 @@
 
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
+import { collectRawQuery } from "../lib/pagination.js";
 import { usageError, notFound, ambiguous } from "../lib/errors.js";
 import { resolveUserId, isUuid } from "../lib/resolve.js";
 
@@ -39,34 +40,21 @@ export async function listInitiatives(
   client: LinearClient,
   limit: number,
 ): Promise<InitiativeRow[]> {
-  const pageLimit = limit === Infinity ? 100 : Math.min(limit, 100);
-  const rows: InitiativeRow[] = [];
-  let after: string | undefined;
-
-  for (;;) {
-    const data: any = await withRetry(() =>
-      (client.client as any).rawRequest(LIST_QUERY, {
-        first: pageLimit,
-        after,
-        includeArchived: false,
-      }),
-    );
-    const conn = data.data.initiatives;
-    for (const n of conn.nodes) {
-      rows.push({
-        id: n.id,
-        name: n.name,
-        status: n.status ?? null,
-        targetDate: n.targetDate ?? null,
-        health: n.health ?? null,
-        url: n.url,
-      });
-      if (rows.length >= limit) break;
-    }
-    if (rows.length >= limit || !conn.pageInfo.hasNextPage) break;
-    after = conn.pageInfo.endCursor;
-  }
-  return rows;
+  return collectRawQuery<InitiativeRow>(
+    client as any,
+    LIST_QUERY,
+    { includeArchived: false },
+    "initiatives",
+    limit,
+    (n) => ({
+      id: n.id,
+      name: n.name,
+      status: n.status ?? null,
+      targetDate: n.targetDate ?? null,
+      health: n.health ?? null,
+      url: n.url,
+    }),
+  );
 }
 
 export interface InitiativeDetail {

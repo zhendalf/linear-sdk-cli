@@ -46,6 +46,8 @@ const CURATED: Record<string, string[]> = {
     "archiveProject",
     "projectStatuses",
   ],
+  // phase 3 (parity) — project & initiative status updates
+  "project-update": ["projectUpdates", "createProjectUpdate"],
   milestone: [
     "projectMilestone",
     "projectMilestones",
@@ -80,6 +82,7 @@ const CURATED: Record<string, string[]> = {
     "archiveInitiative",
     "unarchiveInitiative",
   ],
+  "initiative-update": ["initiativeUpdates", "createInitiativeUpdate"],
   roadmap: ["roadmaps", "roadmap", "createRoadmap", "updateRoadmap", "deleteRoadmap"],
   notification: [
     "notifications",

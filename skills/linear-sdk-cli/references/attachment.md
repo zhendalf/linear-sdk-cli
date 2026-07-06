@@ -1,0 +1,55 @@
+# linear attachment
+
+> Work with issue attachments
+
+Group alias: `at`
+
+_Generated from `linear commands --json`. `linear attachment --help` (or `<subcommand> --help`) is authoritative._
+
+Every command also accepts the global flags `--json`, `--no-input`, `-y/--yes`, `-q/--quiet`, `--workspace <slug>`, `--api-key <key>`, `-t/--team <key>`, `-n/--limit <n>`, `--all`, `-f/--fields <a,b,c>`, `--no-color`, and `--debug`. Only command-specific options are listed below.
+
+### `linear attachment`
+
+Work with issue attachments
+
+Aliases: `at`
+
+```
+linear attachment [options]
+```
+
+### `linear attachment create`
+
+Attach a URL to an issue
+
+Aliases: `new`
+
+```
+linear attachment create [options] <issue>
+```
+
+| Option              | Description         |
+| ------------------- | ------------------- |
+| `--url <url>`       | the URL to attach   |
+| `--title <title>`   | attachment title    |
+| `--subtitle <text>` | attachment subtitle |
+
+### `linear attachment delete`
+
+Delete an attachment by id
+
+Aliases: `rm`
+
+```
+linear attachment delete [options] <id>
+```
+
+### `linear attachment list`
+
+List the attachments on an issue
+
+Aliases: `ls`
+
+```
+linear attachment list [options] <issue>
+```
