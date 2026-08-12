@@ -8,6 +8,14 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Initiative priority and labels.** `initiative create` and `initiative update` take
+  `-P/--priority <0-4>` (0 none, 1 urgent … 4 low; validated locally with a usage error) and
+  `-l/--label <name>` (repeatable/comma-separated, resolved by name or id — `update --label`
+  replaces the whole set, matching `issue update --label`). `initiative view` shows Priority and
+  Labels, and `initiative list` gains a `Pri` column. Linear made these fields public in
+  `@linear/sdk` 88.2; they were `[Internal]` before. Initiative labels are their own
+  workspace-scoped entity, so name resolution goes through `initiativeLabels` and skips label
+  groups, which are containers rather than applicable labels.
 - **Discovery commands for scripts & agents.** `linear commands` prints a machine-readable tree
   of every (sub)command — `--json` emits a bare array of
   `{ path, description, aliases, arguments, options }` (human mode is a compact indented listing).

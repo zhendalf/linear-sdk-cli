@@ -58,6 +58,31 @@ async function main(): Promise<void> {
     removed++;
   }
 
+  // Initiatives and initiative labels. Both are plan-gated, so a workspace
+  // without the feature errors here rather than returning an empty list — that
+  // is not a janitor failure, so it is tolerated.
+  try {
+    const initiatives = await client.initiatives({ first: 100, includeArchived: true });
+    for (const initiative of initiatives.nodes) {
+      if (!initiative.name.startsWith(PREFIX)) continue;
+      await client.deleteInitiative(initiative.id);
+      console.error(`deleted initiative "${initiative.name}"`);
+      removed++;
+    }
+
+    const initiativeLabels: any = await (client as any).initiativeLabels({
+      filter: { name: { startsWith: PREFIX } },
+      first: 100,
+    });
+    for (const label of initiativeLabels.nodes) {
+      await (client as any).deleteInitiativeLabel(label.id);
+      console.error(`deleted initiative label "${label.name}"`);
+      removed++;
+    }
+  } catch (err) {
+    console.error(`janitor: skipped initiatives (${(err as Error).message})`);
+  }
+
   console.error(`janitor: removed ${removed} fixture(s).`);
 }
 

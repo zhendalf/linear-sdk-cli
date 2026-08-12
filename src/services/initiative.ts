@@ -11,15 +11,36 @@ import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { collectRawQuery } from "../lib/pagination.js";
 import { usageError, notFound, ambiguous } from "../lib/errors.js";
-import { resolveUserId, isUuid } from "../lib/resolve.js";
+import { resolveUserId, resolveInitiativeLabelIds, isUuid } from "../lib/resolve.js";
 
 /** The five status values Linear accepts for an initiative (InitiativeStatus enum). */
 const STATUSES = ["Planned", "Active", "Completed", "Canceled", "Proposed"] as const;
+
+/**
+ * Initiative priority mirrors issue priority (0 = none … 4 = low) but, unlike
+ * Issue, the Initiative type exposes no `priorityLabel`, so we name it here.
+ */
+const PRIORITY_LABELS = ["No priority", "Urgent", "High", "Medium", "Low"] as const;
+
+/** Validate an initiative priority and return it. */
+export function resolvePriority(input: number): number {
+  if (!Number.isInteger(input) || input < 0 || input > 4)
+    throw usageError(
+      `Invalid priority '${input}'. Valid: 0 (none), 1 (urgent), 2 (high), 3 (medium), 4 (low).`,
+    );
+  return input;
+}
+
+/** Human name for an initiative priority, for table/detail output. */
+export function priorityLabel(priority: number | null | undefined): string {
+  return PRIORITY_LABELS[priority ?? 0] ?? String(priority);
+}
 
 export interface InitiativeRow {
   id: string;
   name: string;
   status: string | null;
+  priority: number;
   targetDate: string | null;
   health: string | null;
   url: string;
@@ -29,7 +50,7 @@ const LIST_QUERY = `
 query CliInitiatives($first: Int!, $after: String, $includeArchived: Boolean) {
   initiatives(first: $first, after: $after, includeArchived: $includeArchived) {
     nodes {
-      id name status targetDate health url
+      id name status priority targetDate health url
     }
     pageInfo { hasNextPage endCursor }
   }
@@ -50,6 +71,7 @@ export async function listInitiatives(
       id: n.id,
       name: n.name,
       status: n.status ?? null,
+      priority: n.priority ?? 0,
       targetDate: n.targetDate ?? null,
       health: n.health ?? null,
       url: n.url,
@@ -62,6 +84,9 @@ export interface InitiativeDetail {
   name: string;
   description: string | null;
   status: string | null;
+  priority: number;
+  priorityLabel: string;
+  labels: string[];
   health: string | null;
   targetDate: string | null;
   color: string | null;
@@ -79,12 +104,19 @@ export async function getInitiativeDetail(
   idArg: string,
 ): Promise<InitiativeDetail> {
   const initiative = await resolveInitiative(client, idArg);
-  const [owner, creator] = await Promise.all([initiative.owner, initiative.creator]);
+  const [owner, creator, labels] = await Promise.all([
+    initiative.owner,
+    initiative.creator,
+    initiative.labels(),
+  ]);
   return {
     id: initiative.id,
     name: initiative.name,
     description: initiative.description ?? null,
     status: initiative.status ?? null,
+    priority: initiative.priority ?? 0,
+    priorityLabel: priorityLabel(initiative.priority),
+    labels: (labels?.nodes ?? []).map((l: any) => l.name),
     health: initiative.health ?? null,
     targetDate: initiative.targetDate ?? null,
     color: initiative.color ?? null,
@@ -104,6 +136,8 @@ export interface CreateOptions {
   targetDate?: string;
   owner?: string;
   status?: string;
+  priority?: number;
+  label?: string[];
 }
 
 export async function createInitiative(client: LinearClient, opts: CreateOptions) {
@@ -112,6 +146,8 @@ export async function createInitiative(client: LinearClient, opts: CreateOptions
   if (opts.targetDate) input.targetDate = opts.targetDate;
   if (opts.owner) input.ownerId = await resolveUserId(client, opts.owner);
   if (opts.status) input.status = resolveStatus(opts.status);
+  if (opts.priority !== undefined) input.priority = resolvePriority(opts.priority);
+  if (opts.label?.length) input.labelIds = await resolveInitiativeLabelIds(client, opts.label);
 
   const payload = await withRetry(() => client.createInitiative(input as any));
   const initiative = await payload.initiative;
@@ -125,6 +161,9 @@ export interface UpdateOptions {
   targetDate?: string;
   owner?: string;
   status?: string;
+  priority?: number;
+  /** Replaces the whole label set (matching `issue update --label`). */
+  label?: string[];
 }
 
 export async function updateInitiative(
@@ -139,6 +178,8 @@ export async function updateInitiative(
   if (opts.targetDate) input.targetDate = opts.targetDate;
   if (opts.owner) input.ownerId = await resolveUserId(client, opts.owner);
   if (opts.status) input.status = resolveStatus(opts.status);
+  if (opts.priority !== undefined) input.priority = resolvePriority(opts.priority);
+  if (opts.label) input.labelIds = await resolveInitiativeLabelIds(client, opts.label);
 
   if (Object.keys(input).length === 0)
     throw usageError("Nothing to update; pass at least one field.");

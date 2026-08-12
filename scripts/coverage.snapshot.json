@@ -208,7 +208,7 @@
   "initiativeLabel": "raw-only",
   "initiativeLabelRestore": "raw-only",
   "initiativeLabelRetire": "raw-only",
-  "initiativeLabels": "raw-only",
+  "initiativeLabels": "curated",
   "initiativeRelation": "raw-only",
   "initiativeRelations": "raw-only",
   "initiativeRemoveLabel": "raw-only",

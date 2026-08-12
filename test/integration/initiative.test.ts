@@ -75,6 +75,56 @@ suite("initiative lifecycle (live)", () => {
     run(["initiative", "delete", created.id, "--yes", "--json"]);
   });
 
+  it("sets and reads back priority", () => {
+    const created = createInitiativeOrLimit(`${FIXTURE_PREFIX}priority`);
+    if (created === "limit") return;
+    run(["initiative", "update", created.id, "--priority", "2", "--json"]);
+    const d = runJson<{ priority: number; priorityLabel: string }>([
+      "initiative",
+      "view",
+      created.id,
+    ]);
+    expect(d.priority).toBe(2);
+    expect(d.priorityLabel).toBe("High");
+    run(["initiative", "delete", created.id, "--yes", "--json"]);
+  });
+
+  it("rejects an out-of-range priority before calling the API", () => {
+    const res = run(["initiative", "create", "--name", `${FIXTURE_PREFIX}badpri`, "--priority", "9", "--json"]);
+    expect(res.code).toBe(2);
+    expect(JSON.parse(res.stderr).error.code).toBe("usage");
+  });
+
+  // Initiative labels are a workspace entity with no CLI group of its own, so the
+  // fixture is created and torn down through the raw `api` escape hatch.
+  it("applies initiative labels by name", () => {
+    const created = createInitiativeOrLimit(`${FIXTURE_PREFIX}labels`);
+    if (created === "limit") return;
+    const labelName = `${FIXTURE_PREFIX}label`;
+    const mk = run([
+      "api",
+      `mutation { initiativeLabelCreate(input: { name: "${labelName}", color: "#EB5757" }) { initiativeLabel { id } } }`,
+      "--json",
+    ]);
+    if (mk.code !== 0) {
+      run(["initiative", "delete", created.id, "--yes", "--json"]);
+      return; // label creation is plan/permission gated — nothing to assert
+    }
+    const labelId = JSON.parse(mk.stdout).initiativeLabelCreate.initiativeLabel.id;
+    try {
+      run(["initiative", "update", created.id, "--label", labelName, "--json"]);
+      const d = runJson<{ labels: string[] }>(["initiative", "view", created.id]);
+      expect(d.labels).toEqual([labelName]);
+
+      const bad = run(["initiative", "update", created.id, "--label", "no-such-label", "--json"]);
+      expect(bad.code).toBe(3);
+      expect(JSON.parse(bad.stderr).error.code).toBe("not_found");
+    } finally {
+      run(["api", `mutation { initiativeLabelDelete(id: "${labelId}") { success } }`, "--json"]);
+      run(["initiative", "delete", created.id, "--yes", "--json"]);
+    }
+  });
+
   it("resolves an initiative by name", () => {
     const name = `${FIXTURE_PREFIX}byname`;
     const created = createInitiativeOrLimit(name);

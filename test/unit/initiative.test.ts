@@ -1,6 +1,8 @@
 import { describe, it, expect } from "bun:test";
 import {
   resolveStatus,
+  resolvePriority,
+  priorityLabel,
   createInitiative,
   updateInitiative,
 } from "../../src/services/initiative.js";
@@ -25,6 +27,31 @@ describe("resolveStatus", () => {
     } catch (err: any) {
       expect(err.code).toBe("usage");
     }
+  });
+});
+
+describe("resolvePriority / priorityLabel", () => {
+  it("accepts the whole 0-4 range", () => {
+    expect([0, 1, 2, 3, 4].map(resolvePriority)).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it("rejects out-of-range and non-integer values with a usage error", () => {
+    for (const bad of [-1, 5, 1.5]) {
+      expect(() => resolvePriority(bad)).toThrowError(/Invalid priority/);
+      expect(() => resolvePriority(bad)).toThrow(expect.objectContaining({ code: "usage" }));
+    }
+  });
+
+  // Initiative, unlike Issue, exposes no priorityLabel field — we name it.
+  it("names each priority", () => {
+    expect([0, 1, 2, 3, 4].map(priorityLabel)).toEqual([
+      "No priority",
+      "Urgent",
+      "High",
+      "Medium",
+      "Low",
+    ]);
+    expect(priorityLabel(null)).toBe("No priority");
   });
 });
 
@@ -93,6 +120,44 @@ describe("updateInitiative (mocked client)", () => {
     await expect(
       updateInitiative(client, "00000000-0000-4000-8000-000000000000", {}),
     ).rejects.toMatchObject({ code: "usage" });
+  });
+
+  // Initiative labels are their own workspace-scoped entity (public since SDK 88.2),
+  // resolved through initiativeLabels — not the issue-label query.
+  it("resolves label names to ids, skipping label groups", async () => {
+    let captured: any;
+    const client = idClient({
+      initiativeLabels: (vars: any) =>
+        Promise.resolve({
+          nodes:
+            vars.filter.name.eqIgnoreCase === "platform"
+              ? [
+                  { id: "grp", name: "Platform", isGroup: true },
+                  { id: "lbl", name: "platform", isGroup: false },
+                ]
+              : [{ id: "lbl2", name: "infra", isGroup: false }],
+        }),
+      updateInitiative: (_id: string, input: any) => {
+        captured = input;
+        return Promise.resolve({ initiative: Promise.resolve({ id: "i1", name: "n" }) });
+      },
+    });
+
+    await updateInitiative(client, "00000000-0000-4000-8000-000000000000", {
+      priority: 2,
+      label: ["platform", "infra"],
+    });
+    expect(captured).toEqual({ priority: 2, labelIds: ["lbl", "lbl2"] });
+  });
+
+  it("rejects an unknown label", async () => {
+    const client = idClient({
+      initiativeLabels: () => Promise.resolve({ nodes: [] }),
+      updateInitiative: () => Promise.resolve({ initiative: Promise.resolve({ id: "i1" }) }),
+    });
+    await expect(
+      updateInitiative(client, "00000000-0000-4000-8000-000000000000", { label: ["nope"] }),
+    ).rejects.toMatchObject({ code: "not_found" });
   });
 
   it("normalizes status on update", async () => {
