@@ -85,9 +85,16 @@ export function registerTeam(program: Command): void {
   team
     .command("members [key]")
     .description("List a team's members")
+    .option("--include-disabled", "include deactivated users (excluded by default)")
     .action(
-      action(async (ctx: Context, _opts, keyArg?: string) => {
-        const rows = await svc.listMembers(ctx.client, keyArg, ctx.defaultTeam, ctx.limit);
+      action(async (ctx: Context, opts, keyArg?: string) => {
+        const rows = await svc.listMembers(
+          ctx.client,
+          keyArg,
+          ctx.defaultTeam,
+          ctx.limit,
+          !!opts.includeDisabled,
+        );
         ctx.output.list(rows, MEMBER_COLUMNS, rows);
       }),
     );

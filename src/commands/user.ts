@@ -26,9 +26,10 @@ export function registerUser(program: Command): void {
     .command("list")
     .alias("ls")
     .description("List workspace users")
+    .option("--include-disabled", "include deactivated users (excluded by default)")
     .action(
-      action(async (ctx: Context) => {
-        const rows = await svc.listUsers(ctx.client, ctx.limit);
+      action(async (ctx: Context, opts) => {
+        const rows = await svc.listUsers(ctx.client, ctx.limit, !!opts.includeDisabled);
         ctx.output.list(rows, ROW_COLUMNS, rows);
       }),
     );

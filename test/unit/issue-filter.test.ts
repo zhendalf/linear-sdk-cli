@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { buildFilter, sortSpec } from "../../src/services/issue.js";
+import { buildFilter, sortSpec, resolveIssueSort, searchIssues } from "../../src/services/issue.js";
 
 const client = {
   viewer: Promise.resolve({ id: "viewer-id" }),
@@ -65,10 +65,120 @@ describe("sortSpec (server-side, correct under pagination)", () => {
       { priority: { order: "Descending", noPriorityFirst: false } },
     ]);
   });
-  it("defaults to updatedAt descending", () => {
-    expect(sortSpec(undefined)).toEqual([{ updatedAt: { order: "Descending" } }]);
+  it("supports updatedAt", () => {
+    expect(sortSpec("updated")).toEqual([{ updatedAt: { order: "Descending" } }]);
   });
   it("supports createdAt", () => {
     expect(sortSpec("created")).toEqual([{ createdAt: { order: "Descending" } }]);
+  });
+  // Callers resolve through resolveIssueSort, so this only guards direct use.
+  it("defaults to the documented priority order", () => {
+    expect(sortSpec(undefined)).toEqual([
+      { priority: { order: "Descending", noPriorityFirst: false } },
+    ]);
+  });
+});
+
+describe("searchIssues", () => {
+  const node = {
+    id: "i1",
+    identifier: "TES-1",
+    title: "Broken login",
+    priority: 1,
+    priorityLabel: "Urgent",
+    estimate: 3,
+    url: "https://linear.app/x/issue/TES-1",
+    updatedAt: "2026-08-01T00:00:00.000Z",
+    state: { name: "In Progress", type: "started" },
+    assignee: { displayName: "ada" },
+    project: { name: "Auth" },
+    labels: { nodes: [{ name: "bug" }, { name: "regression" }] },
+  };
+
+  // Regression: the old SDK-model path hardcoded labels: [], so `issue search
+  // --json` reported no labels while `issue list --json` reported the real ones.
+  it("carries labels and matches the list row shape in one round-trip", async () => {
+    let calls = 0;
+    let sentQuery = "";
+    let sentVars: any;
+    const client = {
+      client: {
+        rawRequest: async (query: string, vars: any) => {
+          calls++;
+          sentQuery = query;
+          sentVars = vars;
+          return {
+            data: { searchIssues: { nodes: [node], pageInfo: { hasNextPage: false } } },
+          };
+        },
+      },
+    } as any;
+
+    const rows = await searchIssues(client, "login", 50);
+    expect(calls).toBe(1);
+    expect(sentQuery).toContain("searchIssues(term: $term");
+    expect(sentVars).toMatchObject({ term: "login", first: 50 });
+    expect(rows).toEqual([
+      {
+        id: "i1",
+        identifier: "TES-1",
+        title: "Broken login",
+        priority: 1,
+        priorityLabel: "Urgent",
+        estimate: 3,
+        url: "https://linear.app/x/issue/TES-1",
+        updatedAt: "2026-08-01T00:00:00.000Z",
+        state: { name: "In Progress", type: "started" },
+        assignee: { displayName: "ada" },
+        project: { name: "Auth" },
+        labels: ["bug", "regression"],
+      },
+    ]);
+  });
+});
+
+describe("resolveIssueSort", () => {
+  const config = {
+    sort: "priority",
+    sortSource: "none" as const,
+    userConfigPath: "/home/u/.config/linear/config.toml",
+    projectConfigPath: "/repo/.linear.toml",
+  };
+
+  it("prefers the explicit flag over the configured value", () => {
+    expect(resolveIssueSort("created", { ...config, sort: "updated", sortSource: "user" })).toBe(
+      "created",
+    );
+  });
+
+  it("falls back to the configured value, then to priority", () => {
+    expect(resolveIssueSort(undefined, { ...config, sort: "updated", sortSource: "env" })).toBe(
+      "updated",
+    );
+    expect(resolveIssueSort(undefined, config)).toBe("priority");
+  });
+
+  // Regression: an unrecognized configured value used to fall through sortSpec's
+  // default and silently sort by updatedAt.
+  it("rejects an invalid configured value and names its source", () => {
+    expect(() =>
+      resolveIssueSort(undefined, { ...config, sort: "banana", sortSource: "env" }),
+    ).toThrow(/Invalid sort 'banana' \(LINEAR_ISSUE_SORT\)\. Valid values: priority, updated, created\./);
+
+    expect(() =>
+      resolveIssueSort(undefined, { ...config, sort: "banana", sortSource: "project" }),
+    ).toThrow(/`sort` in \/repo\/\.linear\.toml/);
+
+    expect(() =>
+      resolveIssueSort(undefined, { ...config, sort: "banana", sortSource: "user" }),
+    ).toThrow(/`sort` in \/home\/u\/\.config\/linear\/config\.toml/);
+
+    expect(() => resolveIssueSort(undefined, { ...config, sort: "banana", sortSource: "env" })).toThrow(
+      expect.objectContaining({ code: "usage" }),
+    );
+  });
+
+  it("blames the flag when the flag is the bad value", () => {
+    expect(() => resolveIssueSort("banana", config)).toThrow(/\(--sort\)/);
   });
 });

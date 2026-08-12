@@ -21,9 +21,17 @@ export interface UserRow {
   guest: boolean;
 }
 
-/** List the workspace's users. */
-export async function listUsers(client: LinearClient, limit: number): Promise<UserRow[]> {
-  const conn = await withRetry(() => client.users({ first: pageSize(limit) }));
+/**
+ * List the workspace's users. Linear defaults `includeDisabled` to false, so
+ * deactivated users are invisible (and the `active` column constantly true)
+ * unless the caller opts in.
+ */
+export async function listUsers(
+  client: LinearClient,
+  limit: number,
+  includeDisabled = false,
+): Promise<UserRow[]> {
+  const conn = await withRetry(() => client.users({ first: pageSize(limit), includeDisabled }));
   const nodes = await collect(conn as any, limit);
   return nodes.map(toRow);
 }

@@ -68,6 +68,10 @@ List a team's members
 linear team members [options] [key]
 ```
 
+| Option               | Description                                     |
+| -------------------- | ----------------------------------------------- |
+| `--include-disabled` | include deactivated users (excluded by default) |
+
 ### `linear team states`
 
 List a team's workflow states

@@ -21,6 +21,10 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- **Dependencies updated to current majors** — `@linear/sdk` 87 → 89, commander 15,
+  `@inquirer/prompts` 8, TypeScript 6, eslint 10, `@types/node` 26. The Linear schema changes in
+  88/89 are additive for everything this CLI touches; no command behavior changes. TypeScript is
+  held at 6.x because typescript-eslint does not yet accept 7.
 - **`issue archive` now confirms** before archiving, matching `issue delete` and the other
   `archive` commands. Pass `-y/--yes` (required outside a TTY). `unarchive` stays un-gated.
 - **Stable `id` in mutation JSON.** Every issue mutation's `--json` output now carries the stable
@@ -39,6 +43,21 @@ All notable changes to this project are documented here. The format is based on
   "cycle number, id, or 'current'") across filters and create/update.
 
 ### Fixed
+
+- **Deactivated users were invisible.** `team members` and `user list` never sent
+  `includeDisabled`, which Linear defaults to `false` — so deactivated users were never returned
+  and the `Active` column could only ever print `yes`. Both commands now take
+  `--include-disabled` (still excluded by default), and `team members` requests a full page
+  instead of relying on the server's default page size.
+- **An invalid configured sort was silently ignored.** `--sort` is validated by the parser, but
+  `LINEAR_ISSUE_SORT` / `sort` (`issue_sort`) in config was not: an unrecognized value fell
+  through to `updatedAt` rather than the documented `priority` default, with no warning.
+  Resolution now runs through a single validated path that errors with the valid values and
+  names where the bad value came from (the env var, or the exact config file).
+- **`issue search --json` reported no labels.** The search path hardcoded an empty label list, so
+  the same field was populated by `issue list` and empty from `issue search`. Search now uses the
+  same tailored query as `list` and returns an identical row — which also removes an N+1
+  (state/assignee/project were fetched one issue at a time).
 
 - **Strict `--limit`.** `--limit` now accepts only a positive integer; `--limit 0`, `--limit -1`,
   and `--limit 12x` are usage errors instead of silently falling back to the default.

@@ -68,6 +68,21 @@ describe("listUsers", () => {
     await listUsers(client, Infinity);
     expect(requested).toBe(100);
   });
+
+  // Linear defaults includeDisabled to false, so omitting it hides deactivated
+  // users entirely and makes the `active` column constantly true.
+  it("excludes deactivated users by default and opts in explicitly", async () => {
+    const seen: Array<boolean | undefined> = [];
+    const client = {
+      users: async (vars: any) => {
+        seen.push(vars.includeDisabled);
+        return conn([fakeUser()]);
+      },
+    } as any;
+    await listUsers(client, 50);
+    await listUsers(client, 50, true);
+    expect(seen).toEqual([false, true]);
+  });
 });
 
 describe("getUserDetail", () => {

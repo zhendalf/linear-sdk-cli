@@ -6,6 +6,7 @@
  */
 
 import type { LinearClient } from "@linear/sdk";
+import type { ResolvedConfig } from "../config.js";
 import { withRetry } from "../client.js";
 import { collect, collectRawQuery } from "../lib/pagination.js";
 import { usageError, notFound } from "../lib/errors.js";
@@ -47,8 +48,51 @@ export interface ListFilters {
   priority?: string;
   cycle?: string;
   query?: string;
-  sort?: string;
+  sort?: IssueSort;
   includeArchived?: boolean;
+}
+
+/** The sort orders `issue list` accepts, in `--sort`, env, and config alike. */
+export const ISSUE_SORTS = ["priority", "updated", "created"] as const;
+export type IssueSort = (typeof ISSUE_SORTS)[number];
+
+type SortConfig = Pick<
+  ResolvedConfig,
+  "sort" | "sortSource" | "projectConfigPath" | "userConfigPath"
+>;
+
+/** Where a configured sort value came from, for the error message. */
+function sortOrigin(config: SortConfig): string {
+  switch (config.sortSource) {
+    case "env":
+      return "LINEAR_ISSUE_SORT";
+    case "project":
+      return `\`sort\` in ${config.projectConfigPath}`;
+    case "user":
+      return `\`sort\` in ${config.userConfigPath}`;
+    default:
+      return "config";
+  }
+}
+
+/**
+ * The single sort-resolution path: `--sort` > env/config > priority.
+ *
+ * `--sort` is validated by commander's choices, but the configured value is
+ * not — an unrecognized `issue_sort`/`LINEAR_ISSUE_SORT` used to fall through
+ * `sortSpec`'s default and silently sort by updatedAt instead of the documented
+ * priority default. It is an error now, and it names where the value came from.
+ */
+export function resolveIssueSort(explicit: string | undefined, config: SortConfig): IssueSort {
+  const value = explicit ?? config.sort;
+  if (value === undefined) return "priority";
+  if (!(ISSUE_SORTS as readonly string[]).includes(value)) {
+    const where = explicit !== undefined ? "--sort" : sortOrigin(config);
+    throw usageError(
+      `Invalid sort '${value}' (${where}). Valid values: ${ISSUE_SORTS.join(", ")}.`,
+    );
+  }
+  return value as IssueSort;
 }
 
 const LIST_QUERY = `
@@ -112,8 +156,12 @@ export async function buildFilter(
   return filter;
 }
 
-/** Server-side sort spec (correct under pagination — no client-side resort). Exported for tests. */
-export function sortSpec(sort: string | undefined): Array<Record<string, unknown>> {
+/**
+ * Server-side sort spec (correct under pagination — no client-side resort).
+ * Takes an already-validated `IssueSort` so an unknown value can never fall
+ * through to a silent default; use `resolveIssueSort` to get one. Exported for tests.
+ */
+export function sortSpec(sort: IssueSort = "priority"): Array<Record<string, unknown>> {
   switch (sort) {
     case "priority":
       // Linear sorts priority by urgency; Descending → Urgent…Low, None last.
@@ -121,7 +169,6 @@ export function sortSpec(sort: string | undefined): Array<Record<string, unknown
     case "created":
       return [{ createdAt: { order: "Descending" } }];
     case "updated":
-    default:
       return [{ updatedAt: { order: "Descending" } }];
   }
 }
@@ -140,51 +187,63 @@ export async function listIssues(
     { filter, sort: sortSpec(filters.sort), includeArchived: !!filters.includeArchived },
     "issues",
     limit,
-    (n) => ({
-      id: n.id,
-      identifier: n.identifier,
-      title: n.title,
-      priority: n.priority,
-      priorityLabel: n.priorityLabel,
-      estimate: n.estimate ?? null,
-      url: n.url,
-      updatedAt: n.updatedAt,
-      state: n.state ?? null,
-      assignee: n.assignee ?? null,
-      project: n.project ?? null,
-      labels: (n.labels?.nodes ?? []).map((l: any) => l.name),
-    }),
+    toIssueRow,
   );
 }
 
-/** Free-text search via the dedicated searchIssues connection. */
+const SEARCH_QUERY = `
+query CliSearchIssues($term: String!, $first: Int!, $after: String, $includeArchived: Boolean) {
+  searchIssues(term: $term, first: $first, after: $after, includeArchived: $includeArchived) {
+    nodes {
+      id identifier title priority priorityLabel estimate url updatedAt
+      state { name type }
+      assignee { displayName }
+      project { name }
+      labels(first: 20) { nodes { name } }
+    }
+    pageInfo { hasNextPage endCursor }
+  }
+}`;
+
+/**
+ * Free-text search via the dedicated searchIssues connection.
+ *
+ * Uses the same tailored-query shape as `listIssues` so both paths return an
+ * identical `IssueRow`. The previous SDK-model version resolved state/assignee/
+ * project one issue at a time and hardcoded `labels: []`, so `issue search --json`
+ * reported no labels while `issue list --json` reported the real ones.
+ */
 export async function searchIssues(
   client: LinearClient,
   term: string,
   limit: number,
 ): Promise<IssueRow[]> {
-  const conn: any = await withRetry(() => (client as any).searchIssues(term, { first: Math.min(limit, 100) }));
-  const nodes = await collect(conn, limit);
-  // searchIssues returns full Issue models; resolve the display fields we show.
-  return Promise.all(
-    nodes.map(async (issue: any) => {
-      const [state, assignee, project] = await Promise.all([issue.state, issue.assignee, issue.project]);
-      return {
-        id: issue.id,
-        identifier: issue.identifier,
-        title: issue.title,
-        priority: issue.priority,
-        priorityLabel: issue.priorityLabel,
-        estimate: issue.estimate ?? null,
-        url: issue.url,
-        updatedAt: issue.updatedAt?.toISOString?.() ?? String(issue.updatedAt),
-        state: state ? { name: state.name, type: state.type } : null,
-        assignee: assignee ? { displayName: assignee.displayName } : null,
-        project: project ? { name: project.name } : null,
-        labels: [],
-      } as IssueRow;
-    }),
+  return collectRawQuery<IssueRow>(
+    client as any,
+    SEARCH_QUERY,
+    { term, includeArchived: false },
+    "searchIssues",
+    limit,
+    toIssueRow,
   );
+}
+
+/** Map a tailored-query issue node to a display row (shared by list and search). */
+function toIssueRow(n: any): IssueRow {
+  return {
+    id: n.id,
+    identifier: n.identifier,
+    title: n.title,
+    priority: n.priority,
+    priorityLabel: n.priorityLabel,
+    estimate: n.estimate ?? null,
+    url: n.url,
+    updatedAt: n.updatedAt,
+    state: n.state ?? null,
+    assignee: n.assignee ?? null,
+    project: n.project ?? null,
+    labels: (n.labels?.nodes ?? []).map((l: any) => l.name),
+  };
 }
 
 export interface IssueDetail {

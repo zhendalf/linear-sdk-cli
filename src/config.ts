@@ -46,6 +46,8 @@ export interface ResolvedConfig {
   /** Non-secret display workspace setting (separate from credentialWorkspace). */
   workspace?: string;
   sort: string;
+  /** Where `sort` came from, so an invalid value can be blamed precisely. */
+  sortSource: ConfigSource;
   vcs: string;
   /** Absolute path of the user config file (may not exist yet). */
   userConfigPath: string;
@@ -233,6 +235,15 @@ export function resolveConfig(inputs: ConfigInputs = {}): ResolvedConfig {
   const pick = <K extends keyof RawSettings>(key: K): string | undefined =>
     flags[key] ?? envSettings[key] ?? projectSettings[key] ?? user.settings[key];
 
+  /** Which tier `pick` would have taken the value from. */
+  const sourceOf = <K extends keyof RawSettings>(key: K): ConfigSource => {
+    if (flags[key] !== undefined) return "flag";
+    if (envSettings[key] !== undefined) return "env";
+    if (projectSettings[key] !== undefined) return "project";
+    if (user.settings[key] !== undefined) return "user";
+    return "none";
+  };
+
   return {
     apiKey,
     apiKeySource,
@@ -243,6 +254,7 @@ export function resolveConfig(inputs: ConfigInputs = {}): ResolvedConfig {
     // flag > env > project > user. (Credential selection ignores project.)
     workspace: flags.workspace ?? envSettings.workspace ?? projectSettings.workspace ?? user.settings.workspace,
     sort: pick("sort") ?? "priority",
+    sortSource: sourceOf("sort"),
     vcs: pick("vcs") ?? "git",
     userConfigPath: userPath,
     projectConfigPath: projectPath,

@@ -97,7 +97,7 @@ export function registerIssue(program: Command): void {
             priority: opts.priority,
             cycle: opts.cycle,
             query: opts.query,
-            sort: opts.sort ?? ctx.config.sort,
+            sort: svc.resolveIssueSort(opts.sort, ctx.config),
             includeArchived: opts.includeArchived,
           },
           ctx.limit,

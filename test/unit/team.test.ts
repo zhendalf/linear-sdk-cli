@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { listTeams, listStates, updateTeam, createTeam } from "../../src/services/team.js";
+import { listTeams, listMembers, listStates, updateTeam, createTeam } from "../../src/services/team.js";
 import { CliError } from "../../src/lib/errors.js";
 
 /** A connection stub matching the shape `collect()` expects. */
@@ -31,6 +31,43 @@ describe("listTeams", () => {
     expect(rows).toEqual([
       { id: "t1", key: "TES", name: "Test" },
       { id: "t2", key: "ENG", name: "Engineering" },
+    ]);
+  });
+});
+
+describe("listMembers", () => {
+  /** Capture the variables `team.members()` is called with. */
+  function memberClient(seen: any[], nodes: any[] = []) {
+    return {
+      teams: async () => conn(TEAMS),
+      team: async () => ({
+        ...teamModel(),
+        members: async (vars: any) => {
+          seen.push(vars);
+          return conn(nodes);
+        },
+      }),
+    } as any;
+  }
+
+  // Linear defaults includeDisabled to false, so omitting it hides deactivated
+  // users entirely and makes the `active` column constantly true.
+  it("excludes deactivated members by default and opts in explicitly", async () => {
+    const seen: any[] = [];
+    await listMembers(memberClient(seen), "TES", undefined, 50);
+    await listMembers(memberClient(seen), "TES", undefined, 50, true);
+    expect(seen.map((v) => v.includeDisabled)).toEqual([false, true]);
+  });
+
+  it("requests a page no larger than 100 and maps rows", async () => {
+    const seen: any[] = [];
+    const client = memberClient(seen, [
+      { id: "u1", displayName: "ada", name: "Ada Lovelace", email: "ada@example.com", active: false },
+    ]);
+    const rows = await listMembers(client, "TES", undefined, Infinity, true);
+    expect(seen[0].first).toBe(100);
+    expect(rows).toEqual([
+      { id: "u1", displayName: "ada", name: "Ada Lovelace", email: "ada@example.com", active: false },
     ]);
   });
 });
