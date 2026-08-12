@@ -4,7 +4,7 @@ _Run 2026-08-12 by Codex (`gpt-5.6-sol`, ultra reasoning, read-only) in three in
 feature parity, ergonomics, implementation — against `zhendalf/linear-cli` at `bfe8176` (v2.1.0).
 Every finding below marked **[verified]** was independently reproduced here before being written down;
 findings marked **[reported]** come from the audit and are plausible but not yet reproduced.
-Full raw reports: see `_audit-reports/` (untracked scratch) or re-run per `AUDIT.md` history._
+The three full reports are kept verbatim in `_audit-reports/` as the evidence behind this summary._
 
 ## Verdict
 
