@@ -114,10 +114,12 @@ describe("searchIssues", () => {
       },
     } as any;
 
-    const rows = await searchIssues(client, "login", 50);
+    const rows = await searchIssues(client, "login", {}, 50, undefined);
     expect(calls).toBe(1);
     expect(sentQuery).toContain("searchIssues(term: $term");
     expect(sentVars).toMatchObject({ term: "login", first: 50 });
+    // No filters and no default team → no IssueFilter at all, not an empty object.
+    expect(sentVars.filter).toBeUndefined();
     expect(rows).toEqual([
       {
         id: "i1",
@@ -134,6 +136,28 @@ describe("searchIssues", () => {
         labels: ["bug", "regression"],
       },
     ]);
+  });
+
+  it("passes the built IssueFilter through, and --all-teams drops the team scope", async () => {
+    const sent: any[] = [];
+    const client = {
+      viewer: Promise.resolve({ id: "viewer-id" }),
+      client: {
+        rawRequest: async (_q: string, vars: any) => {
+          sent.push(vars);
+          return { data: { searchIssues: { nodes: [], pageInfo: { hasNextPage: false } } } };
+        },
+      },
+    } as any;
+
+    await searchIssues(client, "login", { state: "started" }, 50, "TES");
+    expect(sent[0].filter).toEqual({
+      team: { key: { eq: "TES" } },
+      state: { type: { eq: "started" } },
+    });
+
+    await searchIssues(client, "login", { allTeams: true }, 50, "TES");
+    expect(sent[1].filter).toBeUndefined();
   });
 });
 

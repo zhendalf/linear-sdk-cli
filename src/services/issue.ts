@@ -41,6 +41,8 @@ export interface IssueRow {
 
 export interface ListFilters {
   team?: string;
+  /** Ignore the team flag and the configured default; search the whole workspace. */
+  allTeams?: boolean;
   assignee?: string;
   state?: string;
   project?: string;
@@ -116,7 +118,8 @@ export async function buildFilter(
   defaultTeamKey: string | undefined,
 ): Promise<Record<string, unknown>> {
   const filter: Record<string, any> = {};
-  const teamKey = f.team ?? defaultTeamKey;
+  // --all-teams wins over both the flag and the configured default.
+  const teamKey = f.allTeams ? undefined : (f.team ?? defaultTeamKey);
   if (teamKey) filter.team = { key: { eq: teamKey.toUpperCase() } };
 
   if (f.assignee) {
@@ -192,8 +195,8 @@ export async function listIssues(
 }
 
 const SEARCH_QUERY = `
-query CliSearchIssues($term: String!, $first: Int!, $after: String, $includeArchived: Boolean) {
-  searchIssues(term: $term, first: $first, after: $after, includeArchived: $includeArchived) {
+query CliSearchIssues($term: String!, $filter: IssueFilter, $first: Int!, $after: String, $includeArchived: Boolean) {
+  searchIssues(term: $term, filter: $filter, first: $first, after: $after, includeArchived: $includeArchived) {
     nodes {
       id identifier title priority priorityLabel estimate url updatedAt
       state { name type }
@@ -206,22 +209,33 @@ query CliSearchIssues($term: String!, $first: Int!, $after: String, $includeArch
 }`;
 
 /**
- * Free-text search via the dedicated searchIssues connection.
+ * Free-text search via the dedicated searchIssues connection, narrowed by the
+ * same filters as `listIssues` (searchIssues takes an IssueFilter).
  *
  * Uses the same tailored-query shape as `listIssues` so both paths return an
  * identical `IssueRow`. The previous SDK-model version resolved state/assignee/
  * project one issue at a time and hardcoded `labels: []`, so `issue search --json`
  * reported no labels while `issue list --json` reported the real ones.
+ *
+ * Results are relevance-ordered by the API, so there is no sort argument here.
  */
 export async function searchIssues(
   client: LinearClient,
   term: string,
+  filters: ListFilters,
   limit: number,
+  defaultTeamKey: string | undefined,
 ): Promise<IssueRow[]> {
+  const filter = await buildFilter(client, filters, defaultTeamKey);
   return collectRawQuery<IssueRow>(
     client as any,
     SEARCH_QUERY,
-    { term, includeArchived: false },
+    {
+      term,
+      // An empty filter object is not the same as null to the API; omit it.
+      filter: Object.keys(filter).length ? filter : undefined,
+      includeArchived: !!filters.includeArchived,
+    },
     "searchIssues",
     limit,
     toIssueRow,

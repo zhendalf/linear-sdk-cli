@@ -21,6 +21,14 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- **`issue search` takes filters, and is now team-scoped by default.** Linear's `searchIssues`
+  accepts an `IssueFilter`, so search now honors the same filters as `issue list`
+  (`--state`, `--assignee`, `--project`, `--label`, `--priority`, `--cycle`,
+  `--include-archived`) — including the global `-t/--team` and the configured default team.
+  **This narrows the previous behavior**, where search always ran across the whole workspace:
+  pass the new `--all-teams` (also available on `issue list`) to get that back. `--query` and
+  `--sort` are deliberately absent from search — the term is the query, and results come back
+  relevance-ordered.
 - **Dependencies updated to current majors** — `@linear/sdk` 87 → 89, commander 15,
   `@inquirer/prompts` 8, TypeScript 6, eslint 10, `@types/node` 26. The Linear schema changes in
   88/89 are additive for everything this CLI touches; no command behavior changes. TypeScript is
