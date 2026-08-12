@@ -32,12 +32,15 @@ export function registerProject(program: Command): void {
     .command("list")
     .alias("ls")
     .description("List projects with filters")
-    .option("--state <name>", "filter by project state/status (e.g. started, completed)")
+    .option("--state <name>", "filter by status name or type (e.g. 'In QA', started)")
+    // `--status` is the reference CLI's spelling for the same thing; accepting
+    // both costs nothing and saves transplanted muscle memory.
+    .option("--status <name>", "alias of --state")
     .action(
       action(async (ctx: Context, opts) => {
         const rows = await svc.listProjects(
           ctx.client,
-          { team: opts.team ?? ctx.defaultTeam, state: opts.state },
+          { team: opts.team ?? ctx.defaultTeam, state: opts.state ?? opts.status },
           ctx.limit,
           ctx.defaultTeam,
         );

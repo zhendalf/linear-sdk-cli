@@ -137,7 +137,15 @@ export async function buildFilter(
     filter.project = { id: { eq: projectId } };
   }
   if (f.label && f.label.length) {
-    filter.labels = { some: { name: { in: f.label } } };
+    // Case-insensitive: `in` is exact-case, so `--label bug` silently matched
+    // nothing when the label is stored as "Bug" — an empty list, no error.
+    //
+    // Repeating the flag BROADENS (an issue matching any of the labels). The
+    // reference CLI narrows instead (`and` of `some`); see AUDIT.md.
+    filter.labels =
+      f.label.length === 1
+        ? { some: { name: { eqIgnoreCase: f.label[0] } } }
+        : { some: { or: f.label.map((name) => ({ name: { eqIgnoreCase: name } })) } };
   }
   if (f.priority !== undefined) {
     filter.priority = { eq: Number.parseInt(f.priority, 10) };

@@ -20,16 +20,32 @@ describe("project buildFilter", () => {
     expect(await buildFilter(client, {}, undefined)).toEqual({});
   });
 
-  it("filters by project state with eq", async () => {
+  // Regression: this used to build `state: {eq: …}`, the deprecated legacy field,
+  // which the API silently ignores — every value returned the unfiltered list.
+  it("filters on status, never on the deprecated `state` field", async () => {
     const f = await buildFilter(client, { state: "started" }, undefined);
-    expect(f.state).toEqual({ eq: "started" });
+    expect(f.state).toBeUndefined();
+    expect(f.status).toEqual({
+      or: [{ name: { eqIgnoreCase: "started" } }, { type: { eqIgnoreCase: "started" } }],
+    });
+  });
+
+  // Custom status names ("In QA") and status types ("started") are different
+  // vocabularies; one flag has to reach both.
+  it("matches a custom status name case-insensitively", async () => {
+    const f = await buildFilter(client, { state: "in qa" }, undefined);
+    expect(f.status).toEqual({
+      or: [{ name: { eqIgnoreCase: "in qa" } }, { type: { eqIgnoreCase: "in qa" } }],
+    });
   });
 
   it("combines team and state filters", async () => {
     const f = await buildFilter(client, { team: "tes", state: "completed" }, undefined);
     expect(f).toEqual({
       accessibleTeams: { some: { key: { eq: "TES" } } },
-      state: { eq: "completed" },
+      status: {
+        or: [{ name: { eqIgnoreCase: "completed" } }, { type: { eqIgnoreCase: "completed" } }],
+      },
     });
   });
 

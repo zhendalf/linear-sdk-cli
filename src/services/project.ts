@@ -58,8 +58,16 @@ export async function buildFilter(
     filter.accessibleTeams = { some: { key: { eq: teamKey.toUpperCase() } } };
   }
   if (f.state) {
-    // `state` is the project's status group (e.g. planned/started/completed).
-    filter.state = { eq: f.state };
+    // Match either the custom status NAME shown in the UI ("In QA") or the
+    // underlying status TYPE ("started"), case-insensitively, so both
+    // vocabularies work.
+    //
+    // NOT `filter.state`: that targets the deprecated legacy `Project.state`
+    // field, which the API silently ignores — every value, valid or not,
+    // returned the unfiltered list.
+    filter.status = {
+      or: [{ name: { eqIgnoreCase: f.state } }, { type: { eqIgnoreCase: f.state } }],
+    };
   }
   return filter;
 }

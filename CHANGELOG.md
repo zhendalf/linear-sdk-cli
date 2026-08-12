@@ -78,6 +78,15 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- **`project list --state` filtered nothing at all.** It built `state: {eq: …}`, which targets
+  Linear's deprecated legacy `Project.state` field — the API silently ignores it, so every value,
+  valid or not, returned the complete unfiltered list. It now matches the project's status by
+  **name or type**, case-insensitively (`--state 'In QA'` and `--state started` both work), and
+  `--status` is accepted as an alias for the same thing.
+- **`issue list --label` was case-sensitive.** The filter used an exact-case `in` comparator, so
+  `--label bug` returned an empty list when the label is stored as `Bug` — wrong results with no
+  error, while label *resolution* everywhere else matches case-insensitively. Repeating the flag
+  still broadens the match (any of the labels).
 - **Deactivated users were invisible.** `team members` and `user list` never sent
   `includeDisabled`, which Linear defaults to `false` — so deactivated users were never returned
   and the `Active` column could only ever print `yes`. Both commands now take

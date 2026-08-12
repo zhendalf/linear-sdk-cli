@@ -42,9 +42,19 @@ describe("buildFilter", () => {
     expect(f.priority).toEqual({ eq: 2 });
   });
 
-  it("filters by labels using a 'some' collection match", async () => {
-    const f = await buildFilter(client, { label: ["bug", "ui"] }, undefined);
-    expect(f.labels).toEqual({ some: { name: { in: ["bug", "ui"] } } });
+  // Regression: this used an exact-case `in`, so `--label bug` returned an empty
+  // list when the label is stored as "Bug" — wrong results, no error.
+  it("matches a single label case-insensitively", async () => {
+    const f = await buildFilter(client, { label: ["bug"] }, undefined);
+    expect(f.labels).toEqual({ some: { name: { eqIgnoreCase: "bug" } } });
+    expect(JSON.stringify(f.labels)).not.toContain('"in"');
+  });
+
+  it("ORs repeated labels, each case-insensitively", async () => {
+    const f = await buildFilter(client, { label: ["bug", "UI"] }, undefined);
+    expect(f.labels).toEqual({
+      some: { or: [{ name: { eqIgnoreCase: "bug" } }, { name: { eqIgnoreCase: "UI" } }] },
+    });
   });
 
   it("filters by free-text query against searchable content", async () => {

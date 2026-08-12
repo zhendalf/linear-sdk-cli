@@ -64,9 +64,10 @@ Aliases: `ls`
 linear project list [options]
 ```
 
-| Option           | Description                                              |
-| ---------------- | -------------------------------------------------------- |
-| `--state <name>` | filter by project state/status (e.g. started, completed) |
+| Option            | Description                                           |
+| ----------------- | ----------------------------------------------------- |
+| `--state <name>`  | filter by status name or type (e.g. 'In QA', started) |
+| `--status <name>` | alias of --state                                      |
 
 ### `linear project milestones`
 
