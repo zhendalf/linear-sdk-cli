@@ -9,7 +9,13 @@ import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { collect, collectRawQuery } from "../lib/pagination.js";
 import { usageError, notFound, ambiguous } from "../lib/errors.js";
-import { resolveTeam, resolveUserId, resolveProjectId, isUuid } from "../lib/resolve.js";
+import {
+  resolveTeam,
+  resolveUserId,
+  resolveProjectId,
+  resolveProjectLabelIds,
+  isUuid,
+} from "../lib/resolve.js";
 
 export interface ProjectRow {
   id: string;
@@ -89,6 +95,9 @@ export interface ProjectDetail {
   id: string;
   name: string;
   description: string | null;
+  /** The project's markdown body (Project.content), not the one-line description. */
+  content: string | null;
+  labels: string[];
   state: string | null;
   status: string | null;
   health: string | null;
@@ -109,16 +118,19 @@ export interface ProjectDetail {
 export async function getProjectDetail(client: LinearClient, idArg: string): Promise<ProjectDetail> {
   const projectId = await resolveProjectId(client, idArg);
   const project = await withRetry(() => client.project(projectId));
-  const [status, lead, teams, members] = await Promise.all([
+  const [status, lead, teams, members, labels] = await Promise.all([
     project.status,
     project.lead,
     project.teams(),
     project.members(),
+    project.labels(),
   ]);
   return {
     id: project.id,
     name: project.name,
     description: project.description || null,
+    content: (project as any).content || null,
+    labels: labels.nodes.map((l: any) => l.name),
     state: project.state ?? null,
     status: status?.name ?? null,
     health: project.health ?? null,
@@ -140,11 +152,18 @@ export async function getProjectDetail(client: LinearClient, idArg: string): Pro
 export interface CreateOptions {
   name: string;
   description?: string;
+  /** The project's markdown body — distinct from the one-line `description`. */
+  content?: string;
   team?: string[];
   lead?: string;
   state?: string;
   startDate?: string;
   targetDate?: string;
+  priority?: number;
+  label?: string[];
+  member?: string[];
+  icon?: string;
+  color?: string;
 }
 
 /** Build a ProjectCreateInput, resolving every human reference to an id. */
@@ -156,10 +175,16 @@ export async function createProject(
   const teamIds = await resolveTeamIds(client, opts.team, defaultTeamKey);
   const input: Record<string, any> = { name: opts.name, teamIds };
   if (opts.description !== undefined) input.description = opts.description;
+  if (opts.content !== undefined) input.content = opts.content;
   if (opts.state) input.statusId = await resolveStatusId(client, opts.state);
   if (opts.lead) input.leadId = await resolveUserId(client, opts.lead);
   if (opts.startDate) input.startDate = opts.startDate;
   if (opts.targetDate) input.targetDate = opts.targetDate;
+  if (opts.priority !== undefined) input.priority = resolvePriority(opts.priority);
+  if (opts.label?.length) input.labelIds = await resolveProjectLabelIds(client, opts.label);
+  if (opts.member?.length) input.memberIds = await resolveMemberIds(client, opts.member);
+  if (opts.icon) input.icon = opts.icon;
+  if (opts.color) input.color = opts.color;
 
   const payload = await withRetry(() => client.createProject(input as any));
   const project = await payload.project;
@@ -170,11 +195,20 @@ export async function createProject(
 export interface UpdateOptions {
   name?: string;
   description?: string;
+  /** The project's markdown body — distinct from the one-line `description`. */
+  content?: string;
   team?: string[];
   lead?: string;
   state?: string;
   startDate?: string;
   targetDate?: string;
+  priority?: number;
+  /** Replaces the whole label set. */
+  label?: string[];
+  /** Replaces the whole member set. */
+  member?: string[];
+  icon?: string;
+  color?: string;
 }
 
 export async function updateProject(client: LinearClient, idArg: string, opts: UpdateOptions) {
@@ -182,11 +216,17 @@ export async function updateProject(client: LinearClient, idArg: string, opts: U
   const input: Record<string, any> = {};
   if (opts.name !== undefined) input.name = opts.name;
   if (opts.description !== undefined) input.description = opts.description;
+  if (opts.content !== undefined) input.content = opts.content;
   if (opts.team?.length) input.teamIds = await resolveTeamIds(client, opts.team, undefined);
   if (opts.lead) input.leadId = await resolveUserId(client, opts.lead);
   if (opts.state) input.statusId = await resolveStatusId(client, opts.state);
   if (opts.startDate) input.startDate = opts.startDate;
   if (opts.targetDate) input.targetDate = opts.targetDate;
+  if (opts.priority !== undefined) input.priority = resolvePriority(opts.priority);
+  if (opts.label) input.labelIds = await resolveProjectLabelIds(client, opts.label);
+  if (opts.member) input.memberIds = await resolveMemberIds(client, opts.member);
+  if (opts.icon) input.icon = opts.icon;
+  if (opts.color) input.color = opts.color;
 
   if (Object.keys(input).length === 0)
     throw usageError("Nothing to update; pass at least one field.");
@@ -263,6 +303,22 @@ export async function listUpdates(
 }
 
 /** Resolve one or more team references (key/name/id) to team ids; default when none. */
+/** Validate a project priority (same 0-4 scale as issues). */
+export function resolvePriority(input: number): number {
+  if (!Number.isInteger(input) || input < 0 || input > 4)
+    throw usageError(
+      `Invalid priority '${input}'. Valid: 0 (none), 1 (urgent), 2 (high), 3 (medium), 4 (low).`,
+    );
+  return input;
+}
+
+/** Resolve project members (me|email|name|id), deduplicated. */
+async function resolveMemberIds(client: LinearClient, members: string[]): Promise<string[]> {
+  const ids: string[] = [];
+  for (const m of members) ids.push(await resolveUserId(client, m));
+  return [...new Set(ids)];
+}
+
 async function resolveTeamIds(
   client: LinearClient,
   teams: string[] | undefined,

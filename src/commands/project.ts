@@ -4,7 +4,7 @@
 
 import { Command } from "commander";
 import { action } from "../lib/action.js";
-import { parseList } from "../lib/options.js";
+import { parseList, parseIntOption } from "../lib/options.js";
 import { resolveBody } from "../lib/body.js";
 import { confirmDestructive, promptInput } from "../lib/prompt.js";
 import type { Context } from "../context.js";
@@ -62,11 +62,13 @@ export function registerProject(program: Command): void {
           ["Lead", detail.lead],
           ["Teams", detail.teams.length ? detail.teams.join(", ") : null],
           ["Members", detail.members.length ? detail.members.join(", ") : null],
+          ["Labels", detail.labels.length ? detail.labels.join(", ") : null],
           ["Start", detail.startDate],
           ["Target", detail.targetDate],
           ["URL", detail.url],
           ["Updated", detail.updatedAt],
           ["Description", detail.description ? `\n${detail.description}` : null],
+          ["Content", detail.content ? `\n${detail.content}` : null],
         ]);
       }),
     );
@@ -77,13 +79,20 @@ export function registerProject(program: Command): void {
     .alias("new")
     .description("Create a new project")
     .option("--name <name>", "project name")
-    .option("-d, --description <text>", "project description")
+    .option("-d, --description <text>", "project description (one-line summary)")
     .option("--description-file <path>", "read description from a file ('-' = stdin)")
+    .option("--content <text>", "project content (markdown body)")
+    .option("--content-file <path>", "read content from a file ('-' = stdin)")
     .option("--teams <key>", "team (repeatable / comma-separated)", parseList)
     .option("--lead <who>", "project lead (me|email|name|id)")
+    .option("--member <who>", "project member (repeatable / comma-separated)", parseList)
     .option("--state <name>", "initial status (name, type, or id)")
     .option("--start <date>", "planned start date (YYYY-MM-DD)")
     .option("--target <date>", "planned target date (YYYY-MM-DD)")
+    .option("-P, --priority <0-4>", "priority (0 none, 1 urgent … 4 low)", parseIntOption)
+    .option("-l, --label <name>", "project label (repeatable / comma-separated)", parseList)
+    .option("--icon <name>", "Linear icon name, capitalized (e.g. Rocket)")
+    .option("--color <hex>", "project color (e.g. #EB5757)")
     .addHelpText(
       "after",
       [
@@ -103,16 +112,27 @@ export function registerProject(program: Command): void {
           file: opts.descriptionFile,
           interactive: false,
         });
+        const content = resolveBody({
+          arg: opts.content,
+          file: opts.contentFile,
+          interactive: false,
+        });
         const created = await svc.createProject(
           ctx.client,
           {
             name,
             description,
+            content,
             team: opts.teams,
             lead: opts.lead,
+            member: opts.member,
             state: opts.state,
             startDate: opts.start,
             targetDate: opts.target,
+            priority: opts.priority,
+            label: opts.label,
+            icon: opts.icon,
+            color: opts.color,
           },
           ctx.defaultTeam,
         );
@@ -128,13 +148,20 @@ export function registerProject(program: Command): void {
     .alias("edit")
     .description("Update a project")
     .option("--name <name>", "new name")
-    .option("-d, --description <text>", "new description")
+    .option("-d, --description <text>", "new description (one-line summary)")
     .option("--description-file <path>", "read description from a file ('-' = stdin)")
+    .option("--content <text>", "new content (markdown body)")
+    .option("--content-file <path>", "read content from a file ('-' = stdin)")
     .option("--teams <key>", "set teams (repeatable / comma-separated)", parseList)
     .option("--lead <who>", "project lead (me|email|name|id)")
+    .option("--member <who>", "replace the members (repeatable / comma-separated)", parseList)
     .option("--state <name>", "status (name, type, or id)")
     .option("--start <date>", "planned start date (YYYY-MM-DD)")
     .option("--target <date>", "planned target date (YYYY-MM-DD)")
+    .option("-P, --priority <0-4>", "priority (0 none, 1 urgent … 4 low)", parseIntOption)
+    .option("-l, --label <name>", "replace the labels (repeatable / comma-separated)", parseList)
+    .option("--icon <name>", "Linear icon name, capitalized (e.g. Rocket)")
+    .option("--color <hex>", "project color (e.g. #EB5757)")
     .action(
       action(async (ctx: Context, opts, idArg: string) => {
         const description = resolveBody({
@@ -142,14 +169,25 @@ export function registerProject(program: Command): void {
           file: opts.descriptionFile,
           interactive: false,
         });
+        const content = resolveBody({
+          arg: opts.content,
+          file: opts.contentFile,
+          interactive: false,
+        });
         const updated = await svc.updateProject(ctx.client, idArg, {
           name: opts.name,
           description,
+          content,
           team: opts.teams,
           lead: opts.lead,
+          member: opts.member,
           state: opts.state,
           startDate: opts.start,
           targetDate: opts.target,
+          priority: opts.priority,
+          label: opts.label,
+          icon: opts.icon,
+          color: opts.color,
         });
         ctx.output.emit({ id: updated.id, name: updated.name, url: updated.url }, () =>
           ctx.output.success(`Updated ${updated.name}`),

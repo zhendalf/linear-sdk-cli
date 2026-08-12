@@ -4,6 +4,7 @@ import {
   updateDocument,
   deleteDocument,
   getDocumentDetail,
+  listDocuments,
 } from "../../src/services/document.js";
 
 const UUID = "01234567-89ab-cdef-0123-456789abcdef";
@@ -142,5 +143,44 @@ describe("getDocumentDetail / deleteDocument (relation unwrapping)", () => {
     const doc = await deleteDocument(client, UUID);
     expect(deleteDocumentMock).toHaveBeenCalledWith(UUID);
     expect(doc.id).toBe(UUID);
+  });
+});
+
+describe("listDocuments (container filters)", () => {
+  const UUID = "01234567-89ab-cdef-0123-456789abcdef";
+
+  function stub(sent: any[]) {
+    return {
+      projects: async () => ({ nodes: [{ id: "proj-1", name: "Auth" }] }),
+      issues: async () => ({ nodes: [{ id: "issue-1", identifier: "TES-1" }] }),
+      client: {
+        rawRequest: async (_q: string, vars: any) => {
+          sent.push(vars);
+          return { data: { documents: { nodes: [], pageInfo: { hasNextPage: false } } } };
+        },
+      },
+    } as any;
+  }
+
+  it("sends no filter when unfiltered", async () => {
+    const sent: any[] = [];
+    await listDocuments(stub(sent), 50);
+    expect(sent[0].filter).toBeUndefined();
+  });
+
+  // DocumentFilter matches containers by id, so a human reference is resolved first.
+  it("resolves a project name and an issue identifier to ids", async () => {
+    const sent: any[] = [];
+    await listDocuments(stub(sent), 50, { project: "Auth", issue: "TES-1" });
+    expect(sent[0].filter).toEqual({
+      project: { id: { eq: "proj-1" } },
+      issue: { id: { eq: "issue-1" } },
+    });
+  });
+
+  it("passes a project uuid straight through", async () => {
+    const sent: any[] = [];
+    await listDocuments(stub(sent), 50, { project: UUID });
+    expect(sent[0].filter).toEqual({ project: { id: { eq: UUID } } });
   });
 });

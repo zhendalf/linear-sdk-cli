@@ -236,6 +236,8 @@ export function registerIssue(program: Command): void {
     .option("--due <date>", "due date (YYYY-MM-DD)")
     .option("--add-label <name>", "add a label (repeatable)", parseList)
     .option("--remove-label <name>", "remove a label (repeatable)", parseList)
+    .option("--unassign", "clear the assignee")
+    .option("--clear-cycle", "remove the issue from its cycle")
     .addHelpText(
       "after",
       [
@@ -267,6 +269,8 @@ export function registerIssue(program: Command): void {
           dueDate: opts.due,
           addLabel: opts.addLabel,
           removeLabel: opts.removeLabel,
+          unassign: opts.unassign,
+          clearCycle: opts.clearCycle,
         });
         ctx.output.emit({ id: updated.id, identifier: updated.identifier, url: updated.url }, () =>
           ctx.output.success(`Updated ${updated.identifier}`),

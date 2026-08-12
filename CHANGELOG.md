@@ -8,6 +8,24 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Project content, priority, labels and members.** `project create`/`update` gained
+  `--content`/`--content-file` — the project's **markdown body**, which the CLI previously had no
+  way to set (`--description` is the one-line summary, a different field) — plus
+  `-P/--priority <0-4>` (validated locally), `-l/--label` (resolved against workspace project
+  labels, deduplicated, label groups skipped), `--member` (repeatable, deduplicated),
+  `--icon <name>` (a capitalized Linear icon name such as `Rocket`, validated by the API) and
+  `--color <hex>`. On `update`, `--label` and `--member` replace the whole set. `project view`
+  now shows Labels and Content.
+- **`issue update --unassign` and `--clear-cycle`.** Clearing an assignee or removing an issue
+  from its cycle was previously impossible — every flag could only set a value. Passing a clear
+  flag together with its setting counterpart (`--unassign` with `--assignee`) is a usage error
+  rather than a silent last-one-wins.
+- **`document list --project` / `--issue`.** Documents can be narrowed to their container;
+  human references (a project name, an issue identifier like `TES-1`) are resolved to ids first,
+  since `DocumentFilter` matches containers by id.
+- **`milestone view` lists the milestone's issues** (identifier, state, title), capped by the
+  global `-n/--limit` and with an explicit `… more (use --all)` notice when the cap hides some,
+  so a partial list never reads as a complete one.
 - **Initiative priority and labels.** `initiative create` and `initiative update` take
   `-P/--priority <0-4>` (0 none, 1 urgent … 4 low; validated locally with a usage error) and
   `-l/--label <name>` (repeatable/comma-separated, resolved by name or id — `update --label`

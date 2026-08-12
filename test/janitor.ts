@@ -65,6 +65,9 @@ async function main(): Promise<void> {
     const initiatives = await client.initiatives({ first: 100, includeArchived: true });
     for (const initiative of initiatives.nodes) {
       if (!initiative.name.startsWith(PREFIX)) continue;
+      // As with issues and projects: `includeArchived` also returns already-trashed
+      // initiatives, and deleting those just re-trashes the same set on every run.
+      if (initiative.trashed) continue;
       await client.deleteInitiative(initiative.id);
       console.error(`deleted initiative "${initiative.name}"`);
       removed++;

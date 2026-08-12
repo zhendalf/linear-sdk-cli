@@ -59,14 +59,35 @@ export interface MilestoneDetail {
   project: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Issues assigned to this milestone, capped at `limit`. */
+  issues: Array<{ identifier: string; title: string; state: string | null }>;
+  /** True when the cap hid some issues, so the caller can say so out loud. */
+  issuesTruncated: boolean;
 }
 
+/**
+ * Milestone detail plus the issues it contains, capped at `limit` (the global
+ * `-n/--limit`, or all of them under `--all`). `issuesTruncated` lets the caller
+ * say so out loud instead of quietly showing a partial list.
+ */
 export async function getMilestoneDetail(
   client: LinearClient,
   id: string,
+  limit = 50,
 ): Promise<MilestoneDetail> {
   const milestone = await resolveMilestone(client, id);
-  const project = await milestone.project;
+  const [project, issueConn] = await Promise.all([
+    milestone.project,
+    milestone.issues({ first: limit === Infinity ? 100 : Math.min(limit, 100) }),
+  ]);
+  const issueNodes = await collect(issueConn as any, limit);
+  const issues = await Promise.all(
+    issueNodes.map(async (i: any) => ({
+      identifier: i.identifier,
+      title: i.title,
+      state: (await i.state)?.name ?? null,
+    })),
+  );
   return {
     id: milestone.id,
     name: milestone.name,
@@ -77,6 +98,9 @@ export async function getMilestoneDetail(
     project: project?.name ?? null,
     createdAt: milestone.createdAt.toISOString(),
     updatedAt: milestone.updatedAt.toISOString(),
+    issues,
+    // The connection reports only that more exist, never how many.
+    issuesTruncated: issues.length >= limit && issueConn.pageInfo.hasNextPage,
   };
 }
 

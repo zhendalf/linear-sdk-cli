@@ -287,6 +287,8 @@ linear issue update [options] [id]
 | `--due <date>`              | due date (YYYY-MM-DD)                      |
 | `--add-label <name>`        | add a label (repeatable)                   |
 | `--remove-label <name>`     | remove a label (repeatable)                |
+| `--unassign`                | clear the assignee                         |
+| `--clear-cycle`             | remove the issue from its cycle            |
 
 ### `linear issue url`
 

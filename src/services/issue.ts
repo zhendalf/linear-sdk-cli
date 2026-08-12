@@ -383,9 +383,19 @@ export interface UpdateOptions {
   dueDate?: string;
   addLabel?: string[];
   removeLabel?: string[];
+  /** Clear the assignee. Mutually exclusive with `assignee`. */
+  unassign?: boolean;
+  /** Remove the issue from its cycle. Mutually exclusive with `cycle`. */
+  clearCycle?: boolean;
 }
 
 export async function updateIssue(client: LinearClient, idArg: string, opts: UpdateOptions) {
+  // Contradictory pairs are a usage error rather than a silent last-one-wins.
+  if (opts.unassign && opts.assignee)
+    throw usageError("Pass either --assignee or --unassign, not both.");
+  if (opts.clearCycle && opts.cycle)
+    throw usageError("Pass either --cycle or --clear-cycle, not both.");
+
   const issue = await resolveIssue(client, idArg);
   const teamId = (await issue.team)?.id;
   const input: Record<string, any> = {};
@@ -395,6 +405,9 @@ export async function updateIssue(client: LinearClient, idArg: string, opts: Upd
   if (opts.estimate !== undefined) input.estimate = opts.estimate;
   if (opts.dueDate !== undefined) input.dueDate = opts.dueDate;
   if (opts.assignee) input.assigneeId = await resolveUserId(client, opts.assignee);
+  // null (not undefined) is what clears a relation in Linear's update inputs.
+  if (opts.unassign) input.assigneeId = null;
+  if (opts.clearCycle) input.cycleId = null;
   if (opts.state) {
     if (!teamId) throw usageError("Cannot resolve state without a team.");
     input.stateId = await resolveStateId(client, teamId, opts.state);

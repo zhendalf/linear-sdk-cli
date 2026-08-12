@@ -42,10 +42,14 @@ export function registerMilestone(program: Command): void {
   // view --------------------------------------------------------------------
   milestone
     .command("view <id>")
-    .description("Show a milestone")
+    .description("Show a milestone and the issues in it")
     .action(
       action(async (ctx: Context, _opts, id: string) => {
-        const detail = await svc.getMilestoneDetail(ctx.client, id);
+        const detail = await svc.getMilestoneDetail(ctx.client, id, ctx.limit);
+        const issueLines = detail.issues.map(
+          (i) => `  ${i.identifier}  ${i.state ? `[${i.state}] ` : ""}${i.title}`,
+        );
+        if (detail.issuesTruncated) issueLines.push("  … more (use --all)");
         ctx.output.detail(detail, [
           ["Milestone", detail.name],
           ["Project", detail.project],
@@ -54,6 +58,7 @@ export function registerMilestone(program: Command): void {
           ["Status", detail.status],
           ["Updated", detail.updatedAt],
           ["ID", detail.id],
+          ["Issues", issueLines.length ? `\n${issueLines.join("\n")}` : null],
           ["Description", detail.description ? `\n${detail.description}` : null],
         ]);
       }),

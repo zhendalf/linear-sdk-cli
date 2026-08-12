@@ -1,5 +1,11 @@
 import { describe, it, expect } from "bun:test";
-import { buildFilter, sortSpec, resolveIssueSort, searchIssues } from "../../src/services/issue.js";
+import {
+  buildFilter,
+  sortSpec,
+  resolveIssueSort,
+  searchIssues,
+  updateIssue,
+} from "../../src/services/issue.js";
 
 const client = {
   viewer: Promise.resolve({ id: "viewer-id" }),
@@ -158,6 +164,39 @@ describe("searchIssues", () => {
 
     await searchIssues(client, "login", { allTeams: true }, 50, "TES");
     expect(sent[1].filter).toBeUndefined();
+  });
+});
+
+describe("updateIssue clearing fields", () => {
+  const issue = {
+    id: "i1",
+    identifier: "TES-1",
+    team: Promise.resolve({ id: "team-1" }),
+  };
+  const base = (capture: (input: any) => void) =>
+    ({
+      issue: async () => issue,
+      issues: async () => ({ nodes: [issue] }),
+      updateIssue: async (_id: string, input: any) => {
+        capture(input);
+        return { issue: Promise.resolve(issue) };
+      },
+    }) as any;
+
+  // Linear clears a relation on null, not undefined — undefined means "leave alone".
+  it("sends null for --unassign and --clear-cycle", async () => {
+    let captured: any;
+    await updateIssue(base((i) => (captured = i)), "TES-1", { unassign: true, clearCycle: true });
+    expect(captured).toEqual({ assigneeId: null, cycleId: null });
+  });
+
+  it("rejects contradictory pairs instead of picking a winner", async () => {
+    await expect(
+      updateIssue(base(() => {}), "TES-1", { unassign: true, assignee: "me" }),
+    ).rejects.toMatchObject({ code: "usage" });
+    await expect(
+      updateIssue(base(() => {}), "TES-1", { clearCycle: true, cycle: "current" }),
+    ).rejects.toMatchObject({ code: "usage" });
   });
 });
 
