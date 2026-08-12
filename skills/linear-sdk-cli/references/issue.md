@@ -147,13 +147,34 @@ linear issue list [options]
 | `-s, --state <name>`   | filter by workflow state name/type           |
 | `-a, --assignee <who>` | filter by assignee (me\|email\|name)         |
 | `-p, --project <name>` | filter by project                            |
-| `-l, --label <name>`   | filter by label                              |
+| `-l, --label <name>`   | filter by label (repeat to narrow)           |
 | `-P, --priority <0-4>` | filter by priority                           |
 | `--cycle <n>`          | cycle number, id, or 'current'               |
 | `--all-teams`          | search every team, ignoring the default team |
 | `--include-archived`   | include archived issues                      |
 | `--query <text>`       | full-text search                             |
 | `--sort <field>`       | sort order                                   |
+
+### `linear issue mine`
+
+List your unstarted issues (--all-states for every state)
+
+```
+linear issue mine [options]
+```
+
+| Option                 | Description                                      |
+| ---------------------- | ------------------------------------------------ |
+| `-s, --state <name>`   | filter by workflow state name/type               |
+| `-p, --project <name>` | filter by project                                |
+| `-l, --label <name>`   | filter by label (repeat to narrow)               |
+| `-P, --priority <0-4>` | filter by priority                               |
+| `--cycle <n>`          | cycle number, id, or 'current'                   |
+| `--all-teams`          | search every team, ignoring the default team     |
+| `--include-archived`   | include archived issues                          |
+| `--query <text>`       | full-text search                                 |
+| `--sort <field>`       | sort order                                       |
+| `--all-states`         | include every workflow state, not just unstarted |
 
 ### `linear issue pull-request`
 
@@ -201,7 +222,7 @@ linear issue search [options] <text>
 | `-s, --state <name>`   | filter by workflow state name/type           |
 | `-a, --assignee <who>` | filter by assignee (me\|email\|name)         |
 | `-p, --project <name>` | filter by project                            |
-| `-l, --label <name>`   | filter by label                              |
+| `-l, --label <name>`   | filter by label (repeat to narrow)           |
 | `-P, --priority <0-4>` | filter by priority                           |
 | `--cycle <n>`          | cycle number, id, or 'current'               |
 | `--all-teams`          | search every team, ignoring the default team |

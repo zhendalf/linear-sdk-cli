@@ -3,8 +3,10 @@ import {
   buildFilter,
   sortSpec,
   resolveIssueSort,
+  listIssues,
   searchIssues,
   updateIssue,
+  MINE_STATE_TYPES,
 } from "../../src/services/issue.js";
 
 const client = {
@@ -50,11 +52,31 @@ describe("buildFilter", () => {
     expect(JSON.stringify(f.labels)).not.toContain('"in"');
   });
 
-  it("ORs repeated labels, each case-insensitively", async () => {
+  // Repeating --label narrows: the issue must carry *every* label named. This
+  // used to be `some: { or: [...] }`, which broadened instead — a superset, and
+  // the opposite of what the same script does against the reference CLI.
+  it("ANDs repeated labels, each case-insensitively", async () => {
     const f = await buildFilter(client, { label: ["bug", "UI"] }, undefined);
     expect(f.labels).toEqual({
-      some: { or: [{ name: { eqIgnoreCase: "bug" } }, { name: { eqIgnoreCase: "UI" } }] },
+      and: [
+        { some: { name: { eqIgnoreCase: "bug" } } },
+        { some: { name: { eqIgnoreCase: "UI" } } },
+      ],
     });
+    // One `some` per label — a single `some` wrapping an `and` would ask one
+    // label row to be named both things at once, and match nothing.
+    expect(JSON.stringify(f.labels)).not.toContain('"or"');
+  });
+
+  it("filters by several state types with `in`", async () => {
+    const f = await buildFilter(client, { stateTypes: ["unstarted", "Started"] }, undefined);
+    expect(f.state).toEqual({ type: { in: ["unstarted", "started"] } });
+  });
+
+  it("rejects a state name alongside state types instead of silently picking one", async () => {
+    await expect(
+      buildFilter(client, { state: "In Progress", stateTypes: ["unstarted"] }, undefined),
+    ).rejects.toMatchObject({ code: "usage" });
   });
 
   it("filters by free-text query against searchable content", async () => {
@@ -76,10 +98,18 @@ describe("buildFilter", () => {
 });
 
 describe("sortSpec (server-side, correct under pagination)", () => {
-  it("orders priority by urgency descending (Urgent first), no-priority last", () => {
-    expect(sortSpec("priority")).toEqual([
-      { priority: { order: "Descending", noPriorityFirst: false } },
-    ]);
+  // Workflow state first so active work groups above the backlog; it used to be
+  // priority alone, which floated backlog items above work in progress.
+  // Ascending is deliberate: the API returns Backlog BEFORE In Progress under
+  // Descending, which is what the reference CLI ships. See ALIGNMENT.md.
+  const PRIORITY_ORDER = [
+    { workflowState: { order: "Ascending" } },
+    { priority: { nulls: "last", order: "Descending" } },
+    { manual: { nulls: "last", order: "Ascending" } },
+  ];
+
+  it("orders by workflow state, then priority urgency, then manual", () => {
+    expect(sortSpec("priority")).toEqual(PRIORITY_ORDER);
   });
   it("supports updatedAt", () => {
     expect(sortSpec("updated")).toEqual([{ updatedAt: { order: "Descending" } }]);
@@ -89,9 +119,45 @@ describe("sortSpec (server-side, correct under pagination)", () => {
   });
   // Callers resolve through resolveIssueSort, so this only guards direct use.
   it("defaults to the documented priority order", () => {
-    expect(sortSpec(undefined)).toEqual([
-      { priority: { order: "Descending", noPriorityFirst: false } },
-    ]);
+    expect(sortSpec(undefined)).toEqual(PRIORITY_ORDER);
+  });
+});
+
+describe("listIssues (the wire request `issue mine` produces)", () => {
+  function recordingClient(sent: any[]) {
+    return {
+      viewer: Promise.resolve({ id: "viewer-id" }),
+      client: {
+        rawRequest: async (_q: string, vars: any) => {
+          sent.push(vars);
+          return { data: { issues: { nodes: [], pageInfo: { hasNextPage: false } } } };
+        },
+      },
+    } as any;
+  }
+
+  it("scopes to the viewer and the default state types", async () => {
+    const sent: any[] = [];
+    await listIssues(
+      recordingClient(sent),
+      { assignee: "me", stateTypes: MINE_STATE_TYPES, sort: "priority" },
+      50,
+      "TES",
+    );
+    expect(sent[0].filter).toEqual({
+      team: { key: { eq: "TES" } },
+      assignee: { id: { eq: "viewer-id" } },
+      state: { type: { in: ["unstarted"] } },
+    });
+    expect(sent[0].sort[0]).toEqual({ workflowState: { order: "Ascending" } });
+  });
+
+  // --all-states: the command drops stateTypes entirely rather than widening
+  // the `in` list, so no state clause reaches the API.
+  it("emits no state clause when the state types are omitted", async () => {
+    const sent: any[] = [];
+    await listIssues(recordingClient(sent), { assignee: "me", sort: "priority" }, 50, "TES");
+    expect(sent[0].filter.state).toBeUndefined();
   });
 });
 

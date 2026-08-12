@@ -72,16 +72,25 @@ export function addGlobalOptions(program: Command): Command {
     .option("--debug", "verbose errors (stack traces, raw GraphQL)");
 }
 
+/** Opt-outs for the shared filter sets; `issue mine` is fixed to the viewer. */
+export interface FilterOptionSet {
+  /** Register `-a, --assignee`. Off for `issue mine`, whose assignee is you. */
+  assignee?: boolean;
+}
+
 /**
- * Issue filters shared by `issue list` and `issue search`. Both narrow to the
- * default team unless `--all-teams` widens them back to the whole workspace.
+ * Issue filters shared by `issue list`, `issue search`, and `issue mine`. All
+ * narrow to the default team unless `--all-teams` widens them back to the whole
+ * workspace. Repeating `--label` narrows (the issue must carry every label).
  */
-export function addCoreFilterOptions(cmd: Command): Command {
+export function addCoreFilterOptions(cmd: Command, set: FilterOptionSet = {}): Command {
+  cmd.addOption(new Option("-s, --state <name>", "filter by workflow state name/type"));
+  if (set.assignee !== false) {
+    cmd.addOption(new Option("-a, --assignee <who>", "filter by assignee (me|email|name)"));
+  }
   return cmd
-    .addOption(new Option("-s, --state <name>", "filter by workflow state name/type"))
-    .addOption(new Option("-a, --assignee <who>", "filter by assignee (me|email|name)"))
     .addOption(new Option("-p, --project <name>", "filter by project"))
-    .addOption(new Option("-l, --label <name>", "filter by label").argParser(parseList))
+    .addOption(new Option("-l, --label <name>", "filter by label (repeat to narrow)").argParser(parseList))
     .addOption(new Option("-P, --priority <0-4>", "filter by priority"))
     .addOption(new Option(CYCLE_FLAG, CYCLE_DESC))
     .addOption(new Option("--all-teams", "search every team, ignoring the default team"))
@@ -89,11 +98,12 @@ export function addCoreFilterOptions(cmd: Command): Command {
 }
 
 /**
- * `issue list` filters: the shared set plus full-text and sort, neither of which
- * applies to `issue search` (the term *is* the text, and search is relevance-ordered).
+ * `issue list` / `issue mine` filters: the shared set plus full-text and sort,
+ * neither of which applies to `issue search` (the term *is* the text, and search
+ * is relevance-ordered).
  */
-export function addFilterOptions(cmd: Command): Command {
-  return addCoreFilterOptions(cmd)
+export function addFilterOptions(cmd: Command, set: FilterOptionSet = {}): Command {
+  return addCoreFilterOptions(cmd, set)
     .addOption(new Option("--query <text>", "full-text search"))
     .addOption(new Option("--sort <field>", "sort order").choices(["priority", "updated", "created"]));
 }

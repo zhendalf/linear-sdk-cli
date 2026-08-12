@@ -45,6 +45,12 @@ export interface ListFilters {
   allTeams?: boolean;
   assignee?: string;
   state?: string;
+  /**
+   * Filter by one or more workflow state *types* (`issue mine` narrows to
+   * "unstarted" by default). Kept separate from `state`, which is the single
+   * name-or-type `--state` flag; passing both is a usage error.
+   */
+  stateTypes?: string[];
   project?: string;
   label?: string[];
   priority?: string;
@@ -53,6 +59,13 @@ export interface ListFilters {
   sort?: IssueSort;
   includeArchived?: boolean;
 }
+
+/**
+ * The workflow state types `issue mine` shows unless `--all-states` widens it.
+ * Matches the reference CLI, whose `mine` defaults to unstarted work only — the
+ * point of the command is "what should I pick up next", not "everything of mine".
+ */
+export const MINE_STATE_TYPES = ["unstarted"];
 
 /** The sort orders `issue list` accepts, in `--sort`, env, and config alike. */
 export const ISSUE_SORTS = ["priority", "updated", "created"] as const;
@@ -126,11 +139,18 @@ export async function buildFilter(
     const userId = await resolveUserId(client, f.assignee);
     filter.assignee = { id: { eq: userId } };
   }
+  if (f.state && f.stateTypes?.length) {
+    throw usageError("Pass either --state or --all-states/state types, not both.");
+  }
   if (f.state) {
     const lower = f.state.toLowerCase();
     filter.state = STATE_TYPES.includes(lower)
       ? { type: { eq: lower } }
       : { name: { eqIgnoreCase: f.state } };
+  } else if (f.stateTypes?.length) {
+    // Several types at once — `in`, not `eq`. Types are a fixed enum, so there
+    // is no case-sensitivity trap here the way there is with label names.
+    filter.state = { type: { in: f.stateTypes.map((t) => t.toLowerCase()) } };
   }
   if (f.project) {
     const projectId = await resolveProjectId(client, f.project);
@@ -140,12 +160,16 @@ export async function buildFilter(
     // Case-insensitive: `in` is exact-case, so `--label bug` silently matched
     // nothing when the label is stored as "Bug" — an empty list, no error.
     //
-    // Repeating the flag BROADENS (an issue matching any of the labels). The
-    // reference CLI narrows instead (`and` of `some`); see AUDIT.md.
+    // Repeating the flag NARROWS: the issue must carry every label named. It
+    // used to broaden (`some: { or: [...] }`), which both contradicted the
+    // repeated-filter convention every other flag here follows and silently
+    // returned a superset to scripts ported from the reference CLI. Each label
+    // needs its own `some` — a single `some` with an `and` would demand one
+    // label row match every name at once, which no row ever can.
     filter.labels =
       f.label.length === 1
         ? { some: { name: { eqIgnoreCase: f.label[0] } } }
-        : { some: { or: f.label.map((name) => ({ name: { eqIgnoreCase: name } })) } };
+        : { and: f.label.map((name) => ({ some: { name: { eqIgnoreCase: name } } })) };
   }
   if (f.priority !== undefined) {
     filter.priority = { eq: Number.parseInt(f.priority, 10) };
@@ -175,8 +199,24 @@ export async function buildFilter(
 export function sortSpec(sort: IssueSort = "priority"): Array<Record<string, unknown>> {
   switch (sort) {
     case "priority":
-      // Linear sorts priority by urgency; Descending → Urgent…Low, None last.
-      return [{ priority: { order: "Descending", noPriorityFirst: false } }];
+      // Workflow state first, then priority, then manual: active work groups
+      // above the backlog, with urgency as the tiebreak inside each state.
+      // Sorting purely by priority interleaved states, floating a backlog item
+      // above work in progress.
+      //
+      // `workflowState: Ascending` is what puts started work on top — verified
+      // against the API, where Descending returns Backlog BEFORE In Progress.
+      // The reference CLI hardcodes Descending, so a Low-priority backlog issue
+      // sorts above an Urgent in-progress one there; we deliberately diverge
+      // rather than copy that. See ALIGNMENT.md.
+      //
+      // Descending priority is urgency order (Urgent…Low); `nulls: "last"` keeps
+      // "No priority" at the bottom, which is what `noPriorityFirst: false` did.
+      return [
+        { workflowState: { order: "Ascending" } },
+        { priority: { nulls: "last", order: "Descending" } },
+        { manual: { nulls: "last", order: "Ascending" } },
+      ];
     case "created":
       return [{ createdAt: { order: "Descending" } }];
     case "updated":

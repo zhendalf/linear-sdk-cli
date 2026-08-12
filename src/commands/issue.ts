@@ -5,7 +5,7 @@
  * (`tes-123-foo` → `TES-123`).
  */
 
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import { action } from "../lib/action.js";
 import {
   addFilterOptions,
@@ -115,6 +115,59 @@ export function registerIssue(program: Command): void {
       }),
     );
   addFilterOptions(list);
+
+  // mine --------------------------------------------------------------------
+  // `list` stays general; `mine` is the opinionated "what's on my plate" view
+  // the reference CLI ships as its default listing — same defaults (you, and
+  // unstarted work only), so a transplanted `linear issue mine` behaves.
+  const mine = issue
+    .command("mine")
+    // Deliberately NO `l` alias, which is what the reference uses: our `list` is
+    // `ls`, so `l` and `ls` would sit one keystroke apart and return completely
+    // different sets. `linear issue l` failing loudly is the better outcome.
+    .description("List your unstarted issues (--all-states for every state)")
+    .addHelpText(
+      "after",
+      [
+        "",
+        "Examples:",
+        "  linear issue mine                       # your unstarted issues",
+        "  linear issue mine --all-states          # every state, still yours",
+        "  linear issue mine --state started       # one specific state instead",
+      ].join("\n"),
+    )
+    .action(
+      action(async (ctx: Context, opts) => {
+        if (opts.allStates && opts.state) {
+          throw usageError("Pass either --state or --all-states, not both.");
+        }
+        const rows = await svc.listIssues(
+          ctx.client,
+          {
+            team: opts.team ?? ctx.defaultTeam,
+            allTeams: opts.allTeams,
+            // The whole point of the command: never overridable.
+            assignee: "me",
+            state: opts.state,
+            // An explicit --state replaces the default set rather than intersecting it.
+            stateTypes: opts.allStates || opts.state ? undefined : svc.MINE_STATE_TYPES,
+            project: opts.project,
+            label: opts.label,
+            priority: opts.priority,
+            cycle: opts.cycle,
+            query: opts.query,
+            sort: svc.resolveIssueSort(opts.sort, ctx.config),
+            includeArchived: opts.includeArchived,
+          },
+          ctx.limit,
+          ctx.defaultTeam,
+        );
+        ctx.output.list(rows, ROW_COLUMNS, rows);
+      }),
+    );
+  addFilterOptions(mine, { assignee: false }).addOption(
+    new Option("--all-states", "include every workflow state, not just unstarted"),
+  );
 
   // search ------------------------------------------------------------------
   const search = issue

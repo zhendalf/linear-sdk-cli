@@ -85,6 +85,26 @@ describe("discovery commands", () => {
     }
   });
 
+  // `issue mine` is additive: `list` keeps listing everything, `mine` is the
+  // reference CLI's opinionated default view.
+  it("registers `issue mine` alongside `issue list`, fixed to the viewer", () => {
+    const issue = createProgram().commands.find((c) => c.name() === "issue");
+    const mine = issue?.commands.find((c) => c.name() === "mine");
+    expect(mine).toBeDefined();
+    // No `l` alias (the reference's): `list` is `ls` here, so `l`/`ls` would be
+    // one keystroke apart with opposite result sets.
+    expect(mine?.aliases()).not.toContain("l");
+    expect(issue?.commands.find((c) => c.name() === "list")?.aliases()).toContain("ls");
+
+    const flags = mine!.options.map((o) => o.long);
+    expect(flags).toContain("--all-states");
+    // No --assignee: overriding it would make the command a lie.
+    expect(flags).not.toContain("--assignee");
+    // `issue list` still takes one.
+    const list = issue?.commands.find((c) => c.name() === "list");
+    expect(list!.options.map((o) => o.long)).toContain("--assignee");
+  });
+
   it("`schema --help` registers with -o/--output", () => {
     const schema = createProgram().commands.find((c) => c.name() === "schema");
     const help = schema?.helpInformation() ?? "";

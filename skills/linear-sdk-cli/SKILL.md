@@ -244,6 +244,7 @@ linear issue describe
 linear issue id
 linear issue label
 linear issue list
+linear issue mine
 linear issue pull-request
 linear issue relation
 linear issue search

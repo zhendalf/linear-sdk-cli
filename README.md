@@ -171,7 +171,7 @@ are shown in parentheses. For a machine-readable tree of *every* command, run
 
 | Group | What you can do |
 | --- | --- |
-| **`issue`** (`i`) | `view` · `list` · `search` · `create` · `update` · `delete` · `archive`/`unarchive` · `start` (git branch) · `describe` · `pull-request`/`pr` · `assign` · `state` · `label` · `comment`/`comments` · `relation` · `subscribe`/`unsubscribe` · `id`/`title`/`url`/`branch` |
+| **`issue`** (`i`) | `view` · `list` · `mine` · `search` · `create` · `update` · `delete` · `archive`/`unarchive` · `start` (git branch) · `describe` · `pull-request`/`pr` · `assign` · `state` · `label` · `comment`/`comments` · `relation` · `subscribe`/`unsubscribe` · `id`/`title`/`url`/`branch` |
 | **`team`** (`t`) | `list` · `view` · `members` · `states` · `labels` · `cycles` · `create` · `update` |
 | **`project`** (`p`) | `list` · `view` · `create` · `update` · `archive` · `milestones` |
 | **`project-update`** (`pu`) | `create` · `list` (project status updates, with `--health`) |

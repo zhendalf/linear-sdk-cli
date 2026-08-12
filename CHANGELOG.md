@@ -8,6 +8,15 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **`issue mine` — your unstarted work.** The reference `linear-cli` makes this its
+  *default* listing (`issue list` there is an alias of `mine`), so a script or a habit carried
+  over from it silently saw only your own unstarted issues. We keep `list` general — a command
+  named "list" should list — and add `mine` next to it with the reference's defaults: the
+  viewer's issues, restricted to `unstarted` states, widened by `--all-states`. It takes the same
+  filters as `issue list` minus `--assignee`, which would make the command's name a lie. Same
+  service path as `list`, so the JSON contract and `--fields`/`--limit` behave identically.
+  It deliberately does **not** take the reference's `l` alias: `list` is `ls` here, so `l` and `ls`
+  would sit one keystroke apart and return completely different sets.
 - **Project content, priority, labels and members.** `project create`/`update` gained
   `--content`/`--content-file` — the project's **markdown body**, which the CLI previously had no
   way to set (`--description` is the one-line summary, a different field) — plus
@@ -47,6 +56,21 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- **Repeating `--label` now narrows instead of broadening.** `--label bug --label regression`
+  used to return issues carrying *either* label; it now returns only those carrying *both*.
+  Every other repeatable filter in this CLI narrows, the reference CLI narrows, and the broadening
+  reading was the surprising one — a ported script got a superset of what it asked for and no
+  error to notice. A single `--label` is unchanged, and both forms stay case-insensitive.
+  Implemented as `labels: {and: [{some: …}, …]}` — one `some` per label, because a single `some`
+  wrapping an `and` would require one label to be named two things at once and match nothing.
+- **`--sort priority` orders by workflow state first.** It was priority alone, which interleaved
+  states and floated a backlog item above work that is actually in progress. The order is now
+  workflow state **ascending** (active work above the backlog), then priority descending
+  (no-priority last), then manual ascending. Membership is unchanged; only the ordering moved.
+  `--sort updated` and `--sort created` (which the reference lacks) are untouched.
+  The reference CLI hardcodes state *descending* for this flag, which the API answers with Backlog
+  **before** In Progress — a Low-priority backlog item outranks an Urgent in-progress one there.
+  We match the intent (state-grouped, UI-like) rather than that payload; verified against the API.
 - **`issue search` takes filters, and is now team-scoped by default.** Linear's `searchIssues`
   accepts an `IssueFilter`, so search now honors the same filters as `issue list`
   (`--state`, `--assignee`, `--project`, `--label`, `--priority`, `--cycle`,
@@ -85,8 +109,8 @@ All notable changes to this project are documented here. The format is based on
   `--status` is accepted as an alias for the same thing.
 - **`issue list --label` was case-sensitive.** The filter used an exact-case `in` comparator, so
   `--label bug` returned an empty list when the label is stored as `Bug` — wrong results with no
-  error, while label *resolution* everywhere else matches case-insensitively. Repeating the flag
-  still broadens the match (any of the labels).
+  error, while label *resolution* everywhere else matches case-insensitively. (Repeating the flag
+  now narrows the match — see Changed.)
 - **Deactivated users were invisible.** `team members` and `user list` never sent
   `includeDisabled`, which Linear defaults to `false` — so deactivated users were never returned
   and the `Active` column could only ever print `yes`. Both commands now take
