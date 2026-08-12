@@ -9,6 +9,7 @@ import { Command } from "commander";
 import { action } from "../lib/action.js";
 import { resolveBody } from "../lib/body.js";
 import { confirmDestructive, promptInput } from "../lib/prompt.js";
+import { addAliasOption, readAlias } from "../lib/options.js";
 import type { Context } from "../context.js";
 import * as svc from "../services/milestone.js";
 import type { Column } from "../output/table.js";
@@ -65,7 +66,7 @@ export function registerMilestone(program: Command): void {
     );
 
   // create ------------------------------------------------------------------
-  milestone
+  const create = milestone
     .command("create <project>")
     .alias("new")
     .description("Create a milestone in a project")
@@ -85,16 +86,17 @@ export function registerMilestone(program: Command): void {
         const created = await svc.createMilestone(ctx.client, project, {
           name,
           description,
-          targetDate: opts.target,
+          targetDate: readAlias(opts, "--target", "--target-date"),
         });
         ctx.output.emit({ id: created.id, name: created.name }, () =>
           ctx.output.success(`Created milestone ${created.name}`),
         );
       }),
     );
+  addAliasOption(create, "--target-date <date>", "--target");
 
   // update ------------------------------------------------------------------
-  milestone
+  const update = milestone
     .command("update <id>")
     .alias("edit")
     .description("Update a milestone")
@@ -112,13 +114,14 @@ export function registerMilestone(program: Command): void {
         const updated = await svc.updateMilestone(ctx.client, id, {
           name: opts.name,
           description,
-          targetDate: opts.target,
+          targetDate: readAlias(opts, "--target", "--target-date"),
         });
         ctx.output.emit({ id: updated.id, name: updated.name }, () =>
           ctx.output.success(`Updated milestone ${updated.name}`),
         );
       }),
     );
+  addAliasOption(update, "--target-date <date>", "--target");
 
   // delete ------------------------------------------------------------------
   milestone

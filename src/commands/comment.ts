@@ -5,6 +5,12 @@
  *
  * Comment ids are UUIDs; the `<issue>` argument accepts an identifier (TES-123)
  * or a UUID and is resolved via resolveIssue.
+ *
+ * The four core verbs are built by factories rather than registered inline, so
+ * the `linear issue comment {add,list,update,delete}` subgroup (the reference
+ * CLI's layout) can mount the *same* handlers under `issue` without a second
+ * copy of the logic. Commander commands carry a parent pointer, so each mount
+ * point needs its own instance — hence factories, not shared constants.
  */
 
 import { Command } from "commander";
@@ -22,24 +28,27 @@ const ROW_COLUMNS: Column<svc.CommentRow>[] = [
   { key: "body", header: "Body", value: (r) => r.body.replace(/\n/g, " "), max: 70 },
 ];
 
-export function registerComment(program: Command): void {
-  const comment = program.command("comment").alias("cm").description("Manage comments");
+/** Options for a mounted copy of the shared verbs. */
+interface MountOptions {
+  /** Register the short aliases (`ls`, `edit`, `rm`). Off under `issue comment`. */
+  aliases?: boolean;
+}
 
-  // list --------------------------------------------------------------------
-  comment
-    .command("list <issue>")
-    .alias("ls")
-    .description("List comments on an issue")
-    .action(
-      action(async (ctx: Context, _opts, issueArg: string) => {
-        const rows = await svc.listComments(ctx.client, issueArg, ctx.limit);
-        ctx.output.list(rows, ROW_COLUMNS, rows);
-      }),
-    );
+function buildList(o: MountOptions): Command {
+  const cmd = new Command("list").argument("<issue>").description("List comments on an issue");
+  if (o.aliases !== false) cmd.alias("ls");
+  return cmd.action(
+    action(async (ctx: Context, _opts, issueArg: string) => {
+      const rows = await svc.listComments(ctx.client, issueArg, ctx.limit);
+      ctx.output.list(rows, ROW_COLUMNS, rows);
+    }),
+  );
+}
 
-  // add ---------------------------------------------------------------------
-  comment
-    .command("add <issue> [body]")
+function buildAdd(_o: MountOptions): Command {
+  return new Command("add")
+    .argument("<issue>")
+    .argument("[body]")
     .description("Add a comment to an issue")
     .option("--body-file <path>", "read comment body from a file ('-' = stdin)")
     .action(
@@ -52,6 +61,54 @@ export function registerComment(program: Command): void {
         );
       }),
     );
+}
+
+function buildUpdate(o: MountOptions): Command {
+  const cmd = new Command("update")
+    .argument("<commentId>")
+    .argument("[body]")
+    .description("Update a comment's body")
+    .option("--body-file <path>", "read new body from a file ('-' = stdin)");
+  if (o.aliases !== false) cmd.alias("edit");
+  return cmd.action(
+    action(async (ctx: Context, opts, commentId: string, bodyArg?: string) => {
+      const body = resolveBody({ arg: bodyArg, file: opts.bodyFile, interactive: ctx.isTTY });
+      if (body === undefined) throw usageError("No comment body provided.");
+      const updated = await svc.updateComment(ctx.client, commentId, body);
+      ctx.output.emit({ id: updated.id, url: updated.url }, () =>
+        ctx.output.success(`Updated comment ${updated.id}`),
+      );
+    }),
+  );
+}
+
+function buildDelete(o: MountOptions): Command {
+  const cmd = new Command("delete").argument("<commentId>").description("Delete a comment");
+  if (o.aliases !== false) cmd.alias("rm");
+  return cmd.action(
+    action(async (ctx: Context, _opts, commentId: string) => {
+      if (!(await confirmDestructive(ctx, `Delete comment ${commentId}?`))) return;
+      const deleted = await svc.deleteComment(ctx.client, commentId);
+      ctx.output.emit({ id: deleted.id, deleted: true }, () =>
+        ctx.output.success(`Deleted comment ${deleted.id}`),
+      );
+    }),
+  );
+}
+
+/** The four verbs the reference CLI mounts under `issue comment`. */
+export const SHARED_COMMENT_VERBS = {
+  add: buildAdd,
+  list: buildList,
+  update: buildUpdate,
+  delete: buildDelete,
+} as const;
+
+export function registerComment(program: Command): void {
+  const comment = program.command("comment").alias("cm").description("Manage comments");
+
+  // add / list / update / delete — shared with `issue comment` -----------------
+  for (const build of Object.values(SHARED_COMMENT_VERBS)) comment.addCommand(build({}));
 
   // reply -------------------------------------------------------------------
   comment
@@ -66,38 +123,6 @@ export function registerComment(program: Command): void {
         ctx.output.emit(
           { id: created.id, parent: commentId, issue: issue?.identifier ?? null, url: created.url },
           () => ctx.output.success(`Replied to comment${issue ? ` on ${issue.identifier}` : ""}`),
-        );
-      }),
-    );
-
-  // update ------------------------------------------------------------------
-  comment
-    .command("update <commentId> [body]")
-    .alias("edit")
-    .description("Update a comment's body")
-    .option("--body-file <path>", "read new body from a file ('-' = stdin)")
-    .action(
-      action(async (ctx: Context, opts, commentId: string, bodyArg?: string) => {
-        const body = resolveBody({ arg: bodyArg, file: opts.bodyFile, interactive: ctx.isTTY });
-        if (body === undefined) throw usageError("No comment body provided.");
-        const updated = await svc.updateComment(ctx.client, commentId, body);
-        ctx.output.emit({ id: updated.id, url: updated.url }, () =>
-          ctx.output.success(`Updated comment ${updated.id}`),
-        );
-      }),
-    );
-
-  // delete ------------------------------------------------------------------
-  comment
-    .command("delete <commentId>")
-    .alias("rm")
-    .description("Delete a comment")
-    .action(
-      action(async (ctx: Context, _opts, commentId: string) => {
-        if (!(await confirmDestructive(ctx, `Delete comment ${commentId}?`))) return;
-        const deleted = await svc.deleteComment(ctx.client, commentId);
-        ctx.output.emit({ id: deleted.id, deleted: true }, () =>
-          ctx.output.success(`Deleted comment ${deleted.id}`),
         );
       }),
     );
@@ -126,4 +151,18 @@ export function registerComment(program: Command): void {
         );
       }),
     );
+}
+
+/**
+ * Mount `add`/`list`/`update`/`delete` under the existing `issue comment`
+ * command, which keeps its own `[id] [body]` "add a comment" behavior for every
+ * other operand. The short aliases (`ls`, `edit`, `rm`) are deliberately NOT
+ * registered here: each subcommand name shadows a one-word comment body under
+ * the parent, so the collision surface stays at the four names the reference
+ * actually ships.
+ */
+export function registerIssueCommentGroup(issueComment: Command): void {
+  for (const build of Object.values(SHARED_COMMENT_VERBS)) {
+    issueComment.addCommand(build({ aliases: false }));
+  }
 }

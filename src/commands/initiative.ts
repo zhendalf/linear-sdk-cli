@@ -10,7 +10,7 @@ import { Command } from "commander";
 import { action } from "../lib/action.js";
 import { resolveBody } from "../lib/body.js";
 import { confirmDestructive, promptInput } from "../lib/prompt.js";
-import { parseList, parseIntOption } from "../lib/options.js";
+import { parseList, parseIntOption, addAliasOption, readAlias } from "../lib/options.js";
 import type { Context } from "../context.js";
 import * as svc from "../services/initiative.js";
 import type { Column } from "../output/table.js";
@@ -66,7 +66,7 @@ export function registerInitiative(program: Command): void {
     );
 
   // create ------------------------------------------------------------------
-  initiative
+  const create = initiative
     .command("create")
     .alias("new")
     .description("Create a new initiative")
@@ -90,7 +90,7 @@ export function registerInitiative(program: Command): void {
         const created = await svc.createInitiative(ctx.client, {
           name,
           description,
-          targetDate: opts.target,
+          targetDate: readAlias(opts, "--target", "--target-date"),
           owner: opts.owner,
           status: opts.status,
           priority: opts.priority,
@@ -101,9 +101,10 @@ export function registerInitiative(program: Command): void {
         );
       }),
     );
+  addAliasOption(create, "--target-date <date>", "--target");
 
   // update ------------------------------------------------------------------
-  initiative
+  const update = initiative
     .command("update <id>")
     .alias("edit")
     .description("Update an initiative")
@@ -125,7 +126,7 @@ export function registerInitiative(program: Command): void {
         const updated = await svc.updateInitiative(ctx.client, idArg, {
           name: opts.name,
           description,
-          targetDate: opts.target,
+          targetDate: readAlias(opts, "--target", "--target-date"),
           owner: opts.owner,
           status: opts.status,
           priority: opts.priority,
@@ -136,6 +137,7 @@ export function registerInitiative(program: Command): void {
         );
       }),
     );
+  addAliasOption(update, "--target-date <date>", "--target");
 
   // archive -----------------------------------------------------------------
   initiative

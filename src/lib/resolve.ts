@@ -48,9 +48,15 @@ export async function resolveTeam(
   return { id: team.id, key: team.key, name: team.name };
 }
 
-/** Resolve an assignee reference (`me`, email, name, or id) to a user id. */
+/**
+ * Resolve an assignee reference (`me`, email, name, or id) to a user id.
+ *
+ * `self` is the reference CLI's spelling of the same sentinel; it is accepted
+ * alongside `me`/`@me` so transplanted commands assign to the viewer instead of
+ * failing to find a user literally named "self".
+ */
 export async function resolveUserId(client: LinearClient, input: string): Promise<string> {
-  if (input === "me" || input === "@me") {
+  if (input === "me" || input === "@me" || input === "self") {
     const me = await withRetry(() => client.viewer);
     return me.id;
   }
@@ -224,7 +230,13 @@ export async function resolveProjectId(client: LinearClient, input: string): Pro
   return projects.nodes[0]!.id;
 }
 
-/** Resolve a cycle within a team by number, id, or `current`/`next`/`previous`. */
+/**
+ * Resolve a cycle within a team by number, name, id, or `current`/`active`.
+ *
+ * The union of both CLIs' vocabularies: we took number/UUID/`current`, the
+ * reference takes name/number/`active`. A non-numeric input that isn't a
+ * sentinel is now looked up as a cycle *name* rather than rejected outright.
+ */
 export async function resolveCycleId(
   client: LinearClient,
   teamId: string,
@@ -238,7 +250,19 @@ export async function resolveCycleId(
     return cycle.id;
   }
   const num = Number.parseInt(input, 10);
-  if (!Number.isFinite(num)) throw usageError(`Cycle must be a number, id, or 'current' (got '${input}').`);
+  if (!Number.isFinite(num)) {
+    // Not a number and not a sentinel → a cycle name. Names are optional in
+    // Linear, so the candidate set is filtered client-side over the team's
+    // cycles rather than through a server-side name filter.
+    const named = await withRetry(() => team.cycles({ first: 250 }));
+    const lower = input.toLowerCase();
+    const matches = named.nodes.filter((c) => c.name?.toLowerCase() === lower);
+    if (matches.length === 0)
+      throw notFound(`No cycle named '${input}' in this team (try a number, id, or 'current').`);
+    if (matches.length > 1)
+      throw ambiguous(`Multiple cycles named '${input}'; pass the cycle number or id instead.`);
+    return matches[0]!.id;
+  }
   const cycles = await withRetry(() => team.cycles({ filter: { number: { eq: num } } as any, first: 1 }));
   if (cycles.nodes.length === 0) throw notFound(`No cycle #${num} in this team.`);
   return cycles.nodes[0]!.id;

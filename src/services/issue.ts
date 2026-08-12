@@ -40,19 +40,48 @@ export interface IssueRow {
 }
 
 export interface ListFilters {
-  team?: string;
+  /** One team key, or several (`--team` is repeatable on the issue queries). */
+  team?: string | string[];
   /** Ignore the team flag and the configured default; search the whole workspace. */
   allTeams?: boolean;
   assignee?: string;
-  state?: string;
+  /** Only issues with no assignee. Mutually exclusive with `assignee`. */
+  unassigned?: boolean;
+  /**
+   * Workflow states, each a state *name* or a state *type*. Several broaden
+   * (an issue is in exactly one state, so narrowing could never match). This is
+   * also how `issue mine` applies its default: it passes `MINE_STATE_TYPES`
+   * here when `--state` is absent, so there is one state path, not two.
+   */
+  state?: string[];
   project?: string;
+  /** Issues whose *project* carries this label. Mutually exclusive with `project`. */
+  projectLabel?: string;
+  /** Project milestone by name or id; scoped to `project` when one is given. */
+  milestone?: string;
   label?: string[];
   priority?: string;
   cycle?: string;
+  /** Lower bound (inclusive) on createdAt — `YYYY-MM-DD` or full ISO 8601. */
+  createdAfter?: string;
+  /** Lower bound (inclusive) on updatedAt — `YYYY-MM-DD` or full ISO 8601. */
+  updatedAfter?: string;
   query?: string;
   sort?: IssueSort;
   includeArchived?: boolean;
+  /**
+   * Search comment bodies too (`issue search` only — `searchIssues` takes this,
+   * the plain `issues` query has nowhere to put it).
+   */
+  searchComments?: boolean;
 }
+
+/**
+ * The workflow state types `issue mine` shows unless `--all-states` widens it.
+ * Matches the reference CLI, whose `mine` defaults to unstarted work only — the
+ * point of the command is "what should I pick up next", not "everything of mine".
+ */
+export const MINE_STATE_TYPES = ["unstarted"];
 
 /** The sort orders `issue list` accepts, in `--sort`, env, and config alike. */
 export const ISSUE_SORTS = ["priority", "updated", "created"] as const;
@@ -111,6 +140,37 @@ query CliIssues($filter: IssueFilter, $first: Int!, $after: String, $sort: [Issu
   }
 }`;
 
+/**
+ * Validate a date bound and normalize it to an ISO instant.
+ *
+ * `new Date()` accepts far too much ("1", "March 2024", "yesterday"), and a
+ * garbage bound sent to the API comes back as an empty list rather than an
+ * error — a filter that silently matches nothing. So the shape is checked here
+ * first, and the flag that carried it is named in the message. Exported for tests.
+ */
+export function parseDateBound(value: string, flag: string): string {
+  const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}(T[\d:.]+(Z|[+-]\d{2}:?\d{2})?)?$/;
+  const parsed = ISO_DATE_RE.test(value) ? new Date(value) : new Date(NaN);
+  if (Number.isNaN(parsed.getTime())) {
+    throw usageError(
+      `Invalid date for ${flag}: '${value}'. Use YYYY-MM-DD or ISO 8601 (e.g. 2026-01-15T09:00:00Z).`,
+    );
+  }
+  return parsed.toISOString();
+}
+
+/** One `--state` value → its filter clause: a known type matches by type, anything else by name. */
+function stateClause(value: string): Record<string, unknown> {
+  const lower = value.toLowerCase();
+  return STATE_TYPES.includes(lower) ? { type: { eq: lower } } : { name: { eqIgnoreCase: value } };
+}
+
+/** Normalize a single-or-repeated option to a deduplicated list. */
+function asList(value: string | string[] | undefined): string[] {
+  if (value === undefined) return [];
+  return [...new Set((Array.isArray(value) ? value : [value]).filter((v) => v.trim() !== ""))];
+}
+
 /** Build an IssueFilter from human options, resolving names to ids. Exported for tests. */
 export async function buildFilter(
   client: LinearClient,
@@ -119,47 +179,105 @@ export async function buildFilter(
 ): Promise<Record<string, unknown>> {
   const filter: Record<string, any> = {};
   // --all-teams wins over both the flag and the configured default.
-  const teamKey = f.allTeams ? undefined : (f.team ?? defaultTeamKey);
-  if (teamKey) filter.team = { key: { eq: teamKey.toUpperCase() } };
+  // Uppercase first, then dedupe: `--team tes --team TES` is one team.
+  const teamKeys = [
+    ...new Set(asList(f.allTeams ? undefined : (f.team ?? defaultTeamKey)).map((k) => k.toUpperCase())),
+  ];
+  // One team keeps the exact `eq` shape it has always sent; several use `in`
+  // (the reference CLI spells the same thing as `or: [{ key: { eq } }, …]`).
+  if (teamKeys.length === 1) filter.team = { key: { eq: teamKeys[0] } };
+  else if (teamKeys.length > 1) filter.team = { key: { in: teamKeys } };
 
-  if (f.assignee) {
+  if (f.unassigned && f.assignee) {
+    throw usageError("Pass either --assignee or --unassigned, not both.");
+  }
+  if (f.unassigned) {
+    filter.assignee = { null: true };
+  } else if (f.assignee) {
     const userId = await resolveUserId(client, f.assignee);
     filter.assignee = { id: { eq: userId } };
   }
-  if (f.state) {
-    const lower = f.state.toLowerCase();
-    filter.state = STATE_TYPES.includes(lower)
-      ? { type: { eq: lower } }
-      : { name: { eqIgnoreCase: f.state } };
+  const states = asList(f.state);
+  if (states.length === 1) {
+    filter.state = stateClause(states[0]!);
+  } else if (states.length > 1) {
+    // Several states OR together. Types collapse into one `in` (a fixed enum,
+    // so no case-sensitivity trap); names stay separate `eqIgnoreCase` clauses,
+    // because `in` is exact-case and `--state 'in progress'` must still match.
+    const types = states.filter((s) => STATE_TYPES.includes(s.toLowerCase()));
+    const names = states.filter((s) => !STATE_TYPES.includes(s.toLowerCase()));
+    const clauses: Record<string, unknown>[] = [
+      ...(types.length ? [{ type: { in: types.map((t) => t.toLowerCase()) } }] : []),
+      ...names.map((name) => ({ name: { eqIgnoreCase: name } })),
+    ];
+    filter.state = clauses.length === 1 ? clauses[0]! : { or: clauses };
   }
+  if (f.project && f.projectLabel) {
+    throw usageError(
+      "Pass either --project (one project) or --project-label (every project with that label), not both.",
+    );
+  }
+  let projectId: string | undefined;
   if (f.project) {
-    const projectId = await resolveProjectId(client, f.project);
+    projectId = await resolveProjectId(client, f.project);
     filter.project = { id: { eq: projectId } };
+  } else if (f.projectLabel) {
+    // Project labels are workspace-level and matched by name, like `--label`:
+    // `in`/`eq` are exact-case, so `--project-label mobile` would silently miss
+    // a label stored as "Mobile".
+    filter.project = { labels: { some: { name: { eqIgnoreCase: f.projectLabel } } } };
+  }
+  if (f.milestone) {
+    // Milestone *names* are only unique within a project, so with --project we
+    // resolve to an id. Without one, IssueFilter can still match by name across
+    // projects — the SDK does not require the scoping the reference CLI demands,
+    // so we accept the wider query instead of rejecting it.
+    filter.projectMilestone = isUuid(f.milestone)
+      ? { id: { eq: f.milestone } }
+      : projectId
+        ? { id: { eq: await resolveMilestoneId(client, projectId, f.milestone) } }
+        : { name: { eqIgnoreCase: f.milestone } };
   }
   if (f.label && f.label.length) {
     // Case-insensitive: `in` is exact-case, so `--label bug` silently matched
     // nothing when the label is stored as "Bug" — an empty list, no error.
     //
-    // Repeating the flag BROADENS (an issue matching any of the labels). The
-    // reference CLI narrows instead (`and` of `some`); see AUDIT.md.
+    // Repeating the flag NARROWS: the issue must carry every label named. It
+    // used to broaden (`some: { or: [...] }`), which both contradicted the
+    // repeated-filter convention every other flag here follows and silently
+    // returned a superset to scripts ported from the reference CLI. Each label
+    // needs its own `some` — a single `some` with an `and` would demand one
+    // label row match every name at once, which no row ever can.
     filter.labels =
       f.label.length === 1
         ? { some: { name: { eqIgnoreCase: f.label[0] } } }
-        : { some: { or: f.label.map((name) => ({ name: { eqIgnoreCase: name } })) } };
+        : { and: f.label.map((name) => ({ some: { name: { eqIgnoreCase: name } } })) };
   }
   if (f.priority !== undefined) {
     filter.priority = { eq: Number.parseInt(f.priority, 10) };
   }
   if (f.cycle) {
-    // A UUID can filter directly; a number/name needs a team to resolve against.
+    // A UUID can filter directly; a number/name needs exactly one team to
+    // resolve against — cycle numbers restart per team, so "#3" across two
+    // teams names two different cycles.
     if (isUuid(f.cycle)) {
       filter.cycle = { id: { eq: f.cycle } };
-    } else if (teamKey) {
-      const teamForCycle = (await resolveTeam(client, teamKey, undefined)).id;
+    } else if (teamKeys.length === 1) {
+      const teamForCycle = (await resolveTeam(client, teamKeys[0]!, undefined)).id;
       filter.cycle = { id: { eq: await resolveCycleId(client, teamForCycle, f.cycle) } };
     } else {
-      throw usageError("Filtering by a cycle number/name requires --team (or pass a cycle id).");
+      throw usageError(
+        "Filtering by a cycle number/name requires exactly one --team (or pass a cycle id).",
+      );
     }
+  }
+  // Inclusive lower bounds, matching the reference CLI's `--created-after` /
+  // `--updated-after` (both are `gte`, so a bare YYYY-MM-DD includes that day).
+  if (f.createdAfter) {
+    filter.createdAt = { gte: parseDateBound(f.createdAfter, "--created-after") };
+  }
+  if (f.updatedAfter) {
+    filter.updatedAt = { gte: parseDateBound(f.updatedAfter, "--updated-after") };
   }
   if (f.query) {
     filter.searchableContent = { contains: f.query };
@@ -175,8 +293,24 @@ export async function buildFilter(
 export function sortSpec(sort: IssueSort = "priority"): Array<Record<string, unknown>> {
   switch (sort) {
     case "priority":
-      // Linear sorts priority by urgency; Descending → Urgent…Low, None last.
-      return [{ priority: { order: "Descending", noPriorityFirst: false } }];
+      // Workflow state first, then priority, then manual: active work groups
+      // above the backlog, with urgency as the tiebreak inside each state.
+      // Sorting purely by priority interleaved states, floating a backlog item
+      // above work in progress.
+      //
+      // `workflowState: Ascending` is what puts started work on top — verified
+      // against the API, where Descending returns Backlog BEFORE In Progress.
+      // The reference CLI hardcodes Descending, so a Low-priority backlog issue
+      // sorts above an Urgent in-progress one there; we deliberately diverge
+      // rather than copy that. See ALIGNMENT.md.
+      //
+      // Descending priority is urgency order (Urgent…Low); `nulls: "last"` keeps
+      // "No priority" at the bottom, which is what `noPriorityFirst: false` did.
+      return [
+        { workflowState: { order: "Ascending" } },
+        { priority: { nulls: "last", order: "Descending" } },
+        { manual: { nulls: "last", order: "Ascending" } },
+      ];
     case "created":
       return [{ createdAt: { order: "Descending" } }];
     case "updated":
@@ -203,8 +337,8 @@ export async function listIssues(
 }
 
 const SEARCH_QUERY = `
-query CliSearchIssues($term: String!, $filter: IssueFilter, $first: Int!, $after: String, $includeArchived: Boolean) {
-  searchIssues(term: $term, filter: $filter, first: $first, after: $after, includeArchived: $includeArchived) {
+query CliSearchIssues($term: String!, $filter: IssueFilter, $first: Int!, $after: String, $includeArchived: Boolean, $includeComments: Boolean) {
+  searchIssues(term: $term, filter: $filter, first: $first, after: $after, includeArchived: $includeArchived, includeComments: $includeComments) {
     nodes {
       id identifier title priority priorityLabel estimate url updatedAt
       state { name type }
@@ -243,6 +377,9 @@ export async function searchIssues(
       // An empty filter object is not the same as null to the API; omit it.
       filter: Object.keys(filter).length ? filter : undefined,
       includeArchived: !!filters.includeArchived,
+      // Off by default: comment bodies widen a title/description search a lot,
+      // and the reference makes it opt-in for the same reason.
+      includeComments: !!filters.searchComments,
     },
     "searchIssues",
     limit,
@@ -380,6 +517,8 @@ export async function createIssue(
 export interface UpdateOptions {
   title?: string;
   description?: string;
+  /** Move the issue to another team (key, name, or id). Changes its identifier. */
+  team?: string;
   assignee?: string;
   state?: string;
   priority?: number;
@@ -405,8 +544,16 @@ export async function updateIssue(client: LinearClient, idArg: string, opts: Upd
     throw usageError("Pass either --cycle or --clear-cycle, not both.");
 
   const issue = await resolveIssue(client, idArg);
-  const teamId = (await issue.team)?.id;
+  const currentTeamId = (await issue.team)?.id;
   const input: Record<string, any> = {};
+  // A team move changes what every team-scoped reference in this same command
+  // means, so it is resolved first and everything below resolves against the
+  // DESTINATION team: `--team ENG --state 'In Review'` has to mean ENG's "In
+  // Review", not the state id of a team the issue is about to leave (which the
+  // API would reject). Linear itself remaps the workflow state to the
+  // equivalent state in the new team and drops the cycle; see the CHANGELOG.
+  if (opts.team) input.teamId = (await resolveTeam(client, opts.team, undefined)).id;
+  const teamId = input.teamId ?? currentTeamId;
   if (opts.title !== undefined) input.title = opts.title;
   if (opts.description !== undefined) input.description = opts.description;
   if (opts.priority !== undefined) input.priority = opts.priority;

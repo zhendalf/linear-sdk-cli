@@ -5,16 +5,19 @@
  * (`tes-123-foo` → `TES-123`).
  */
 
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import { action } from "../lib/action.js";
 import {
   addFilterOptions,
   addCoreFilterOptions,
+  addAliasOption,
+  readAlias,
   parseList,
   parseIntOption,
   CYCLE_FLAG,
   CYCLE_DESC,
 } from "../lib/options.js";
+import { registerIssueCommentGroup } from "./comment.js";
 import { resolveBody } from "../lib/body.js";
 import { confirmDestructive, promptInput } from "../lib/prompt.js";
 import { usageError } from "../lib/errors.js";
@@ -59,7 +62,7 @@ export function registerIssue(program: Command): void {
   issue
     .command("view [id]", { isDefault: true })
     .description("Show an issue (defaults to the current branch's issue)")
-    .option("--web", "open the issue in the browser instead of printing")
+    .option("-w, --web", "open the issue in the browser instead of printing")
     .option("--comments", "include recent comments")
     .action(
       action(async (ctx: Context, opts, idArg?: string) => {
@@ -80,6 +83,8 @@ export function registerIssue(program: Command): void {
   const list = issue
     .command("list")
     .alias("ls")
+    // `query` is the reference CLI's name for this command; same code path.
+    .alias("query")
     .description("List issues with filters")
     .addHelpText(
       "after",
@@ -87,24 +92,37 @@ export function registerIssue(program: Command): void {
         "",
         "Examples:",
         "  linear issue list --assignee me --state 'In Progress'",
-        "  linear issue list --team TES --label bug --sort priority",
+        "  linear issue list --team TES --team ENG --state started --state 'In Review'",
+        "  linear issue list --unassigned --created-after 2026-01-01",
+        "  linear issue list --project-label mobile --updated-after 2026-08-01",
         "  linear issue list --cycle current --json | jq -r '.[].identifier'",
       ].join("\n"),
     )
     .action(
       action(async (ctx: Context, opts) => {
+        // `--all-states` is already how `list` behaves; accepting it keeps
+        // transplanted commands working, but pairing it with an explicit
+        // --state is a contradiction, so say so rather than pick one.
+        if (opts.allStates && opts.state?.length) {
+          throw usageError("Pass either --state or --all-states, not both.");
+        }
         const rows = await svc.listIssues(
           ctx.client,
           {
             team: opts.team ?? ctx.defaultTeam,
             allTeams: opts.allTeams,
             assignee: opts.assignee,
+            unassigned: opts.unassigned,
             state: opts.state,
             project: opts.project,
+            projectLabel: opts.projectLabel,
+            milestone: opts.milestone,
             label: opts.label,
             priority: opts.priority,
             cycle: opts.cycle,
-            query: opts.query,
+            createdAfter: opts.createdAfter,
+            updatedAfter: opts.updatedAfter,
+            query: readAlias(opts, "--query", "--search"),
             sort: svc.resolveIssueSort(opts.sort, ctx.config),
             includeArchived: opts.includeArchived,
           },
@@ -114,7 +132,72 @@ export function registerIssue(program: Command): void {
         ctx.output.list(rows, ROW_COLUMNS, rows);
       }),
     );
-  addFilterOptions(list);
+  addFilterOptions(list).addOption(
+    // Not an alias of anything here — `list` already spans every state — but
+    // the reference ships it, so accept it as a no-op instead of erroring.
+    new Option("--all-states", "accepted for compatibility (list is all-states already)").hideHelp(),
+  );
+
+  // mine --------------------------------------------------------------------
+  // `list` stays general; `mine` is the opinionated "what's on my plate" view
+  // the reference CLI ships as its default listing — same defaults (you, and
+  // unstarted work only), so a transplanted `linear issue mine` behaves.
+  const mine = issue
+    .command("mine")
+    // Deliberately NO `l` alias, which is what the reference uses: our `list` is
+    // `ls`, so `l` and `ls` would sit one keystroke apart and return completely
+    // different sets. `linear issue l` failing loudly is the better outcome.
+    .description("List your unstarted issues (--all-states for every state)")
+    .addHelpText(
+      "after",
+      [
+        "",
+        "Examples:",
+        "  linear issue mine                       # your unstarted issues",
+        "  linear issue mine --all-states          # every state, still yours",
+        "  linear issue mine --state started       # one specific state instead",
+      ].join("\n"),
+    )
+    .action(
+      action(async (ctx: Context, opts) => {
+        if (opts.allStates && opts.state?.length) {
+          throw usageError("Pass either --state or --all-states, not both.");
+        }
+        const rows = await svc.listIssues(
+          ctx.client,
+          {
+            team: opts.team ?? ctx.defaultTeam,
+            allTeams: opts.allTeams,
+            // The whole point of the command: never overridable.
+            assignee: "me",
+            // An explicit --state (repeatable) replaces the default set rather
+            // than intersecting it; --all-states drops the restriction entirely.
+            state: opts.state?.length
+              ? opts.state
+              : opts.allStates
+                ? undefined
+                : svc.MINE_STATE_TYPES,
+            project: opts.project,
+            projectLabel: opts.projectLabel,
+            milestone: opts.milestone,
+            label: opts.label,
+            priority: opts.priority,
+            cycle: opts.cycle,
+            createdAfter: opts.createdAfter,
+            updatedAfter: opts.updatedAfter,
+            query: readAlias(opts, "--query", "--search"),
+            sort: svc.resolveIssueSort(opts.sort, ctx.config),
+            includeArchived: opts.includeArchived,
+          },
+          ctx.limit,
+          ctx.defaultTeam,
+        );
+        ctx.output.list(rows, ROW_COLUMNS, rows);
+      }),
+    );
+  addFilterOptions(mine, { assignee: false }).addOption(
+    new Option("--all-states", "include every workflow state, not just unstarted"),
+  );
 
   // search ------------------------------------------------------------------
   const search = issue
@@ -138,12 +221,18 @@ export function registerIssue(program: Command): void {
             team: opts.team ?? ctx.defaultTeam,
             allTeams: opts.allTeams,
             assignee: opts.assignee,
+            unassigned: opts.unassigned,
             state: opts.state,
             project: opts.project,
+            projectLabel: opts.projectLabel,
+            milestone: opts.milestone,
             label: opts.label,
             priority: opts.priority,
             cycle: opts.cycle,
+            createdAfter: opts.createdAfter,
+            updatedAfter: opts.updatedAfter,
             includeArchived: opts.includeArchived,
+            searchComments: opts.searchComments,
           },
           ctx.limit,
           ctx.defaultTeam,
@@ -151,10 +240,15 @@ export function registerIssue(program: Command): void {
         ctx.output.list(rows, ROW_COLUMNS, rows);
       }),
     );
-  addCoreFilterOptions(search);
+  // Search-only: the plain `issues` query has nowhere to put it, so this does
+  // not belong in the shared filter options.
+  addCoreFilterOptions(search).option(
+    "--search-comments",
+    "match comment bodies as well as titles and descriptions",
+  );
 
   // create ------------------------------------------------------------------
-  issue
+  const create = issue
     .command("create")
     .alias("new")
     .description("Create a new issue")
@@ -207,7 +301,7 @@ export function registerIssue(program: Command): void {
             cycle: opts.cycle,
             estimate: opts.estimate,
             parent: opts.parent,
-            dueDate: opts.due,
+            dueDate: readAlias(opts, "--due", "--due-date"),
           },
           ctx.defaultTeam,
         );
@@ -216,15 +310,20 @@ export function registerIssue(program: Command): void {
         );
       }),
     );
+  addAliasOption(create, "--due-date <date>", "--due");
 
   // update ------------------------------------------------------------------
-  issue
+  const update = issue
     .command("update [id]")
     .alias("edit")
     .description("Update an issue")
     .option("--title <title>", "new title")
     .option("-d, --description <text>", "new description")
     .option("--description-file <path>", "read description from a file ('-' = stdin)")
+    // Declared locally so help says what `--team` *does here* — this is the one
+    // command where the global team flag moves the issue instead of scoping a
+    // lookup. (addGlobalOptions leaves a locally-declared global alone.)
+    .option("-t, --team <key>", "move the issue to another team (changes its identifier)")
     .option("-a, --assignee <who>", "assignee (me|email|name|id)")
     .option("-s, --state <name>", "workflow state name or type")
     .option("-P, --priority <0-4>", "priority", parseIntOption)
@@ -246,6 +345,7 @@ export function registerIssue(program: Command): void {
         "  linear issue update TES-42 --state 'In Progress' --assignee me",
         "  linear issue update --priority 1 --add-label regression   # id from branch",
         "  linear issue update TES-42 --cycle current --json",
+        "  linear issue update TES-42 --team ENG   # move to another team (new identifier)",
       ].join("\n"),
     )
     .action(
@@ -258,6 +358,9 @@ export function registerIssue(program: Command): void {
         const updated = await svc.updateIssue(ctx.client, requireId(idArg), {
           title: opts.title,
           description,
+          // Only the explicit flag moves an issue — never `ctx.defaultTeam`, or
+          // every update in a repo with a configured team would be a team move.
+          team: opts.team,
           assignee: opts.assignee,
           state: opts.state,
           priority: opts.priority,
@@ -266,17 +369,27 @@ export function registerIssue(program: Command): void {
           cycle: opts.cycle,
           estimate: opts.estimate,
           parent: opts.parent,
-          dueDate: opts.due,
+          dueDate: readAlias(opts, "--due", "--due-date"),
           addLabel: opts.addLabel,
           removeLabel: opts.removeLabel,
           unassign: opts.unassign,
           clearCycle: opts.clearCycle,
         });
-        ctx.output.emit({ id: updated.id, identifier: updated.identifier, url: updated.url }, () =>
-          ctx.output.success(`Updated ${updated.identifier}`),
-        );
+        ctx.output.emit({ id: updated.id, identifier: updated.identifier, url: updated.url }, () => {
+          ctx.output.success(`Updated ${updated.identifier}`);
+          // A move renumbers the issue and Linear drops what the destination
+          // team cannot hold. Say so once, rather than letting a script's next
+          // `TES-42` fail with "no such issue". Verified live — see CHANGELOG.
+          if (opts.team) {
+            ctx.output.info(
+              `Moved to team ${updated.identifier.split("-")[0]}: the issue is now ${updated.identifier}. ` +
+                `Its cycle, team-scoped labels, and any project the new team is not part of do not carry over.`,
+            );
+          }
+        });
       }),
     );
+  addAliasOption(update, "--due-date <date>", "--due");
 
   // assign / state ----------------------------------------------------------
   issue
@@ -325,9 +438,9 @@ export function registerIssue(program: Command): void {
     );
 
   // comment / comments ------------------------------------------------------
-  issue
+  const comment = issue
     .command("comment [id] [body]")
-    .description("Add a comment to an issue")
+    .description("Add a comment to an issue (or use the add/list/update/delete subcommands)")
     .option("--body-file <path>", "read comment body from a file ('-' = stdin)")
     .action(
       action(async (ctx: Context, opts, idArg?: string, bodyArg?: string) => {
@@ -339,6 +452,11 @@ export function registerIssue(program: Command): void {
         );
       }),
     );
+  // The reference CLI's `issue comment {add,list,update,delete}` layout, mounted
+  // on the same handlers as the top-level `comment` group. Commander dispatches
+  // to a subcommand only when the first operand matches one of these four names,
+  // so `linear issue comment TES-1 'body'` is untouched.
+  registerIssueCommentGroup(comment);
 
   issue
     .command("comments [id]")
@@ -433,7 +551,7 @@ export function registerIssue(program: Command): void {
     .option("--head <branch>", "head branch for the PR")
     .option("--draft", "create the PR as a draft")
     .option("--title <title>", "PR title (defaults to the issue title)")
-    .option("--web", "open the PR creation page in the browser")
+    .option("-w, --web", "open the PR creation page in the browser")
     .action(
       action(async (ctx: Context, opts, idArg?: string) => {
         if (!isGitRepo()) {

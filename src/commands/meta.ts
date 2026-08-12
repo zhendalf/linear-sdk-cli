@@ -17,38 +17,46 @@ import {
 } from "../config.js";
 import { authError, usageError } from "../lib/errors.js";
 import { promptInput } from "../lib/prompt.js";
-import type { Context } from "../context.js";
+import { firstTeam, type Context } from "../context.js";
+
+/**
+ * The `whoami` handler, shared by the top-level `linear whoami` and the
+ * reference CLI's spelling `linear auth whoami` so the two cannot drift.
+ */
+const whoamiAction = action(async (ctx: Context) => {
+  const me = await withRetry(() => ctx.client.viewer);
+  const org = await withRetry(() => ctx.client.organization);
+  ctx.output.detail(
+    {
+      id: me.id,
+      name: me.name,
+      displayName: me.displayName,
+      email: me.email,
+      admin: me.admin,
+      organization: { id: org.id, name: org.name, urlKey: org.urlKey },
+    },
+    [
+      ["Name", me.name],
+      ["Display name", me.displayName],
+      ["Email", me.email],
+      ["Admin", me.admin],
+      ["User ID", me.id],
+      ["Organization", `${org.name} (${org.urlKey})`],
+    ],
+  );
+});
 
 export function registerMeta(program: Command): void {
-  program
-    .command("whoami")
-    .description("Show the authenticated user")
-    .action(
-      action(async (ctx) => {
-        const me = await withRetry(() => ctx.client.viewer);
-        const org = await withRetry(() => ctx.client.organization);
-        ctx.output.detail(
-          {
-            id: me.id,
-            name: me.name,
-            displayName: me.displayName,
-            email: me.email,
-            admin: me.admin,
-            organization: { id: org.id, name: org.name, urlKey: org.urlKey },
-          },
-          [
-            ["Name", me.name],
-            ["Display name", me.displayName],
-            ["Email", me.email],
-            ["Admin", me.admin],
-            ["User ID", me.id],
-            ["Organization", `${org.name} (${org.urlKey})`],
-          ],
-        );
-      }),
-    );
+  program.command("whoami").description("Show the authenticated user").action(whoamiAction);
 
   const auth = program.command("auth").description("Manage authentication");
+
+  // whoami ------------------------------------------------------------------
+  // The reference CLI nests this under `auth`; ours is top-level. Both spellings
+  // run the identical handler. (Note it is NOT an alias of `auth status`, which
+  // reports where the *key* came from and never names the user — the reference's
+  // `auth whoami` prints user + workspace, exactly like our top-level `whoami`.)
+  auth.command("whoami").description("Show the authenticated user").action(whoamiAction);
 
   // login -------------------------------------------------------------------
   auth
@@ -205,7 +213,9 @@ export function registerMeta(program: Command): void {
         const c = resolveConfig({
           flags: {
             apiKey: ctx.options.apiKey,
-            team: ctx.options.team,
+            // Still the *flag* value (so `teamSource` stays honest), just
+            // narrowed: `--team` is repeatable on the issue queries.
+            team: firstTeam(ctx.options.team),
             workspace: ctx.options.workspace,
           },
         });

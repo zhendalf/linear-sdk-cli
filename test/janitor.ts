@@ -58,6 +58,30 @@ async function main(): Promise<void> {
     removed++;
   }
 
+  // Project labels are workspace-level (like initiative labels) and are what
+  // `--project-label` filters on, so the query tests create them.
+  const projectLabels: any = await (client as any).projectLabels({
+    filter: { name: { startsWith: PREFIX } },
+    first: 100,
+  });
+  for (const label of projectLabels.nodes) {
+    await (client as any).deleteProjectLabel(label.id);
+    console.error(`deleted project label "${label.name}"`);
+    removed++;
+  }
+
+  // Teams. Only ever created by the `issue update --team` (team move) fixture,
+  // and matched on NAME — a team key is 2-5 characters, so it cannot carry the
+  // prefix. Deleting a team takes its issues with it, which is why nothing but
+  // a prefixed fixture team is ever touched.
+  const teams = await client.teams({ first: 250 });
+  for (const team of teams.nodes) {
+    if (!team.name.startsWith(PREFIX)) continue;
+    await client.deleteTeam(team.id);
+    console.error(`deleted team ${team.key} "${team.name}"`);
+    removed++;
+  }
+
   // Cycles can only be ARCHIVED — Linear has no cycle delete — and archived
   // cycles keep holding their date range, so this is tidiness (keeping them out
   // of `cycle list`), not date reclamation. The live suite stays repeatable by

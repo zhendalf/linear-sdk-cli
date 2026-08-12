@@ -6,13 +6,29 @@ const TEAM = process.env.LINEAR_CLI_TEST_TEAM || "TES";
 
 suite("phase 1 — issue lifecycle (live)", () => {
   const created: string[] = [];
+  const createdLabels: string[] = [];
 
   beforeAll(() => ensureBuilt());
 
   afterAll(() => {
     // Best-effort cleanup; the janitor sweeps anything this misses.
     for (const id of created) run(["issue", "delete", id, "--yes", "--json"]);
+    for (const id of createdLabels) run(["label", "delete", id, "--yes", "--json"]);
   });
+
+  /** A fixture label, tracked for cleanup. Returns its id and name. */
+  function makeLabel(name: string): { id: string; name: string } {
+    const res = runJson<{ id: string; name: string }>([
+      "label",
+      "create",
+      "--name",
+      `${FIXTURE_PREFIX}${name}`,
+      "--team",
+      TEAM,
+    ]);
+    createdLabels.push(res.id);
+    return res;
+  }
 
   function makeIssue(title: string, extra: string[] = []): string {
     const res = runJson<{ identifier: string }>([
@@ -121,9 +137,11 @@ suite("phase 1 — issue lifecycle (live)", () => {
     expect(JSON.parse(res.stderr).error.code).toBe("usage");
   });
 
-  it("sorts by priority urgency descending across the result (Urgent before Low)", () => {
-    const urgent = makeIssue("p-urgent", ["--priority", "1"]);
-    const low = makeIssue("p-low", ["--priority", "4"]);
+  // `--sort priority` is state-first, then priority — so this only holds for two
+  // issues sharing a workflow state. The cross-state half is asserted below.
+  it("sorts by priority urgency descending within a state (Urgent before Low)", () => {
+    const urgent = makeIssue("p-urgent", ["--priority", "1", "--state", "unstarted"]);
+    const low = makeIssue("p-low", ["--priority", "4", "--state", "unstarted"]);
     const rows = runJson<Array<{ identifier: string }>>([
       "issue",
       "list",
@@ -139,6 +157,98 @@ suite("phase 1 — issue lifecycle (live)", () => {
     expect(iu).toBeGreaterThanOrEqual(0);
     expect(il).toBeGreaterThanOrEqual(0);
     expect(iu).toBeLessThan(il);
+  });
+
+  // The change in 1.3: workflow state outranks priority, so all of one state's
+  // issues precede all of another's regardless of urgency. Previously an Urgent
+  // issue sorted above every Low one no matter what state either was in.
+  it("groups `--sort priority` by workflow state before priority", () => {
+    // Priorities deliberately cross the state boundary: under the old
+    // priority-only sort the Urgent started issue outranked the Low unstarted
+    // one, interleaving the states. State-first keeps each state contiguous.
+    const urgentStarted = makeIssue("s-urgent-started", ["--priority", "1", "--state", "started"]);
+    const lowStarted = makeIssue("s-low-started", ["--priority", "4", "--state", "started"]);
+    const lowUnstarted = makeIssue("s-low-unstarted", ["--priority", "4", "--state", "unstarted"]);
+    const rows = runJson<Array<{ identifier: string; state: { name: string } | null }>>([
+      "issue",
+      "list",
+      "--team",
+      TEAM,
+      "--sort",
+      "priority",
+      "--limit",
+      "200",
+    ]);
+    const ids = rows.map((r) => r.identifier);
+    for (const id of [urgentStarted, lowStarted, lowUnstarted]) expect(ids).toContain(id);
+
+    // Every state's rows are contiguous — no state reappears after another.
+    const seen = new Set<string>();
+    let previous: string | undefined;
+    for (const row of rows) {
+      const state = row.state?.name ?? "";
+      if (state === previous) continue;
+      expect(seen.has(state)).toBe(false);
+      seen.add(state);
+      previous = state;
+    }
+    // …and priority still breaks ties inside a state.
+    expect(ids.indexOf(urgentStarted)).toBeLessThan(ids.indexOf(lowStarted));
+  });
+
+  // The change in 1.2: repeated --label narrows. It used to broaden, so this
+  // query would also have returned the single-labelled issue.
+  it("narrows on repeated --label (issue must carry every label)", () => {
+    const a = makeLabel("la");
+    const b = makeLabel("lb");
+    const onlyA = makeIssue("lbl-a", ["--label", a.name]);
+    const both = makeIssue("lbl-ab", ["--label", a.name, "--label", b.name]);
+
+    const one = runJson<Array<{ identifier: string }>>(
+      ["issue", "list", "--team", TEAM, "--label", a.name, "--limit", "100"],
+    ).map((r) => r.identifier);
+    expect(one).toContain(onlyA);
+    expect(one).toContain(both);
+
+    const two = runJson<Array<{ identifier: string }>>(
+      ["issue", "list", "--team", TEAM, "--label", a.name, "--label", b.name, "--limit", "100"],
+    ).map((r) => r.identifier);
+    expect(two).toContain(both);
+    expect(two).not.toContain(onlyA);
+  });
+
+  // 1.1: `mine` is the viewer's unstarted work; `--all-states` widens it.
+  it("`issue mine` shows your unstarted issues only, until --all-states", () => {
+    const id = makeIssue("mine", ["--assignee", "me", "--state", "unstarted"]);
+    const ids = (extra: string[] = []) =>
+      runJson<Array<{ identifier: string }>>([
+        "issue",
+        "mine",
+        "--team",
+        TEAM,
+        "--limit",
+        "200",
+        ...extra,
+      ]).map((r) => r.identifier);
+
+    expect(ids()).toContain(id);
+
+    runJson(["issue", "state", id, "started"]);
+    expect(ids()).not.toContain(id);
+    expect(ids(["--all-states"])).toContain(id);
+  });
+
+  it("`issue mine` never shows another assignee's issues", () => {
+    const unassigned = makeIssue("mine-unassigned", ["--state", "unstarted"]);
+    const ids = runJson<Array<{ identifier: string }>>([
+      "issue",
+      "mine",
+      "--team",
+      TEAM,
+      "--limit",
+      "200",
+    ]).map((r) => r.identifier);
+    expect(ids).not.toContain(unassigned);
   });
 
   it("gives a usage error for assign with an id-shaped single arg (missing assignee)", () => {

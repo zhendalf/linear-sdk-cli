@@ -8,6 +8,102 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **The query filters a script carried over from `linear-cli` expects.** These failed loudly before
+  (unknown flag), so nothing changes meaning — but they blocked real workflows, and every one of
+  them is now on `issue list`, `issue mine` and `issue search` alike, because all three share one
+  filter builder.
+  - **`-U/--unassigned`** — issues with no assignee (`assignee: { null: true }`). Combining it with
+    `--assignee` is a usage error rather than a silent winner: "unassigned issues assigned to Ada"
+    is not a question with an answer.
+  - **Repeatable `--team` and `--state`.** Both broaden, which is the opposite of repeated
+    `--label` (which narrows) — and deliberately so: an issue belongs to exactly one team and sits
+    in exactly one state, so intersecting them would build a filter that can never match. A single
+    `--team`/`--state` sends the exact filter it always did (`key: { eq }` / `type: { eq }`);
+    several send `key: { in: [...] }` and an `or` of state clauses. `--state` keeps taking a state
+    *name* or a state *type*, mixed freely: names stay individual `eqIgnoreCase` clauses because
+    `in` is exact-case, so `--state 'in progress'` still matches "In Progress".
+    `--team` is repeatable **only on the three issue queries**. It is a global option that ~135
+    commands use for something other than filtering — the team an issue is created in, the team a
+    cycle or workflow state belongs to — where "several teams" has no meaning, so making the global
+    itself a list would push an array through every one of those call sites to no benefit. The
+    queries declare their own repeatable `--team`, and the global-option injection now leaves a
+    locally-declared global alone instead of overwriting it (which would have quietly kept the last
+    key only). `issue mine`'s "unstarted by default" now travels through this same `--state` field
+    rather than a second one, so there is one state path in the filter builder, not two.
+  - **`--created-after` / `--updated-after`** — inclusive (`gte`) bounds taking `YYYY-MM-DD` or full
+    ISO 8601. The date is validated locally first: `new Date()` accepts "1", "March 2024" and
+    "yesterday", and a garbage bound is not an API error but an empty result set — a filter that
+    silently matches nothing looks exactly like a query with no matches.
+  - **`--project-label`** — every issue whose *project* carries a label, matched case-insensitively
+    (`--project-label backend` finds the "Backend" label). Mutually exclusive with `--project`:
+    one names a single project, the other a set of them.
+  - **`--search-comments`** (`issue search` only) — match comment bodies as well as titles and
+    descriptions. It rides on `searchIssues`' own `includeComments` argument rather than the shared
+    filter, because the plain `issues` query has nowhere to put it; that is also why it is absent
+    from `issue list`/`mine`. Off by default, as in the reference: comment text widens a search a
+    lot, and you should be able to ask for that rather than discover it.
+  - **`--milestone`** — filter by project milestone, by name or id. The reference CLI requires
+    `--project` alongside it; Linear's `IssueFilter` does not, so here that scoping is optional and
+    only changes precision: with `--project` the name is resolved to a milestone id inside that
+    project, without it the milestone is matched by name across projects. A transplanted command
+    always passes `--project` and behaves identically either way.
+- **`issue update --team <key>` now actually moves the issue between teams** (AUDIT.md #8: the flag
+  was accepted and silently dropped — alone it produced a misleading "Nothing to update", and
+  alongside another flag it moved nothing at all). Everything team-scoped in the same command is
+  resolved against the **destination** team, so `issue update TES-42 --team ENG --state 'In Review'`
+  means ENG's "In Review": the state id of the team the issue is leaving is not valid in the team
+  it is joining, and the API rejects the pair with "Discrepancy between issue team and state, cycle
+  or project" (verified). What Linear does to the rest of the issue was verified live rather than
+  assumed — it needs no clearing from us, because it remaps server-side: the workflow state is
+  carried over to the destination team's equivalent state, the **cycle is dropped** (cycles are
+  team-scoped), **team-scoped labels are dropped** while workspace-level labels survive, and a
+  **project the destination team is not part of is dropped** along with its milestone. The assignee
+  survives, and the issue is renumbered (`TES-489` → `CLM-2`), which human output now says out loud
+  so the next command in a script does not go looking for an identifier that no longer exists.
+
+- **Aliases for the reference `linear-cli`'s spellings.** Everything below is purely additive:
+  no existing flag, command, or output changed meaning. The goal is that a script or a habit
+  carried over from `linear-cli` keeps working instead of failing on a spelling.
+  - **Short flags.** `-j` for the global `--json` (the reference's most-used flag, on 17 of its
+    commands) and `-w` for `--web` on `issue view` / `issue pull-request`. Both letters were
+    free in our tree, so neither costs an existing meaning — we still hold one meaning per
+    letter everywhere, which is exactly why we are *not* adopting their `-t`/`-p`/`-a`/`-l`/`-s`
+    (see `ALIGNMENT.md`: their own tree spells `-t` as both `--title` and `--team`).
+  - **Long-flag spellings.** `--due-date` (`issue create`/`update`), `--target-date` (`project`,
+    `milestone`, `initiative` create/update), `--start-date` (`project create`/`update`),
+    `--search` (`issue list`/`mine`), and `--all-states` on `issue list`, where it is the
+    no-op it describes — `list` already spans every state. Aliases are registered *hidden*, so
+    `--help` and `linear commands --json` keep advertising exactly one spelling per flag; the
+    full mapping lives in README's "Coming from linear-cli". Passing both spellings at once is a
+    usage error rather than a silent pick: `--due 2026-01-01 --due-date 2026-02-01` is not a typo
+    anything should be guessing at. `project list --status`, which shipped earlier as a visible
+    duplicate option, now goes through this same mechanism.
+  - **Accepted values.** `self` joins `me`/`@me` as the viewer sentinel anywhere a user is named,
+    so `--assignee self` assigns to you instead of hunting for a user called "self".
+    `--limit 0` is accepted as a synonym for `--all` — it used to be a usage error, and the
+    silent-failure risk is the opposite direction: a transplanted `--limit 0` that quietly
+    returned the 50-row default would look like a complete result. `--all` stays the spelling we
+    teach. Cycles now resolve by **name** as well as number/id, and `active` is accepted
+    alongside `current` — the union of both CLIs' vocabularies, so no cycle reference from
+    either side is rejected.
+  - **Command aliases.** `issue query` (their name for this listing) runs the same command object
+    as `issue list`; `auth whoami` runs the identical handler as our top-level `whoami`; and
+    `issue comment` gained `add`/`list`/`update`/`delete` subcommands mounted on the same
+    handlers as the top-level `comment` group, so there is one implementation, not two.
+    `issue comment <id> <body>` is unchanged — commander only dispatches to a subcommand when
+    the *first* operand is one of those four names, which is the one behavior this touches: a
+    lone `linear issue comment add` used to mean "comment the word 'add' on the branch's issue"
+    and now reaches the subcommand (and says so loudly). The short aliases `ls`/`edit`/`rm` are
+    deliberately not registered under `issue comment`, to keep that collision at four words.
+- **`issue mine` — your unstarted work.** The reference `linear-cli` makes this its
+  *default* listing (`issue list` there is an alias of `mine`), so a script or a habit carried
+  over from it silently saw only your own unstarted issues. We keep `list` general — a command
+  named "list" should list — and add `mine` next to it with the reference's defaults: the
+  viewer's issues, restricted to `unstarted` states, widened by `--all-states`. It takes the same
+  filters as `issue list` minus `--assignee`, which would make the command's name a lie. Same
+  service path as `list`, so the JSON contract and `--fields`/`--limit` behave identically.
+  It deliberately does **not** take the reference's `l` alias: `list` is `ls` here, so `l` and `ls`
+  would sit one keystroke apart and return completely different sets.
 - **Project content, priority, labels and members.** `project create`/`update` gained
   `--content`/`--content-file` — the project's **markdown body**, which the CLI previously had no
   way to set (`--description` is the one-line summary, a different field) — plus
@@ -47,6 +143,21 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- **Repeating `--label` now narrows instead of broadening.** `--label bug --label regression`
+  used to return issues carrying *either* label; it now returns only those carrying *both*.
+  Every other repeatable filter in this CLI narrows, the reference CLI narrows, and the broadening
+  reading was the surprising one — a ported script got a superset of what it asked for and no
+  error to notice. A single `--label` is unchanged, and both forms stay case-insensitive.
+  Implemented as `labels: {and: [{some: …}, …]}` — one `some` per label, because a single `some`
+  wrapping an `and` would require one label to be named two things at once and match nothing.
+- **`--sort priority` orders by workflow state first.** It was priority alone, which interleaved
+  states and floated a backlog item above work that is actually in progress. The order is now
+  workflow state **ascending** (active work above the backlog), then priority descending
+  (no-priority last), then manual ascending. Membership is unchanged; only the ordering moved.
+  `--sort updated` and `--sort created` (which the reference lacks) are untouched.
+  The reference CLI hardcodes state *descending* for this flag, which the API answers with Backlog
+  **before** In Progress — a Low-priority backlog item outranks an Urgent in-progress one there.
+  We match the intent (state-grouped, UI-like) rather than that payload; verified against the API.
 - **`issue search` takes filters, and is now team-scoped by default.** Linear's `searchIssues`
   accepts an `IssueFilter`, so search now honors the same filters as `issue list`
   (`--state`, `--assignee`, `--project`, `--label`, `--priority`, `--cycle`,
@@ -85,8 +196,8 @@ All notable changes to this project are documented here. The format is based on
   `--status` is accepted as an alias for the same thing.
 - **`issue list --label` was case-sensitive.** The filter used an exact-case `in` comparator, so
   `--label bug` returned an empty list when the label is stored as `Bug` — wrong results with no
-  error, while label *resolution* everywhere else matches case-insensitively. Repeating the flag
-  still broadens the match (any of the labels).
+  error, while label *resolution* everywhere else matches case-insensitively. (Repeating the flag
+  now narrows the match — see Changed.)
 - **Deactivated users were invisible.** `team members` and `user list` never sent
   `includeDisabled`, which Linear defaults to `false` — so deactivated users were never returned
   and the `Active` column could only ever print `yes`. Both commands now take

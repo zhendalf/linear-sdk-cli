@@ -171,7 +171,7 @@ are shown in parentheses. For a machine-readable tree of *every* command, run
 
 | Group | What you can do |
 | --- | --- |
-| **`issue`** (`i`) | `view` · `list` · `search` · `create` · `update` · `delete` · `archive`/`unarchive` · `start` (git branch) · `describe` · `pull-request`/`pr` · `assign` · `state` · `label` · `comment`/`comments` · `relation` · `subscribe`/`unsubscribe` · `id`/`title`/`url`/`branch` |
+| **`issue`** (`i`) | `view` · `list` · `mine` · `search` · `create` · `update` · `delete` · `archive`/`unarchive` · `start` (git branch) · `describe` · `pull-request`/`pr` · `assign` · `state` · `label` · `comment`/`comments` · `relation` · `subscribe`/`unsubscribe` · `id`/`title`/`url`/`branch` |
 | **`team`** (`t`) | `list` · `view` · `members` · `states` · `labels` · `cycles` · `create` · `update` |
 | **`project`** (`p`) | `list` · `view` · `create` · `update` · `archive` · `milestones` |
 | **`project-update`** (`pu`) | `create` · `list` (project status updates, with `--health`) |
@@ -286,6 +286,52 @@ too, so you can pipe GraphQL straight in.
 **Agent skill.** This repo ships a Claude agent skill at `skills/linear-sdk-cli/` that teaches an
 agent to drive the CLI (the JSON envelope, exit codes, discovery, and forgiving inputs). Point a
 compatible agent at it to get reliable Linear automation out of the box.
+
+## Coming from linear-cli
+
+If your fingers or your scripts learned the other `linear-cli`, most of its spellings work here
+unchanged. The left column is theirs, the right is the canonical one this CLI documents and prints
+in `--help`; both are accepted, and passing both at once is a usage error rather than a silent pick.
+
+| linear-cli | here | where |
+| --- | --- | --- |
+| `-j, --json` | same | every command (global) |
+| `-w, --web` | same | `issue view`, `issue pull-request` |
+| `--due-date` | `--due` | `issue create`, `issue update` |
+| `--target-date` | `--target` | `project`/`milestone`/`initiative` create & update |
+| `--start-date` | `--start` | `project create`, `project update` |
+| `--search` | `--query` | `issue list`, `issue mine` |
+| `--status` | `--state` | `project list` |
+| `--all-states` | (no-op) | `issue list` — it already spans every state |
+| `--limit 0` | `--all` | every list; `--all` is the spelling we teach |
+| `--assignee self` | `me` / `@me` | anywhere a user is named |
+| `--cycle active` | `current` | anywhere a cycle is named |
+| `--cycle "<name>"` | number, name, or id | all three resolve |
+| `issue query` | `issue list` | same command |
+| `auth whoami` | `whoami` | both spellings registered |
+| `issue comment add\|list\|update\|delete` | `comment add\|list\|…` | both mounted on one implementation |
+
+Their query filters all exist here too, under the same names — `issue list`, `issue mine` and
+`issue search` share one filter set:
+
+| linear-cli | here | notes |
+| --- | --- | --- |
+| `-U, --unassigned` | same | `issue list`/`search`; passing it with `--assignee` is a usage error |
+| `--team A --team B` | same | repeatable **on the three issue queries only**; elsewhere `--team` is the single default-team global |
+| `--state a --state b` | same | repeatable; several states OR together (an issue is in one state), and each value is a state name *or* type |
+| `--created-after`, `--updated-after` | same | `YYYY-MM-DD` or ISO 8601, inclusive; a malformed date is rejected locally instead of returning an empty list |
+| `--project-label` | same | matches the *project's* label; mutually exclusive with `--project` |
+| `--milestone` | same | theirs requires `--project`; here that scoping is optional — without it the milestone is matched by name across projects |
+| `--search-comments` | `--search-comments` | `issue search` only — the plain list query has nowhere to put it |
+| `issue update --team` | same | a real team move: the issue is renumbered, and Linear remaps its state while dropping the cycle, team-scoped labels and any project the new team is not part of |
+
+Four differences we deliberately did **not** adopt (see `ALIGNMENT.md` for the reasoning): their
+`issue list` is an alias of `mine` (a `list` that silently filters to you and hides started work is
+the worst transition hazard, so we added `issue mine` instead of changing `list`); their JSON shape
+wraps results in connection envelopes and `mine` has no `--json` at all (our uniform bare
+array/object is the point); their short flags are reassigned per command (`-t` is both `--title`
+and `--team` in their own tree, so there is no coherent target to match); and their per-command
+option model, where we keep true globals.
 
 ## Configuration
 

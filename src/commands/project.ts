@@ -4,7 +4,7 @@
 
 import { Command } from "commander";
 import { action } from "../lib/action.js";
-import { parseList, parseIntOption } from "../lib/options.js";
+import { parseList, parseIntOption, addAliasOption, readAlias } from "../lib/options.js";
 import { resolveBody } from "../lib/body.js";
 import { confirmDestructive, promptInput } from "../lib/prompt.js";
 import type { Context } from "../context.js";
@@ -28,25 +28,29 @@ export function registerProject(program: Command): void {
   const project = program.command("project").alias("p").description("Work with projects");
 
   // list --------------------------------------------------------------------
-  project
+  const list = project
     .command("list")
     .alias("ls")
     .description("List projects with filters")
     .option("--state <name>", "filter by status name or type (e.g. 'In QA', started)")
-    // `--status` is the reference CLI's spelling for the same thing; accepting
-    // both costs nothing and saves transplanted muscle memory.
-    .option("--status <name>", "alias of --state")
     .action(
       action(async (ctx: Context, opts) => {
         const rows = await svc.listProjects(
           ctx.client,
-          { team: opts.team ?? ctx.defaultTeam, state: opts.state ?? opts.status },
+          {
+            team: opts.team ?? ctx.defaultTeam,
+            state: readAlias(opts, "--state", "--status"),
+          },
           ctx.limit,
           ctx.defaultTeam,
         );
         ctx.output.list(rows, ROW_COLUMNS, rows);
       }),
     );
+  // `--status` is the reference CLI's spelling for the same thing; it shipped
+  // earlier as a visible duplicate and now goes through the shared alias
+  // mechanism, so `--help` shows one canonical spelling here like everywhere else.
+  addAliasOption(list, "--status <name>", "--state");
 
   // view --------------------------------------------------------------------
   project
@@ -77,7 +81,7 @@ export function registerProject(program: Command): void {
     );
 
   // create ------------------------------------------------------------------
-  project
+  const create = project
     .command("create")
     .alias("new")
     .description("Create a new project")
@@ -130,8 +134,8 @@ export function registerProject(program: Command): void {
             lead: opts.lead,
             member: opts.member,
             state: opts.state,
-            startDate: opts.start,
-            targetDate: opts.target,
+            startDate: readAlias(opts, "--start", "--start-date"),
+            targetDate: readAlias(opts, "--target", "--target-date"),
             priority: opts.priority,
             label: opts.label,
             icon: opts.icon,
@@ -144,9 +148,11 @@ export function registerProject(program: Command): void {
         );
       }),
     );
+  addAliasOption(create, "--start-date <date>", "--start");
+  addAliasOption(create, "--target-date <date>", "--target");
 
   // update ------------------------------------------------------------------
-  project
+  const update = project
     .command("update <id>")
     .alias("edit")
     .description("Update a project")
@@ -185,8 +191,8 @@ export function registerProject(program: Command): void {
           lead: opts.lead,
           member: opts.member,
           state: opts.state,
-          startDate: opts.start,
-          targetDate: opts.target,
+          startDate: readAlias(opts, "--start", "--start-date"),
+          targetDate: readAlias(opts, "--target", "--target-date"),
           priority: opts.priority,
           label: opts.label,
           icon: opts.icon,
@@ -197,6 +203,8 @@ export function registerProject(program: Command): void {
         );
       }),
     );
+  addAliasOption(update, "--start-date <date>", "--start");
+  addAliasOption(update, "--target-date <date>", "--target");
 
   // archive -----------------------------------------------------------------
   project
