@@ -58,6 +58,18 @@ async function main(): Promise<void> {
     removed++;
   }
 
+  // Cycles can only be ARCHIVED — Linear has no cycle delete — and archived
+  // cycles keep holding their date range, so this is tidiness (keeping them out
+  // of `cycle list`), not date reclamation. The live suite stays repeatable by
+  // picking a window after the last existing cycle instead.
+  const cycles = await client.cycles({ first: 250 });
+  for (const cycle of cycles.nodes) {
+    if (!cycle.name?.startsWith(PREFIX) || cycle.archivedAt) continue;
+    await client.archiveCycle(cycle.id);
+    console.error(`archived cycle "${cycle.name}"`);
+    removed++;
+  }
+
   // Initiatives and initiative labels. Both are plan-gated, so a workspace
   // without the feature errors here rather than returning an empty list — that
   // is not a janitor failure, so it is tolerated.
