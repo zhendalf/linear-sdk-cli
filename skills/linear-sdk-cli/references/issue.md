@@ -142,17 +142,18 @@ Aliases: `ls`
 linear issue list [options]
 ```
 
-| Option                 | Description                          |
-| ---------------------- | ------------------------------------ |
-| `-s, --state <name>`   | filter by workflow state name/type   |
-| `-a, --assignee <who>` | filter by assignee (me\|email\|name) |
-| `-p, --project <name>` | filter by project                    |
-| `-l, --label <name>`   | filter by label                      |
-| `-P, --priority <0-4>` | filter by priority                   |
-| `--cycle <n>`          | cycle number, id, or 'current'       |
-| `--query <text>`       | full-text search                     |
-| `--sort <field>`       | sort order                           |
-| `--include-archived`   | include archived issues              |
+| Option                 | Description                                  |
+| ---------------------- | -------------------------------------------- |
+| `-s, --state <name>`   | filter by workflow state name/type           |
+| `-a, --assignee <who>` | filter by assignee (me\|email\|name)         |
+| `-p, --project <name>` | filter by project                            |
+| `-l, --label <name>`   | filter by label                              |
+| `-P, --priority <0-4>` | filter by priority                           |
+| `--cycle <n>`          | cycle number, id, or 'current'               |
+| `--all-teams`          | search every team, ignoring the default team |
+| `--include-archived`   | include archived issues                      |
+| `--query <text>`       | full-text search                             |
+| `--sort <field>`       | sort order                                   |
 
 ### `linear issue pull-request`
 
@@ -189,11 +190,22 @@ linear issue relation [options] <id> <op> [other]
 
 ### `linear issue search`
 
-Full-text search across issues
+Full-text search across issues (scoped to the default team; --all-teams widens)
 
 ```
 linear issue search [options] <text>
 ```
+
+| Option                 | Description                                  |
+| ---------------------- | -------------------------------------------- |
+| `-s, --state <name>`   | filter by workflow state name/type           |
+| `-a, --assignee <who>` | filter by assignee (me\|email\|name)         |
+| `-p, --project <name>` | filter by project                            |
+| `-l, --label <name>`   | filter by label                              |
+| `-P, --priority <0-4>` | filter by priority                           |
+| `--cycle <n>`          | cycle number, id, or 'current'               |
+| `--all-teams`          | search every team, ignoring the default team |
+| `--include-archived`   | include archived issues                      |
 
 ### `linear issue start`
 
@@ -275,6 +287,8 @@ linear issue update [options] [id]
 | `--due <date>`              | due date (YYYY-MM-DD)                      |
 | `--add-label <name>`        | add a label (repeatable)                   |
 | `--remove-label <name>`     | remove a label (repeatable)                |
+| `--unassign`                | clear the assignee                         |
+| `--clear-cycle`             | remove the issue from its cycle            |
 
 ### `linear issue url`
 

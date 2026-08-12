@@ -8,6 +8,32 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Project content, priority, labels and members.** `project create`/`update` gained
+  `--content`/`--content-file` — the project's **markdown body**, which the CLI previously had no
+  way to set (`--description` is the one-line summary, a different field) — plus
+  `-P/--priority <0-4>` (validated locally), `-l/--label` (resolved against workspace project
+  labels, deduplicated, label groups skipped), `--member` (repeatable, deduplicated),
+  `--icon <name>` (a capitalized Linear icon name such as `Rocket`, validated by the API) and
+  `--color <hex>`. On `update`, `--label` and `--member` replace the whole set. `project view`
+  now shows Labels and Content.
+- **`issue update --unassign` and `--clear-cycle`.** Clearing an assignee or removing an issue
+  from its cycle was previously impossible — every flag could only set a value. Passing a clear
+  flag together with its setting counterpart (`--unassign` with `--assignee`) is a usage error
+  rather than a silent last-one-wins.
+- **`document list --project` / `--issue`.** Documents can be narrowed to their container;
+  human references (a project name, an issue identifier like `TES-1`) are resolved to ids first,
+  since `DocumentFilter` matches containers by id.
+- **`milestone view` lists the milestone's issues** (identifier, state, title), capped by the
+  global `-n/--limit` and with an explicit `… more (use --all)` notice when the cap hides some,
+  so a partial list never reads as a complete one.
+- **Initiative priority and labels.** `initiative create` and `initiative update` take
+  `-P/--priority <0-4>` (0 none, 1 urgent … 4 low; validated locally with a usage error) and
+  `-l/--label <name>` (repeatable/comma-separated, resolved by name or id — `update --label`
+  replaces the whole set, matching `issue update --label`). `initiative view` shows Priority and
+  Labels, and `initiative list` gains a `Pri` column. Linear made these fields public in
+  `@linear/sdk` 88.2; they were `[Internal]` before. Initiative labels are their own
+  workspace-scoped entity, so name resolution goes through `initiativeLabels` and skips label
+  groups, which are containers rather than applicable labels.
 - **Discovery commands for scripts & agents.** `linear commands` prints a machine-readable tree
   of every (sub)command — `--json` emits a bare array of
   `{ path, description, aliases, arguments, options }` (human mode is a compact indented listing).
@@ -21,6 +47,18 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- **`issue search` takes filters, and is now team-scoped by default.** Linear's `searchIssues`
+  accepts an `IssueFilter`, so search now honors the same filters as `issue list`
+  (`--state`, `--assignee`, `--project`, `--label`, `--priority`, `--cycle`,
+  `--include-archived`) — including the global `-t/--team` and the configured default team.
+  **This narrows the previous behavior**, where search always ran across the whole workspace:
+  pass the new `--all-teams` (also available on `issue list`) to get that back. `--query` and
+  `--sort` are deliberately absent from search — the term is the query, and results come back
+  relevance-ordered.
+- **Dependencies updated to current majors** — `@linear/sdk` 87 → 89, commander 15,
+  `@inquirer/prompts` 8, TypeScript 6, eslint 10, `@types/node` 26. The Linear schema changes in
+  88/89 are additive for everything this CLI touches; no command behavior changes. TypeScript is
+  held at 6.x because typescript-eslint does not yet accept 7.
 - **`issue archive` now confirms** before archiving, matching `issue delete` and the other
   `archive` commands. Pass `-y/--yes` (required outside a TTY). `unarchive` stays un-gated.
 - **Stable `id` in mutation JSON.** Every issue mutation's `--json` output now carries the stable
@@ -39,6 +77,21 @@ All notable changes to this project are documented here. The format is based on
   "cycle number, id, or 'current'") across filters and create/update.
 
 ### Fixed
+
+- **Deactivated users were invisible.** `team members` and `user list` never sent
+  `includeDisabled`, which Linear defaults to `false` — so deactivated users were never returned
+  and the `Active` column could only ever print `yes`. Both commands now take
+  `--include-disabled` (still excluded by default), and `team members` requests a full page
+  instead of relying on the server's default page size.
+- **An invalid configured sort was silently ignored.** `--sort` is validated by the parser, but
+  `LINEAR_ISSUE_SORT` / `sort` (`issue_sort`) in config was not: an unrecognized value fell
+  through to `updatedAt` rather than the documented `priority` default, with no warning.
+  Resolution now runs through a single validated path that errors with the valid values and
+  names where the bad value came from (the env var, or the exact config file).
+- **`issue search --json` reported no labels.** The search path hardcoded an empty label list, so
+  the same field was populated by `issue list` and empty from `issue search`. Search now uses the
+  same tailored query as `list` and returns an identical row — which also removes an N+1
+  (state/assignee/project were fetched one issue at a time).
 
 - **Strict `--limit`.** `--limit` now accepts only a positive integer; `--limit 0`, `--limit -1`,
   and `--limit 12x` are usage errors instead of silently falling back to the default.

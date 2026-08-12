@@ -8,7 +8,7 @@
 
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
-import { collect } from "../lib/pagination.js";
+import { collect, pageSize } from "../lib/pagination.js";
 import { usageError } from "../lib/errors.js";
 import { resolveTeam } from "../lib/resolve.js";
 
@@ -48,8 +48,13 @@ export async function getTeamDetail(
 ): Promise<TeamDetail> {
   const resolved = await resolveTeam(client, keyArg, defaultTeamKey);
   const team = await withRetry(() => client.team(resolved.id));
-  // Count members via the connection (no direct count field on Team).
-  const members = await collect((await withRetry(() => team.members())) as any, Infinity);
+  // Count members via the connection (no direct count field on Team). Deactivated
+  // users are excluded — `includeDisabled` is passed explicitly rather than left
+  // to the server default so the intent is visible here.
+  const members = await collect(
+    (await withRetry(() => team.members({ first: 100, includeDisabled: false }))) as any,
+    Infinity,
+  );
   return {
     id: team.id,
     key: team.key,
@@ -75,15 +80,24 @@ export interface MemberRow {
   active: boolean;
 }
 
+/**
+ * List a team's members. Linear defaults `includeDisabled` to false, so
+ * deactivated users are invisible (and the `active` column constantly true)
+ * unless the caller opts in.
+ */
 export async function listMembers(
   client: LinearClient,
   keyArg: string | undefined,
   defaultTeamKey: string | undefined,
   limit: number,
+  includeDisabled = false,
 ): Promise<MemberRow[]> {
   const resolved = await resolveTeam(client, keyArg, defaultTeamKey);
   const team = await withRetry(() => client.team(resolved.id));
-  const nodes = await collect((await withRetry(() => team.members())) as any, limit);
+  const nodes = await collect(
+    (await withRetry(() => team.members({ first: pageSize(limit), includeDisabled }))) as any,
+    limit,
+  );
   return nodes.map((u: any) => ({
     id: u.id,
     displayName: u.displayName,

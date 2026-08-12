@@ -10,6 +10,7 @@ import { Command } from "commander";
 import { action } from "../lib/action.js";
 import { resolveBody } from "../lib/body.js";
 import { confirmDestructive, promptInput } from "../lib/prompt.js";
+import { parseList, parseIntOption } from "../lib/options.js";
 import type { Context } from "../context.js";
 import * as svc from "../services/initiative.js";
 import type { Column } from "../output/table.js";
@@ -17,6 +18,7 @@ import type { Column } from "../output/table.js";
 const ROW_COLUMNS: Column<svc.InitiativeRow>[] = [
   { key: "name", header: "Name", value: (r) => r.name, max: 40 },
   { key: "status", header: "Status", value: (r) => r.status ?? "—", max: 12 },
+  { key: "priority", header: "Pri", value: (r) => (r.priority ? svc.priorityLabel(r.priority) : "—") },
   { key: "targetDate", header: "Target", value: (r) => r.targetDate ?? "—" },
   { key: "health", header: "Health", value: (r) => r.health ?? "—", max: 12 },
 ];
@@ -50,6 +52,8 @@ export function registerInitiative(program: Command): void {
         ctx.output.detail(detail, [
           ["Initiative", detail.name],
           ["Status", detail.status],
+          ["Priority", detail.priority ? detail.priorityLabel : null],
+          ["Labels", detail.labels.length ? detail.labels.join(", ") : null],
           ["Health", detail.health],
           ["Owner", detail.owner],
           ["Creator", detail.creator],
@@ -72,6 +76,8 @@ export function registerInitiative(program: Command): void {
     .option("--target <date>", "estimated completion date (YYYY-MM-DD)")
     .option("--owner <who>", "initiative owner (me|email|name|id)")
     .option("--status <name>", "status (Planned, Active, Completed, Canceled, Proposed)")
+    .option("-P, --priority <0-4>", "priority (0 none, 1 urgent … 4 low)", parseIntOption)
+    .option("-l, --label <name>", "initiative label (repeatable / comma-separated)", parseList)
     .action(
       action(async (ctx: Context, opts) => {
         let name: string | undefined = opts.name;
@@ -87,6 +93,8 @@ export function registerInitiative(program: Command): void {
           targetDate: opts.target,
           owner: opts.owner,
           status: opts.status,
+          priority: opts.priority,
+          label: opts.label,
         });
         ctx.output.emit({ id: created.id, name: created.name, url: created.url }, () =>
           ctx.output.success(`Created ${created.name}: ${created.url}`),
@@ -105,6 +113,8 @@ export function registerInitiative(program: Command): void {
     .option("--target <date>", "estimated completion date (YYYY-MM-DD)")
     .option("--owner <who>", "initiative owner (me|email|name|id)")
     .option("--status <name>", "status (Planned, Active, Completed, Canceled, Proposed)")
+    .option("-P, --priority <0-4>", "priority (0 none, 1 urgent … 4 low)", parseIntOption)
+    .option("-l, --label <name>", "replace the labels (repeatable / comma-separated)", parseList)
     .action(
       action(async (ctx: Context, opts, idArg: string) => {
         const description = resolveBody({
@@ -118,6 +128,8 @@ export function registerInitiative(program: Command): void {
           targetDate: opts.target,
           owner: opts.owner,
           status: opts.status,
+          priority: opts.priority,
+          label: opts.label,
         });
         ctx.output.emit({ id: updated.id, name: updated.name, url: updated.url }, () =>
           ctx.output.success(`Updated ${updated.name}`),

@@ -44,6 +44,8 @@ linear initiative create [options]
 | `--target <date>`           | estimated completion date (YYYY-MM-DD)                  |
 | `--owner <who>`             | initiative owner (me\|email\|name\|id)                  |
 | `--status <name>`           | status (Planned, Active, Completed, Canceled, Proposed) |
+| `-P, --priority <0-4>`      | priority (0 none, 1 urgent … 4 low)                     |
+| `-l, --label <name>`        | initiative label (repeatable / comma-separated)         |
 
 ### `linear initiative delete`
 
@@ -83,6 +85,8 @@ linear initiative update [options] <id>
 | `--target <date>`           | estimated completion date (YYYY-MM-DD)                  |
 | `--owner <who>`             | initiative owner (me\|email\|name\|id)                  |
 | `--status <name>`           | status (Planned, Active, Completed, Canceled, Proposed) |
+| `-P, --priority <0-4>`      | priority (0 none, 1 urgent … 4 low)                     |
+| `-l, --label <name>`        | replace the labels (repeatable / comma-separated)       |
 
 ### `linear initiative view`
 

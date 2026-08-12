@@ -56,6 +56,11 @@ Aliases: `ls`
 linear document list [options]
 ```
 
+| Option                 | Description                                   |
+| ---------------------- | --------------------------------------------- |
+| `-p, --project <name>` | only documents in a project (name or id)      |
+| `--issue <id>`         | only documents on an issue (identifier or id) |
+
 ### `linear document update`
 
 Update a document

@@ -72,8 +72,11 @@ export function addGlobalOptions(program: Command): Command {
     .option("--debug", "verbose errors (stack traces, raw GraphQL)");
 }
 
-/** Common issue-filter options reused by `issue list` and friends. */
-export function addFilterOptions(cmd: Command): Command {
+/**
+ * Issue filters shared by `issue list` and `issue search`. Both narrow to the
+ * default team unless `--all-teams` widens them back to the whole workspace.
+ */
+export function addCoreFilterOptions(cmd: Command): Command {
   return cmd
     .addOption(new Option("-s, --state <name>", "filter by workflow state name/type"))
     .addOption(new Option("-a, --assignee <who>", "filter by assignee (me|email|name)"))
@@ -81,7 +84,16 @@ export function addFilterOptions(cmd: Command): Command {
     .addOption(new Option("-l, --label <name>", "filter by label").argParser(parseList))
     .addOption(new Option("-P, --priority <0-4>", "filter by priority"))
     .addOption(new Option(CYCLE_FLAG, CYCLE_DESC))
-    .addOption(new Option("--query <text>", "full-text search"))
-    .addOption(new Option("--sort <field>", "sort order").choices(["priority", "updated", "created"]))
+    .addOption(new Option("--all-teams", "search every team, ignoring the default team"))
     .addOption(new Option("--include-archived", "include archived issues"));
+}
+
+/**
+ * `issue list` filters: the shared set plus full-text and sort, neither of which
+ * applies to `issue search` (the term *is* the text, and search is relevance-ordered).
+ */
+export function addFilterOptions(cmd: Command): Command {
+  return addCoreFilterOptions(cmd)
+    .addOption(new Option("--query <text>", "full-text search"))
+    .addOption(new Option("--sort <field>", "sort order").choices(["priority", "updated", "created"]));
 }

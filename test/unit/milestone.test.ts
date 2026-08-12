@@ -3,6 +3,7 @@ import {
   toRow,
   createMilestone,
   updateMilestone,
+  getMilestoneDetail,
 } from "../../src/services/milestone.js";
 import { CliError } from "../../src/lib/errors.js";
 
@@ -96,5 +97,56 @@ describe("updateMilestone", () => {
     } as any;
     await expect(updateMilestone(client, "m1", {})).rejects.toBeInstanceOf(CliError);
     await expect(updateMilestone(client, "m1", {})).rejects.toMatchObject({ code: "usage" });
+  });
+});
+
+describe("getMilestoneDetail (issues + truncation)", () => {
+  /** A milestone whose issue connection has `total` issues, paged at `limit`. */
+  function stub(total: number, limit: number) {
+    const all = Array.from({ length: total }, (_, i) => ({
+      identifier: `TES-${i + 1}`,
+      title: `Issue ${i + 1}`,
+      state: Promise.resolve({ name: "Todo" }),
+    }));
+    const pageSize = limit === Infinity ? 100 : Math.min(limit, 100);
+    const page = all.slice(0, pageSize);
+    return {
+      projectMilestone: async () => ({
+        id: "m1",
+        name: "M1",
+        description: null,
+        targetDate: null,
+        progress: 0.5,
+        status: "next",
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+        project: Promise.resolve({ name: "Auth" }),
+        issues: async () => ({
+          nodes: page,
+          pageInfo: { hasNextPage: total > page.length },
+          fetchNext: async () => ({
+            nodes: all,
+            pageInfo: { hasNextPage: false },
+            fetchNext: async () => ({ nodes: all, pageInfo: { hasNextPage: false } }),
+          }),
+        }),
+      }),
+    } as any;
+  }
+
+  it("returns the milestone's issues with their state", async () => {
+    const d = await getMilestoneDetail(stub(2, 50), UUID, 50);
+    expect(d.issues).toEqual([
+      { identifier: "TES-1", title: "Issue 1", state: "Todo" },
+      { identifier: "TES-2", title: "Issue 2", state: "Todo" },
+    ]);
+    expect(d.issuesTruncated).toBe(false);
+  });
+
+  // A partial list must announce itself rather than looking complete.
+  it("flags truncation when the cap hides issues", async () => {
+    const d = await getMilestoneDetail(stub(10, 3), UUID, 3);
+    expect(d.issues).toHaveLength(3);
+    expect(d.issuesTruncated).toBe(true);
   });
 });

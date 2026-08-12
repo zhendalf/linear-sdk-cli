@@ -132,6 +132,71 @@ export async function resolveLabelIds(
   return ids;
 }
 
+/**
+ * Resolve initiative label names to ids. Initiative labels are their own
+ * workspace-scoped entity (`initiativeLabels`, public since @linear/sdk 88.2) —
+ * unrelated to issue labels, and with no team scoping to narrow by.
+ *
+ * Label *groups* (`isGroup`) are containers, not applicable labels, so they are
+ * excluded from matching.
+ */
+export async function resolveInitiativeLabelIds(
+  client: LinearClient,
+  names: string[],
+): Promise<string[]> {
+  const ids: string[] = [];
+  for (const name of names) {
+    if (isUuid(name)) {
+      ids.push(name);
+      continue;
+    }
+    const labels: any = await withRetry(() =>
+      (client as any).initiativeLabels({ filter: { name: { eqIgnoreCase: name } }, first: 50 }),
+    );
+    const candidates = (labels.nodes as any[]).filter((l) => !l.isGroup);
+    if (candidates.length === 0) throw notFound(`No initiative label matching '${name}'.`);
+
+    // Prefer an exact (case-sensitive) match before declaring ambiguity.
+    const exact = candidates.filter((l) => l.name === name);
+    const finalists = exact.length ? exact : candidates;
+    if (finalists.length > 1)
+      throw ambiguous(`Multiple initiative labels named '${name}'; pass the label id instead.`);
+    ids.push(finalists[0]!.id);
+  }
+  return ids;
+}
+
+/**
+ * Resolve project label names to ids. Like initiative labels, project labels are
+ * a workspace-scoped entity of their own (`projectLabels`), and label *groups*
+ * are containers rather than applicable labels, so they are excluded.
+ */
+export async function resolveProjectLabelIds(
+  client: LinearClient,
+  names: string[],
+): Promise<string[]> {
+  const ids: string[] = [];
+  for (const name of names) {
+    if (isUuid(name)) {
+      ids.push(name);
+      continue;
+    }
+    const labels: any = await withRetry(() =>
+      (client as any).projectLabels({ filter: { name: { eqIgnoreCase: name } }, first: 50 }),
+    );
+    const candidates = (labels.nodes as any[]).filter((l) => !l.isGroup);
+    if (candidates.length === 0) throw notFound(`No project label matching '${name}'.`);
+
+    const exact = candidates.filter((l) => l.name === name);
+    const finalists = exact.length ? exact : candidates;
+    if (finalists.length > 1)
+      throw ambiguous(`Multiple project labels named '${name}'; pass the label id instead.`);
+    ids.push(finalists[0]!.id);
+  }
+  // The same label named twice (or by name and id) must not be sent twice.
+  return [...new Set(ids)];
+}
+
 /** First workflow state of a given type (lowest position) within a team. */
 export async function firstStateOfType(
   client: LinearClient,

@@ -28,6 +28,10 @@ Aliases: `ls`
 linear user list [options]
 ```
 
+| Option               | Description                                     |
+| -------------------- | ----------------------------------------------- |
+| `--include-disabled` | include deactivated users (excluded by default) |
+
 ### `linear user me`
 
 Show the authenticated viewer

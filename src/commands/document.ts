@@ -28,9 +28,14 @@ export function registerDocument(program: Command): void {
     .command("list")
     .alias("ls")
     .description("List workspace documents")
+    .option("-p, --project <name>", "only documents in a project (name or id)")
+    .option("--issue <id>", "only documents on an issue (identifier or id)")
     .action(
-      action(async (ctx: Context) => {
-        const rows = await svc.listDocuments(ctx.client, ctx.limit);
+      action(async (ctx: Context, opts) => {
+        const rows = await svc.listDocuments(ctx.client, ctx.limit, {
+          project: opts.project,
+          issue: opts.issue,
+        });
         ctx.output.list(rows, ROW_COLUMNS, rows);
       }),
     );

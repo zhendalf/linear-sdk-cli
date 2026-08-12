@@ -58,6 +58,46 @@ async function main(): Promise<void> {
     removed++;
   }
 
+  // Cycles can only be ARCHIVED — Linear has no cycle delete — and archived
+  // cycles keep holding their date range, so this is tidiness (keeping them out
+  // of `cycle list`), not date reclamation. The live suite stays repeatable by
+  // picking a window after the last existing cycle instead.
+  const cycles = await client.cycles({ first: 250 });
+  for (const cycle of cycles.nodes) {
+    if (!cycle.name?.startsWith(PREFIX) || cycle.archivedAt) continue;
+    await client.archiveCycle(cycle.id);
+    console.error(`archived cycle "${cycle.name}"`);
+    removed++;
+  }
+
+  // Initiatives and initiative labels. Both are plan-gated, so a workspace
+  // without the feature errors here rather than returning an empty list — that
+  // is not a janitor failure, so it is tolerated.
+  try {
+    const initiatives = await client.initiatives({ first: 100, includeArchived: true });
+    for (const initiative of initiatives.nodes) {
+      if (!initiative.name.startsWith(PREFIX)) continue;
+      // As with issues and projects: `includeArchived` also returns already-trashed
+      // initiatives, and deleting those just re-trashes the same set on every run.
+      if (initiative.trashed) continue;
+      await client.deleteInitiative(initiative.id);
+      console.error(`deleted initiative "${initiative.name}"`);
+      removed++;
+    }
+
+    const initiativeLabels: any = await (client as any).initiativeLabels({
+      filter: { name: { startsWith: PREFIX } },
+      first: 100,
+    });
+    for (const label of initiativeLabels.nodes) {
+      await (client as any).deleteInitiativeLabel(label.id);
+      console.error(`deleted initiative label "${label.name}"`);
+      removed++;
+    }
+  } catch (err) {
+    console.error(`janitor: skipped initiatives (${(err as Error).message})`);
+  }
+
   console.error(`janitor: removed ${removed} fixture(s).`);
 }
 

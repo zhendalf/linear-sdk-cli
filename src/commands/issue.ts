@@ -7,7 +7,14 @@
 
 import { Command } from "commander";
 import { action } from "../lib/action.js";
-import { addFilterOptions, parseList, parseIntOption, CYCLE_FLAG, CYCLE_DESC } from "../lib/options.js";
+import {
+  addFilterOptions,
+  addCoreFilterOptions,
+  parseList,
+  parseIntOption,
+  CYCLE_FLAG,
+  CYCLE_DESC,
+} from "../lib/options.js";
 import { resolveBody } from "../lib/body.js";
 import { confirmDestructive, promptInput } from "../lib/prompt.js";
 import { usageError } from "../lib/errors.js";
@@ -90,6 +97,7 @@ export function registerIssue(program: Command): void {
           ctx.client,
           {
             team: opts.team ?? ctx.defaultTeam,
+            allTeams: opts.allTeams,
             assignee: opts.assignee,
             state: opts.state,
             project: opts.project,
@@ -97,7 +105,7 @@ export function registerIssue(program: Command): void {
             priority: opts.priority,
             cycle: opts.cycle,
             query: opts.query,
-            sort: opts.sort ?? ctx.config.sort,
+            sort: svc.resolveIssueSort(opts.sort, ctx.config),
             includeArchived: opts.includeArchived,
           },
           ctx.limit,
@@ -109,15 +117,41 @@ export function registerIssue(program: Command): void {
   addFilterOptions(list);
 
   // search ------------------------------------------------------------------
-  issue
+  const search = issue
     .command("search <text>")
-    .description("Full-text search across issues")
+    .description("Full-text search across issues (scoped to the default team; --all-teams widens)")
+    .addHelpText(
+      "after",
+      [
+        "",
+        "Examples:",
+        "  linear issue search 'login crash' --state started",
+        "  linear issue search 'login crash' --all-teams --assignee me",
+      ].join("\n"),
+    )
     .action(
-      action(async (ctx: Context, _opts, text: string) => {
-        const rows = await svc.searchIssues(ctx.client, text, ctx.limit);
+      action(async (ctx: Context, opts, text: string) => {
+        const rows = await svc.searchIssues(
+          ctx.client,
+          text,
+          {
+            team: opts.team ?? ctx.defaultTeam,
+            allTeams: opts.allTeams,
+            assignee: opts.assignee,
+            state: opts.state,
+            project: opts.project,
+            label: opts.label,
+            priority: opts.priority,
+            cycle: opts.cycle,
+            includeArchived: opts.includeArchived,
+          },
+          ctx.limit,
+          ctx.defaultTeam,
+        );
         ctx.output.list(rows, ROW_COLUMNS, rows);
       }),
     );
+  addCoreFilterOptions(search);
 
   // create ------------------------------------------------------------------
   issue
@@ -202,6 +236,8 @@ export function registerIssue(program: Command): void {
     .option("--due <date>", "due date (YYYY-MM-DD)")
     .option("--add-label <name>", "add a label (repeatable)", parseList)
     .option("--remove-label <name>", "remove a label (repeatable)", parseList)
+    .option("--unassign", "clear the assignee")
+    .option("--clear-cycle", "remove the issue from its cycle")
     .addHelpText(
       "after",
       [
@@ -233,6 +269,8 @@ export function registerIssue(program: Command): void {
           dueDate: opts.due,
           addLabel: opts.addLabel,
           removeLabel: opts.removeLabel,
+          unassign: opts.unassign,
+          clearCycle: opts.clearCycle,
         });
         ctx.output.emit({ id: updated.id, identifier: updated.identifier, url: updated.url }, () =>
           ctx.output.success(`Updated ${updated.identifier}`),

@@ -21,8 +21,8 @@ export interface DocumentRow {
 }
 
 const LIST_QUERY = `
-query CliDocuments($first: Int!, $after: String, $includeArchived: Boolean) {
-  documents(first: $first, after: $after, includeArchived: $includeArchived) {
+query CliDocuments($filter: DocumentFilter, $first: Int!, $after: String, $includeArchived: Boolean) {
+  documents(filter: $filter, first: $first, after: $after, includeArchived: $includeArchived) {
     nodes {
       id title url updatedAt
       project { name }
@@ -31,15 +31,37 @@ query CliDocuments($first: Int!, $after: String, $includeArchived: Boolean) {
   }
 }`;
 
-/** List workspace documents (most-recently updated come from the API order). */
+export interface ListFilters {
+  /** Container project, by name or id. */
+  project?: string;
+  /** Container issue, by identifier (TES-1) or id. */
+  issue?: string;
+}
+
+/**
+ * List workspace documents (most-recently updated come from the API order),
+ * optionally narrowed to a container. DocumentFilter matches containers by id,
+ * so a human `--issue TES-1` is resolved to the issue first.
+ */
 export async function listDocuments(
   client: LinearClient,
   limit: number,
+  filters: ListFilters = {},
 ): Promise<DocumentRow[]> {
+  const filter: Record<string, any> = {};
+  if (filters.project) {
+    filter.project = { id: { eq: await resolveProjectId(client, filters.project) } };
+  }
+  if (filters.issue) {
+    filter.issue = { id: { eq: (await resolveIssue(client, filters.issue)).id } };
+  }
   return collectRawQuery<DocumentRow>(
     client as any,
     LIST_QUERY,
-    { includeArchived: false },
+    {
+      filter: Object.keys(filter).length ? filter : undefined,
+      includeArchived: false,
+    },
     "documents",
     limit,
     (n) => ({

@@ -74,7 +74,7 @@ linear milestone update [options] <id>
 
 ### `linear milestone view`
 
-Show a milestone
+Show a milestone and the issues in it
 
 ```
 linear milestone view [options] <id>
