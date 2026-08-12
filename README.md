@@ -311,6 +311,20 @@ in `--help`; both are accepted, and passing both at once is a usage error rather
 | `auth whoami` | `whoami` | both spellings registered |
 | `issue comment add\|list\|update\|delete` | `comment add\|list\|…` | both mounted on one implementation |
 
+Their query filters all exist here too, under the same names — `issue list`, `issue mine` and
+`issue search` share one filter set:
+
+| linear-cli | here | notes |
+| --- | --- | --- |
+| `-U, --unassigned` | same | `issue list`/`search`; passing it with `--assignee` is a usage error |
+| `--team A --team B` | same | repeatable **on the three issue queries only**; elsewhere `--team` is the single default-team global |
+| `--state a --state b` | same | repeatable; several states OR together (an issue is in one state), and each value is a state name *or* type |
+| `--created-after`, `--updated-after` | same | `YYYY-MM-DD` or ISO 8601, inclusive; a malformed date is rejected locally instead of returning an empty list |
+| `--project-label` | same | matches the *project's* label; mutually exclusive with `--project` |
+| `--milestone` | same | theirs requires `--project`; here that scoping is optional — without it the milestone is matched by name across projects |
+| `--search-comments` | `--search-comments` | `issue search` only — the plain list query has nowhere to put it |
+| `issue update --team` | same | a real team move: the issue is renumbered, and Linear remaps its state while dropping the cycle, team-scoped labels and any project the new team is not part of |
+
 Four differences we deliberately did **not** adopt (see `ALIGNMENT.md` for the reasoning): their
 `issue list` is an alias of `mine` (a `list` that silently filters to you and hides started work is
 the worst transition hazard, so we added `issue mine` instead of changing `list`); their JSON shape

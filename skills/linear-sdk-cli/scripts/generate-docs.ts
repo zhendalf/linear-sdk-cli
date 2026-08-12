@@ -51,21 +51,28 @@ interface CliCommand {
 /**
  * Options shared by (almost) every command. We collapse them into a single note
  * per reference file instead of repeating ~15 rows under each subcommand.
+ *
+ * Keyed by flags AND description, because a command may redefine a global with a
+ * meaning of its own — `--team` filters (repeatably) on the issue queries and
+ * *moves the issue* on `issue update`. Those rows must survive the collapse;
+ * matching on the flag string alone would hide exactly the ones worth reading.
  */
-const GLOBAL_OPTION_FLAGS = new Set([
-  "-j, --json",
-  "--no-color",
-  "--api-key <key>",
-  "--workspace <slug>",
-  "-t, --team <key>",
-  "-n, --limit <n>",
-  "--all",
-  "-f, --fields <a,b,c>",
-  "-y, --yes",
-  "-q, --quiet",
-  "--no-input",
-  "--debug",
+const GLOBAL_OPTIONS = new Map([
+  ["-j, --json", "output machine-readable JSON"],
+  ["--no-color", "disable colored output"],
+  ["--api-key <key>", "Linear API key (overrides env/config)"],
+  ["--workspace <slug>", "select workspace credential profile"],
+  ["-t, --team <key>", "default team key (e.g. TES)"],
+  ["-n, --limit <n>", "max results (positive integer; 0 = all)"],
+  ["--all", "fetch all results (exhaust pagination)"],
+  ["-f, --fields <a,b,c>", "select columns for human table output"],
+  ["-y, --yes", "skip confirmation prompts"],
+  ["-q, --quiet", "suppress status output"],
+  ["--no-input", "never prompt; fail instead"],
+  ["--debug", "verbose errors (stack traces, raw GraphQL)"],
 ]);
+
+const isGlobal = (opt: CliOption): boolean => GLOBAL_OPTIONS.get(opt.flags) === opt.description;
 
 function resolveCli(): string[] {
   const fromEnv = process.env.LINEAR_CLI?.trim();
@@ -122,7 +129,7 @@ function formatCommand(cmd: CliCommand): string {
   lines.push("```");
   lines.push("");
 
-  const localOptions = cmd.options.filter((o) => !GLOBAL_OPTION_FLAGS.has(o.flags));
+  const localOptions = cmd.options.filter((o) => !isGlobal(o));
   if (localOptions.length > 0) {
     lines.push("| Option | Description |");
     lines.push("| --- | --- |");

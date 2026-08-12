@@ -115,7 +115,10 @@ export function createProgram(): Command {
 
 function applyGlobalOptionsToAll(cmd: Command): void {
   for (const sub of cmd.commands) {
-    if (!sub.options.some((o) => o.long === "--json")) addGlobalOptions(sub);
+    // addGlobalOptions skips any global the command already declares itself, so
+    // this is idempotent and never clobbers a command-specific version (the
+    // repeatable `--team` on the issue queries).
+    addGlobalOptions(sub);
     applyGlobalOptionsToAll(sub);
   }
 }

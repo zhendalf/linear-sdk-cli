@@ -92,7 +92,9 @@ export function registerIssue(program: Command): void {
         "",
         "Examples:",
         "  linear issue list --assignee me --state 'In Progress'",
-        "  linear issue list --team TES --label bug --sort priority",
+        "  linear issue list --team TES --team ENG --state started --state 'In Review'",
+        "  linear issue list --unassigned --created-after 2026-01-01",
+        "  linear issue list --project-label mobile --updated-after 2026-08-01",
         "  linear issue list --cycle current --json | jq -r '.[].identifier'",
       ].join("\n"),
     )
@@ -101,7 +103,7 @@ export function registerIssue(program: Command): void {
         // `--all-states` is already how `list` behaves; accepting it keeps
         // transplanted commands working, but pairing it with an explicit
         // --state is a contradiction, so say so rather than pick one.
-        if (opts.allStates && opts.state) {
+        if (opts.allStates && opts.state?.length) {
           throw usageError("Pass either --state or --all-states, not both.");
         }
         const rows = await svc.listIssues(
@@ -110,11 +112,16 @@ export function registerIssue(program: Command): void {
             team: opts.team ?? ctx.defaultTeam,
             allTeams: opts.allTeams,
             assignee: opts.assignee,
+            unassigned: opts.unassigned,
             state: opts.state,
             project: opts.project,
+            projectLabel: opts.projectLabel,
+            milestone: opts.milestone,
             label: opts.label,
             priority: opts.priority,
             cycle: opts.cycle,
+            createdAfter: opts.createdAfter,
+            updatedAfter: opts.updatedAfter,
             query: readAlias(opts, "--query", "--search"),
             sort: svc.resolveIssueSort(opts.sort, ctx.config),
             includeArchived: opts.includeArchived,
@@ -153,7 +160,7 @@ export function registerIssue(program: Command): void {
     )
     .action(
       action(async (ctx: Context, opts) => {
-        if (opts.allStates && opts.state) {
+        if (opts.allStates && opts.state?.length) {
           throw usageError("Pass either --state or --all-states, not both.");
         }
         const rows = await svc.listIssues(
@@ -163,13 +170,21 @@ export function registerIssue(program: Command): void {
             allTeams: opts.allTeams,
             // The whole point of the command: never overridable.
             assignee: "me",
-            state: opts.state,
-            // An explicit --state replaces the default set rather than intersecting it.
-            stateTypes: opts.allStates || opts.state ? undefined : svc.MINE_STATE_TYPES,
+            // An explicit --state (repeatable) replaces the default set rather
+            // than intersecting it; --all-states drops the restriction entirely.
+            state: opts.state?.length
+              ? opts.state
+              : opts.allStates
+                ? undefined
+                : svc.MINE_STATE_TYPES,
             project: opts.project,
+            projectLabel: opts.projectLabel,
+            milestone: opts.milestone,
             label: opts.label,
             priority: opts.priority,
             cycle: opts.cycle,
+            createdAfter: opts.createdAfter,
+            updatedAfter: opts.updatedAfter,
             query: readAlias(opts, "--query", "--search"),
             sort: svc.resolveIssueSort(opts.sort, ctx.config),
             includeArchived: opts.includeArchived,
@@ -206,12 +221,18 @@ export function registerIssue(program: Command): void {
             team: opts.team ?? ctx.defaultTeam,
             allTeams: opts.allTeams,
             assignee: opts.assignee,
+            unassigned: opts.unassigned,
             state: opts.state,
             project: opts.project,
+            projectLabel: opts.projectLabel,
+            milestone: opts.milestone,
             label: opts.label,
             priority: opts.priority,
             cycle: opts.cycle,
+            createdAfter: opts.createdAfter,
+            updatedAfter: opts.updatedAfter,
             includeArchived: opts.includeArchived,
+            searchComments: opts.searchComments,
           },
           ctx.limit,
           ctx.defaultTeam,
@@ -219,7 +240,12 @@ export function registerIssue(program: Command): void {
         ctx.output.list(rows, ROW_COLUMNS, rows);
       }),
     );
-  addCoreFilterOptions(search);
+  // Search-only: the plain `issues` query has nowhere to put it, so this does
+  // not belong in the shared filter options.
+  addCoreFilterOptions(search).option(
+    "--search-comments",
+    "match comment bodies as well as titles and descriptions",
+  );
 
   // create ------------------------------------------------------------------
   const create = issue
@@ -294,6 +320,10 @@ export function registerIssue(program: Command): void {
     .option("--title <title>", "new title")
     .option("-d, --description <text>", "new description")
     .option("--description-file <path>", "read description from a file ('-' = stdin)")
+    // Declared locally so help says what `--team` *does here* — this is the one
+    // command where the global team flag moves the issue instead of scoping a
+    // lookup. (addGlobalOptions leaves a locally-declared global alone.)
+    .option("-t, --team <key>", "move the issue to another team (changes its identifier)")
     .option("-a, --assignee <who>", "assignee (me|email|name|id)")
     .option("-s, --state <name>", "workflow state name or type")
     .option("-P, --priority <0-4>", "priority", parseIntOption)
@@ -315,6 +345,7 @@ export function registerIssue(program: Command): void {
         "  linear issue update TES-42 --state 'In Progress' --assignee me",
         "  linear issue update --priority 1 --add-label regression   # id from branch",
         "  linear issue update TES-42 --cycle current --json",
+        "  linear issue update TES-42 --team ENG   # move to another team (new identifier)",
       ].join("\n"),
     )
     .action(
@@ -327,6 +358,9 @@ export function registerIssue(program: Command): void {
         const updated = await svc.updateIssue(ctx.client, requireId(idArg), {
           title: opts.title,
           description,
+          // Only the explicit flag moves an issue — never `ctx.defaultTeam`, or
+          // every update in a repo with a configured team would be a team move.
+          team: opts.team,
           assignee: opts.assignee,
           state: opts.state,
           priority: opts.priority,
@@ -341,9 +375,18 @@ export function registerIssue(program: Command): void {
           unassign: opts.unassign,
           clearCycle: opts.clearCycle,
         });
-        ctx.output.emit({ id: updated.id, identifier: updated.identifier, url: updated.url }, () =>
-          ctx.output.success(`Updated ${updated.identifier}`),
-        );
+        ctx.output.emit({ id: updated.id, identifier: updated.identifier, url: updated.url }, () => {
+          ctx.output.success(`Updated ${updated.identifier}`);
+          // A move renumbers the issue and Linear drops what the destination
+          // team cannot hold. Say so once, rather than letting a script's next
+          // `TES-42` fail with "no such issue". Verified live — see CHANGELOG.
+          if (opts.team) {
+            ctx.output.info(
+              `Moved to team ${updated.identifier.split("-")[0]}: the issue is now ${updated.identifier}. ` +
+                `Its cycle, team-scoped labels, and any project the new team is not part of do not carry over.`,
+            );
+          }
+        });
       }),
     );
   addAliasOption(update, "--due-date <date>", "--due");

@@ -279,6 +279,72 @@ describe("linear-cli aliases", () => {
   }
 });
 
+// Phase 3 of the alignment: capability gaps. These pin the *option surface* —
+// the service-level filter shapes live in issue-filter.test.ts.
+describe("linear-cli capability gaps (phase 3)", () => {
+  const program = createProgram();
+  const find = (path: string[]): Command =>
+    path.reduce<Command | undefined>(
+      (cmd, name) => cmd?.commands.find((c) => c.name() === name || c.aliases().includes(name)),
+      program,
+    )!;
+  const option = (cmd: Command, long: string) => cmd.options.filter((o) => o.long === long);
+  const queries = ["list", "mine", "search"];
+
+  // The mechanism that makes a repeatable --team possible: cli.ts injects the
+  // globals onto every command, and must NOT re-add a single-valued --team over
+  // the queries' collector (last-key-wins would look like it worked).
+  it("gives the issue queries exactly one --team, and it collects", () => {
+    for (const name of queries) {
+      const teamOptions = option(find(["issue", name]), "--team");
+      expect(teamOptions).toHaveLength(1);
+      const parse = teamOptions[0]!.parseArg!;
+      expect(parse("TES", undefined as any)).toEqual(["TES"]);
+      expect(parse("ENG", ["TES"] as any)).toEqual(["TES", "ENG"]);
+    }
+  });
+
+  it("leaves --team single-valued everywhere else", () => {
+    for (const path of [["issue", "create"], ["issue", "update"], ["project", "create"]]) {
+      const teamOptions = option(find(path), "--team");
+      expect(teamOptions).toHaveLength(1);
+      expect(teamOptions[0]!.parseArg).toBeUndefined();
+    }
+  });
+
+  it("makes --state repeatable on the issue queries", () => {
+    for (const name of queries) {
+      const parse = option(find(["issue", name]), "--state")[0]!.parseArg!;
+      expect(parse("started", undefined as any)).toEqual(["started"]);
+      expect(parse("In Review", ["started"] as any)).toEqual(["started", "In Review"]);
+    }
+  });
+
+  it("registers -U/--unassigned where an assignee filter exists, and nowhere else", () => {
+    for (const name of ["list", "search"]) {
+      const unassigned = option(find(["issue", name]), "--unassigned")[0];
+      expect(unassigned?.short).toBe("-U");
+    }
+    // `issue mine` is fixed to the viewer, so "unassigned" would contradict it.
+    expect(option(find(["issue", "mine"]), "--unassigned")).toHaveLength(0);
+  });
+
+  it("adds the project-label, milestone and date filters to all three queries", () => {
+    for (const name of queries) {
+      const flags = find(["issue", name]).options.map((o) => o.long);
+      expect(flags).toContain("--project-label");
+      expect(flags).toContain("--milestone");
+      expect(flags).toContain("--created-after");
+      expect(flags).toContain("--updated-after");
+    }
+  });
+
+  // AUDIT.md #8: the global --team was accepted here and silently ignored.
+  it("documents --team on `issue update` as a move", () => {
+    expect(option(find(["issue", "update"]), "--team")[0]!.description).toMatch(/move/i);
+  });
+});
+
 describe("auth commands operate in the ambiguous (multi-workspace, no default) state", () => {
   let root: string;
   let savedXdg: string | undefined;

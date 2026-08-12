@@ -103,24 +103,42 @@ export function readAlias<T = string>(
   return (canonicalValue ?? aliasValue) as T | undefined;
 }
 
+/** The global option set, as fresh Option instances (they are per-command state). */
+function globalOptions(): Option[] {
+  return [
+    new Option("-j, --json", "output machine-readable JSON"),
+    new Option("--no-color", "disable colored output"),
+    new Option("--api-key <key>", "Linear API key (overrides env/config)"),
+    new Option("--workspace <slug>", "select workspace credential profile"),
+    new Option("-t, --team <key>", "default team key (e.g. TES)"),
+    new Option("-n, --limit <n>", "max results (positive integer; 0 = all)").argParser(
+      parsePositiveInt,
+    ),
+    new Option("--all", "fetch all results (exhaust pagination)"),
+    new Option("-f, --fields <a,b,c>", "select columns for human table output").argParser(parseList),
+    new Option("-y, --yes", "skip confirmation prompts"),
+    new Option("-q, --quiet", "suppress status output"),
+    new Option("--no-input", "never prompt; fail instead"),
+    new Option("--debug", "verbose errors (stack traces, raw GraphQL)"),
+  ];
+}
+
 /**
- * Register the global options shared by all commands on the root program.
- * Commander makes these inheritable via `cmd.optsWithGlobals()`.
+ * Register the global options shared by all commands, on the root program and
+ * (via `applyGlobalOptionsToAll` in cli.ts) on every subcommand, so they work in
+ * any position. Commander makes them inheritable via `cmd.optsWithGlobals()`.
+ *
+ * A command that has already registered its own version of a global keeps it:
+ * `issue list`/`mine`/`search` declare a **repeatable** `--team` (several teams
+ * in one query), and re-adding the single-valued global on top of it would
+ * silently take the last key instead of collecting them.
  */
 export function addGlobalOptions(program: Command): Command {
-  return program
-    .option("-j, --json", "output machine-readable JSON")
-    .option("--no-color", "disable colored output")
-    .option("--api-key <key>", "Linear API key (overrides env/config)")
-    .option("--workspace <slug>", "select workspace credential profile")
-    .option("-t, --team <key>", "default team key (e.g. TES)")
-    .option("-n, --limit <n>", "max results (positive integer; 0 = all)", parsePositiveInt)
-    .option("--all", "fetch all results (exhaust pagination)")
-    .option("-f, --fields <a,b,c>", "select columns for human table output", parseList)
-    .option("-y, --yes", "skip confirmation prompts")
-    .option("-q, --quiet", "suppress status output")
-    .option("--no-input", "never prompt; fail instead")
-    .option("--debug", "verbose errors (stack traces, raw GraphQL)");
+  for (const option of globalOptions()) {
+    if (program.options.some((existing) => existing.long === option.long)) continue;
+    program.addOption(option);
+  }
+  return program;
 }
 
 /** Opt-outs for the shared filter sets; `issue mine` is fixed to the viewer. */
@@ -133,17 +151,43 @@ export interface FilterOptionSet {
  * Issue filters shared by `issue list`, `issue search`, and `issue mine`. All
  * narrow to the default team unless `--all-teams` widens them back to the whole
  * workspace. Repeating `--label` narrows (the issue must carry every label).
+ *
+ * `--team` and `--state` are **repeatable here only**. `--team` is a global
+ * option used by ~135 commands for far more than filtering (it is the team an
+ * issue is created in, the team a cycle belongs to, …), where "several teams"
+ * has no meaning; making the global itself a list would push an array through
+ * every one of those call sites. So the queries — the only commands where a
+ * multi-team answer is well-defined — declare their own repeatable `--team`,
+ * and `addGlobalOptions` leaves it alone. Repeating either flag BROADENS, unlike
+ * `--label`: an issue belongs to exactly one team and sits in exactly one state,
+ * so narrowing would be a filter that can never match.
  */
 export function addCoreFilterOptions(cmd: Command, set: FilterOptionSet = {}): Command {
-  cmd.addOption(new Option("-s, --state <name>", "filter by workflow state name/type"));
+  cmd.addOption(
+    new Option("-t, --team <key>", "filter by team key (repeatable; default: configured team)").argParser(
+      collectArray,
+    ),
+  );
+  cmd.addOption(
+    new Option("-s, --state <name>", "filter by workflow state name/type (repeatable)").argParser(
+      collectArray,
+    ),
+  );
   if (set.assignee !== false) {
     cmd.addOption(new Option("-a, --assignee <who>", "filter by assignee (me|email|name)"));
+    cmd.addOption(new Option("-U, --unassigned", "only issues with no assignee"));
   }
   return cmd
     .addOption(new Option("-p, --project <name>", "filter by project"))
+    .addOption(
+      new Option("--project-label <name>", "filter by the project's label (excludes --project)"),
+    )
+    .addOption(new Option("--milestone <name>", "filter by project milestone"))
     .addOption(new Option("-l, --label <name>", "filter by label (repeat to narrow)").argParser(parseList))
     .addOption(new Option("-P, --priority <0-4>", "filter by priority"))
     .addOption(new Option(CYCLE_FLAG, CYCLE_DESC))
+    .addOption(new Option("--created-after <date>", "only issues created at/after a date (YYYY-MM-DD)"))
+    .addOption(new Option("--updated-after <date>", "only issues updated at/after a date (YYYY-MM-DD)"))
     .addOption(new Option("--all-teams", "search every team, ignoring the default team"))
     .addOption(new Option("--include-archived", "include archived issues"));
 }

@@ -103,6 +103,16 @@ produces a misleading `Nothing to update; pass at least one field`; combined wit
 silently dropped. Theirs performs a real team move. This is the sharpest instance of a general
 problem: **all twelve globals are advertised on every command**, including ones that cannot honor them.
 
+**`issue update --team` is FIXED** (alignment Phase 3): it sends `IssueUpdateInput.teamId` and
+performs a real move, resolving `--state`/`--cycle`/`--add-label` in the same command against the
+*destination* team — verified live, including that the source team's state id is rejected outright
+("Discrepancy between issue team and state, cycle or project"). It is declared as a local option on
+`issue update` so `--help` says what it does there, and human output announces the new identifier
+plus what Linear drops on a move (cycle, team-scoped labels, out-of-team project). **`project update
+--team` is still inert**, and the underlying problem — every global advertised on every command —
+stands: the injection mechanism now merely skips a global a command declares for itself, which is
+what makes a per-command meaning like this one possible.
+
 ### 9. `auth login` prompts for the API key in plain text **[verified]**
 [meta.ts:63](src/commands/meta.ts:63) → `promptInput` → `inquirerInput`, so the key echoes to the
 terminal and lands in scrollback. Theirs uses a masked prompt. **Fix:** inquirer `password`.

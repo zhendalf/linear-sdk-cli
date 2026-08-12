@@ -8,6 +8,59 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **The query filters a script carried over from `linear-cli` expects.** These failed loudly before
+  (unknown flag), so nothing changes meaning — but they blocked real workflows, and every one of
+  them is now on `issue list`, `issue mine` and `issue search` alike, because all three share one
+  filter builder.
+  - **`-U/--unassigned`** — issues with no assignee (`assignee: { null: true }`). Combining it with
+    `--assignee` is a usage error rather than a silent winner: "unassigned issues assigned to Ada"
+    is not a question with an answer.
+  - **Repeatable `--team` and `--state`.** Both broaden, which is the opposite of repeated
+    `--label` (which narrows) — and deliberately so: an issue belongs to exactly one team and sits
+    in exactly one state, so intersecting them would build a filter that can never match. A single
+    `--team`/`--state` sends the exact filter it always did (`key: { eq }` / `type: { eq }`);
+    several send `key: { in: [...] }` and an `or` of state clauses. `--state` keeps taking a state
+    *name* or a state *type*, mixed freely: names stay individual `eqIgnoreCase` clauses because
+    `in` is exact-case, so `--state 'in progress'` still matches "In Progress".
+    `--team` is repeatable **only on the three issue queries**. It is a global option that ~135
+    commands use for something other than filtering — the team an issue is created in, the team a
+    cycle or workflow state belongs to — where "several teams" has no meaning, so making the global
+    itself a list would push an array through every one of those call sites to no benefit. The
+    queries declare their own repeatable `--team`, and the global-option injection now leaves a
+    locally-declared global alone instead of overwriting it (which would have quietly kept the last
+    key only). `issue mine`'s "unstarted by default" now travels through this same `--state` field
+    rather than a second one, so there is one state path in the filter builder, not two.
+  - **`--created-after` / `--updated-after`** — inclusive (`gte`) bounds taking `YYYY-MM-DD` or full
+    ISO 8601. The date is validated locally first: `new Date()` accepts "1", "March 2024" and
+    "yesterday", and a garbage bound is not an API error but an empty result set — a filter that
+    silently matches nothing looks exactly like a query with no matches.
+  - **`--project-label`** — every issue whose *project* carries a label, matched case-insensitively
+    (`--project-label backend` finds the "Backend" label). Mutually exclusive with `--project`:
+    one names a single project, the other a set of them.
+  - **`--search-comments`** (`issue search` only) — match comment bodies as well as titles and
+    descriptions. It rides on `searchIssues`' own `includeComments` argument rather than the shared
+    filter, because the plain `issues` query has nowhere to put it; that is also why it is absent
+    from `issue list`/`mine`. Off by default, as in the reference: comment text widens a search a
+    lot, and you should be able to ask for that rather than discover it.
+  - **`--milestone`** — filter by project milestone, by name or id. The reference CLI requires
+    `--project` alongside it; Linear's `IssueFilter` does not, so here that scoping is optional and
+    only changes precision: with `--project` the name is resolved to a milestone id inside that
+    project, without it the milestone is matched by name across projects. A transplanted command
+    always passes `--project` and behaves identically either way.
+- **`issue update --team <key>` now actually moves the issue between teams** (AUDIT.md #8: the flag
+  was accepted and silently dropped — alone it produced a misleading "Nothing to update", and
+  alongside another flag it moved nothing at all). Everything team-scoped in the same command is
+  resolved against the **destination** team, so `issue update TES-42 --team ENG --state 'In Review'`
+  means ENG's "In Review": the state id of the team the issue is leaving is not valid in the team
+  it is joining, and the API rejects the pair with "Discrepancy between issue team and state, cycle
+  or project" (verified). What Linear does to the rest of the issue was verified live rather than
+  assumed — it needs no clearing from us, because it remaps server-side: the workflow state is
+  carried over to the destination team's equivalent state, the **cycle is dropped** (cycles are
+  team-scoped), **team-scoped labels are dropped** while workspace-level labels survive, and a
+  **project the destination team is not part of is dropped** along with its milestone. The assignee
+  survives, and the issue is renumbered (`TES-489` → `CLM-2`), which human output now says out loud
+  so the next command in a script does not go looking for an identifier that no longer exists.
+
 - **Aliases for the reference `linear-cli`'s spellings.** Everything below is purely additive:
   no existing flag, command, or output changed meaning. The goal is that a script or a habit
   carried over from `linear-cli` keeps working instead of failing on a spelling.

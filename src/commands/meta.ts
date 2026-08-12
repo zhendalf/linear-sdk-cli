@@ -17,7 +17,7 @@ import {
 } from "../config.js";
 import { authError, usageError } from "../lib/errors.js";
 import { promptInput } from "../lib/prompt.js";
-import type { Context } from "../context.js";
+import { firstTeam, type Context } from "../context.js";
 
 /**
  * The `whoami` handler, shared by the top-level `linear whoami` and the
@@ -213,7 +213,9 @@ export function registerMeta(program: Command): void {
         const c = resolveConfig({
           flags: {
             apiKey: ctx.options.apiKey,
-            team: ctx.options.team,
+            // Still the *flag* value (so `teamSource` stays honest), just
+            // narrowed: `--team` is repeatable on the issue queries.
+            team: firstTeam(ctx.options.team),
             workspace: ctx.options.workspace,
           },
         });
