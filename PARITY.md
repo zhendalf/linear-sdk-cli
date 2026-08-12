@@ -3,8 +3,9 @@
 Comparison of **this project** (`linear-sdk-cli`, `/Users/z/code/linear-sdk-cli`) against the
 reference CLI (`linear-cli`, `/Users/z/work/linear-cli`, the schpet lineage).
 
-_Generated 2026-06-27. Updated after the parity-ergonomics work landed multi-workspace auth, the
-GitHub PR/describe workflow, and the project/initiative status-update groups._
+_Generated 2026-06-27. Updated 2026-08-12 after a second pass against the reference's v2.1.0:
+search filters, project content/metadata, field-clearing on `issue update`, document container
+filters, milestone issue listing, and initiative priority/labels._
 
 ## TL;DR
 
@@ -20,8 +21,8 @@ The two CLIs have **converged on the core workflow** and now differ mostly at th
   (`project-update`, `initiative-update`, with `--health`) are all now first-class.
 - **`linear-cli` (reference) is still deeper on a few VCS/UX niceties.** It retains jj (jujutsu)
   support and `issue commits`, Linear **agent sessions**, bulk operations, markdown rendering +
-  pager + image download, file-upload attachments, and a richer `issue query` (date ranges,
-  all-teams, comment search).
+  pager + image download, file-upload attachments, and a few `issue query` filters we lack
+  (date ranges, comment search, `--unassigned`).
 
 Neither is a superset. The remaining gaps in ours are the deferred items listed below; the
 reference would still need our whole notification/webhook/org/favorite breadth to match ours.
@@ -84,7 +85,27 @@ reference's only global is `--workspace`; everything else (`--json`, `--web`, `-
 
 ## Closed since the original analysis
 
-These reference-only gaps have since been implemented in ours and are now first-class:
+_Second pass, 2026-08-12, after reviewing the reference's v2.0.0/v2.1.0 work:_
+
+- **`issue search` takes filters** (`--state/--assignee/--project/--label/--priority/--cycle/
+  --include-archived`) and is team-scoped like every other list command, with **`--all-teams`**
+  (also on `issue list`) to widen. Linear's `searchIssues` accepts an `IssueFilter`; we weren't
+  using it.
+- **Project markdown body and metadata** — `project create/update --content/--content-file`
+  (previously unreachable: only the one-line `description` was wired up), plus `--priority`,
+  `--label`, `--member`, `--icon`, `--color`.
+- **`issue update --unassign` / `--clear-cycle`** — clearing a field was previously impossible.
+- **`document list --project/--issue`**, and **`milestone view`** now lists its issues with an
+  explicit truncation notice.
+- **Initiative `--priority` and `--label`** — ahead of the reference here; Linear made these
+  fields public in `@linear/sdk` 88.2.
+
+Three bugs the reference's changelog surfaced were live in ours too and are fixed: `team
+members`/`user list` never sent `includeDisabled` (deactivated users were unlistable and the
+`Active` column was a constant `yes`), an invalid configured `sort` was silently ignored, and
+`issue search --json` reported empty labels.
+
+_First pass:_ these reference-only gaps were implemented and are now first-class:
 
 - **Multi-workspace auth** — `auth login/list/default/token/status/logout` keyed by workspace
   slug, plus a global `--workspace` selector (and `LINEAR_WORKSPACE`). Credential selection is
@@ -115,11 +136,11 @@ delete`, `initiative archive/delete`. Ours is one-at-a-time. → Add a shared bu
 Reference renders issue/project/doc bodies via charmd, auto-pages long output (`--no-pager`), and
 downloads inline images (`--no-download`). Ours prints plain text. → Quality-of-life for `view`.
 
-### 4. Richer `issue query` / list filters — *medium*
-Reference `issue query`: `--all-teams --search-comments --unassigned --created-after
---updated-after --project-label`, plus `issue mine` with `--web/--app`. Ours `issue list` has
-state/assignee/project/label/priority/cycle/query/sort/include-archived but lacks all-teams,
-comment search, unassigned, and date-range filters. → Extend our list filters.
+### 4. Remaining `issue query` filters — *medium*
+Reference `issue query` also has `--search-comments --unassigned --created-after --updated-after
+--project-label`, plus `issue mine` with `--web/--app`. Ours now matches on `--all-teams` (on
+both `list` and `search`) and shares the whole core filter set between them, but still lacks
+comment search, `--unassigned`, and date-range filters. → Extend our list filters.
 
 ### 5. File-upload attachments + `issue attach/link` ergonomics — *medium*
 Reference `issue attach <file>` uploads a real file (with `--comment`); `issue link <url>` adds a
@@ -134,8 +155,13 @@ Reference lists commits for an issue and supports jj alongside git. Ours is git-
 - `schema` command (dump GraphQL SDL/introspection) — easy, niche (introspection is reachable
   via `api`).
 - `team delete` with `--move-issues`, and `team create --private`; `team autolinks`.
-- `initiative add-project/remove-project/unarchive`, `--icon`, `--color`.
-- `document --icon`, `-e/--edit` (edit current body in `$EDITOR`).
+- `initiative add-project/remove-project/unarchive`, `--icon`, `--color` (ours now has
+  `--priority`/`--label`, which the reference lacks).
+- `document --icon`, `-e/--edit` (edit current body in `$EDITOR`), `document update --project`,
+  and the guard that refuses to overwrite a document carrying active inline comments.
+- **Private-by-default uploads** — not a gap today (we have no file upload at all), but if item 5
+  lands, follow the reference: workspace-only by default, explicit `--public`, never
+  auto-publishing images to `public.linear.app`.
 - `-w/--web` / `-a/--app` open flags across list/view commands (ours only has `issue view --web`).
 - `issue create --no-use-default-template` (template awareness).
 
