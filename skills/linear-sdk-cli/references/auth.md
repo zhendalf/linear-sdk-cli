@@ -4,7 +4,7 @@
 
 _Generated from `linear commands --json`. `linear auth --help` (or `<subcommand> --help`) is authoritative._
 
-Every command also accepts the global flags `--json`, `--no-input`, `-y/--yes`, `-q/--quiet`, `--workspace <slug>`, `--api-key <key>`, `-t/--team <key>`, `-n/--limit <n>`, `--all`, `-f/--fields <a,b,c>`, `--no-color`, and `--debug`. Only command-specific options are listed below.
+Every command also accepts the global flags `-j/--json`, `--no-input`, `-y/--yes`, `-q/--quiet`, `--workspace <slug>`, `--api-key <key>`, `-t/--team <key>`, `-n/--limit <n>`, `--all`, `-f/--fields <a,b,c>`, `--no-color`, and `--debug`. Only command-specific options are listed below.
 
 ### `linear auth`
 
@@ -66,4 +66,12 @@ Print the resolved API key for the active workspace (for scripting)
 
 ```
 linear auth token [options]
+```
+
+### `linear auth whoami`
+
+Show the authenticated user
+
+```
+linear auth whoami [options]
 ```

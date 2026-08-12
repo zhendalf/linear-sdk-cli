@@ -185,6 +185,7 @@ linear auth login
 linear auth logout
 linear auth status
 linear auth token
+linear auth whoami
 
 linear commands
 
@@ -237,6 +238,10 @@ linear issue archive
 linear issue assign
 linear issue branch
 linear issue comment
+linear issue comment add
+linear issue comment delete
+linear issue comment list
+linear issue comment update
 linear issue comments
 linear issue create
 linear issue delete

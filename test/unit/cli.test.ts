@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "bun:test";
-import { CommanderError } from "commander";
+import { CommanderError, type Command } from "commander";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -111,6 +111,172 @@ describe("discovery commands", () => {
     expect(help).toContain("--output");
     expect(help).toContain("SDL");
   });
+});
+
+// Phase 2 of the linear-cli alignment: every alias below is additive. The point
+// of these tests is that an alias can never be silently unhooked from the thing
+// it aliases — each one asserts the alias and the original land on the same
+// command object / option key, and that the original still behaves as before.
+describe("linear-cli aliases", () => {
+  const program = createProgram();
+  const find = (path: string[]): Command | undefined =>
+    path.reduce<Command | undefined>(
+      (cmd, name) => cmd?.commands.find((c) => c.name() === name || c.aliases().includes(name)),
+      program,
+    );
+  const flags = (cmd: Command | undefined): string[] =>
+    (cmd?.options ?? []).map((o) => o.long ?? "").filter(Boolean);
+  const visibleHelp = (cmd: Command | undefined): string => cmd?.helpInformation() ?? "";
+
+  describe("short flags (2.1)", () => {
+    it("adds -j for the global --json on every command", () => {
+      const json = program.options.find((o) => o.long === "--json");
+      expect(json?.short).toBe("-j");
+      // Inherited by leaves, like the rest of the globals.
+      expect(find(["issue", "list"])?.options.find((o) => o.long === "--json")?.short).toBe("-j");
+    });
+
+    it("adds -w wherever --web already exists, and nowhere else", () => {
+      for (const path of [["issue", "view"], ["issue", "pull-request"]]) {
+        expect(find(path)?.options.find((o) => o.long === "--web")?.short).toBe("-w");
+      }
+    });
+
+    it("keeps every short flag to one meaning across the whole tree", () => {
+      const meanings = new Map<string, Set<string>>();
+      const walk = (cmd: Command): void => {
+        for (const o of cmd.options) {
+          if (o.short) {
+            if (!meanings.has(o.short)) meanings.set(o.short, new Set());
+            meanings.get(o.short)!.add(o.long ?? "");
+          }
+        }
+        for (const sub of cmd.commands) walk(sub);
+      };
+      walk(program);
+      expect(meanings.get("-j")).toEqual(new Set(["--json"]));
+      expect(meanings.get("-w")).toEqual(new Set(["--web"]));
+      const collisions = [...meanings].filter(([, longs]) => longs.size > 1);
+      expect(collisions).toEqual([]);
+    });
+  });
+
+  describe("long-flag aliases (2.2)", () => {
+    // their spelling → ours, and the command it lives on.
+    const cases: Array<[path: string[], alias: string, canonical: string]> = [
+      [["issue", "create"], "--due-date", "--due"],
+      [["issue", "update"], "--due-date", "--due"],
+      [["issue", "list"], "--search", "--query"],
+      [["issue", "mine"], "--search", "--query"],
+      [["project", "list"], "--status", "--state"],
+      [["project", "create"], "--start-date", "--start"],
+      [["project", "create"], "--target-date", "--target"],
+      [["project", "update"], "--start-date", "--start"],
+      [["project", "update"], "--target-date", "--target"],
+      [["milestone", "create"], "--target-date", "--target"],
+      [["milestone", "update"], "--target-date", "--target"],
+      [["initiative", "create"], "--target-date", "--target"],
+      [["initiative", "update"], "--target-date", "--target"],
+    ];
+
+    for (const [path, alias, canonical] of cases) {
+      it(`${path.join(" ")} accepts ${alias} for ${canonical}`, () => {
+        const cmd = find(path);
+        expect(cmd).toBeDefined();
+        // Both spellings registered…
+        expect(flags(cmd)).toContain(alias);
+        expect(flags(cmd)).toContain(canonical);
+        // …the alias hidden, the canonical one the only one in --help.
+        expect(cmd!.options.find((o) => o.long === alias)!.hidden).toBe(true);
+        expect(visibleHelp(cmd)).not.toContain(alias);
+        expect(visibleHelp(cmd)).toContain(canonical);
+      });
+    }
+
+    it("hides aliases from `linear commands` too, so agents see one spelling", () => {
+      const listed = flagsFromIntrospection(find(["issue", "create"])!);
+      expect(listed).toContain("--due");
+      expect(listed).not.toContain("--due-date");
+    });
+
+    it("`issue list` accepts --all-states as the no-op it is (list is all-states)", () => {
+      const list = find(["issue", "list"]);
+      expect(flags(list)).toContain("--all-states");
+      expect(list!.options.find((o) => o.long === "--all-states")!.hidden).toBe(true);
+      // `issue mine`'s --all-states is a REAL flag and stays visible — Phase 1.
+      const mine = find(["issue", "mine"]);
+      expect(mine!.options.find((o) => o.long === "--all-states")!.hidden).toBeFalsy();
+      expect(visibleHelp(mine)).toContain("--all-states");
+    });
+  });
+
+  describe("command aliases (2.4)", () => {
+    it("`issue query` is the same command object as `issue list`", () => {
+      const list = find(["issue", "list"]);
+      expect(find(["issue", "query"])).toBe(list!);
+      expect(list!.aliases()).toEqual(["ls", "query"]);
+    });
+
+    // meta.ts binds one module-level `whoamiAction` to both commands, so the
+    // pair cannot drift. Commander re-wraps every handler in its own listener,
+    // which makes the shared function unreachable from the Command — so pin the
+    // observable surface instead, and prove identical output live.
+    it("`auth whoami` mirrors top-level `whoami`, not `auth status`", () => {
+      const top = find(["whoami"]);
+      const nested = find(["auth", "whoami"]);
+      expect(top).toBeDefined();
+      expect(nested).toBeDefined();
+      expect(nested!.description()).toBe(top!.description());
+      expect(argShape(nested!)).toEqual(argShape(top!));
+      expect(flagsFromIntrospection(nested!)).toEqual(flagsFromIntrospection(top!));
+      // `auth status` is a different command reporting where the key came from;
+      // aliasing whoami onto it would hide the user the caller asked about.
+      expect(find(["auth", "status"])!.description()).not.toBe(top!.description());
+    });
+
+    it("mounts add/list/update/delete under `issue comment` with the same shape as `comment`", () => {
+      const issueComment = find(["issue", "comment"]);
+      expect(issueComment).toBeDefined();
+      const verbs = ["add", "list", "update", "delete"];
+      expect(issueComment!.commands.map((c) => c.name()).sort()).toEqual([...verbs].sort());
+
+      for (const verb of verbs) {
+        const nested = issueComment!.commands.find((c) => c.name() === verb)!;
+        const top = find(["comment", verb])!;
+        // Same description, same positional shape, same local options — a
+        // re-implementation that drifted from the shared factory would fail here.
+        expect(nested.description()).toBe(top.description());
+        expect(argShape(nested)).toEqual(argShape(top));
+        expect(flagsFromIntrospection(nested)).toEqual(flagsFromIntrospection(top));
+      }
+    });
+
+    it("keeps the short aliases off `issue comment` so they cannot shadow a body", () => {
+      const issueComment = find(["issue", "comment"])!;
+      for (const c of issueComment.commands) expect(c.aliases()).toEqual([]);
+      // …while the top-level group keeps them.
+      expect(find(["comment", "list"])!.aliases()).toContain("ls");
+    });
+
+    it("still treats a non-subcommand first operand as the issue id", () => {
+      const issueComment = find(["issue", "comment"])!;
+      expect(argShape(issueComment)).toEqual([
+        { name: "id", required: false },
+        { name: "body", required: false },
+      ]);
+      expect((issueComment as any)._actionHandler).toBeInstanceOf(Function);
+    });
+  });
+
+  function argShape(cmd: Command): Array<{ name: string; required: boolean }> {
+    return ((cmd as any).registeredArguments ?? []).map((a: any) => ({
+      name: a.name(),
+      required: a.required === true,
+    }));
+  }
+  function flagsFromIntrospection(cmd: Command): string[] {
+    return cmd.options.filter((o: any) => !o.hidden).map((o) => o.long ?? "");
+  }
 });
 
 describe("auth commands operate in the ambiguous (multi-workspace, no default) state", () => {

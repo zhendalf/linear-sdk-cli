@@ -53,7 +53,7 @@ interface CliCommand {
  * per reference file instead of repeating ~15 rows under each subcommand.
  */
 const GLOBAL_OPTION_FLAGS = new Set([
-  "--json",
+  "-j, --json",
   "--no-color",
   "--api-key <key>",
   "--workspace <slug>",
@@ -159,7 +159,7 @@ function buildReference(group: string, commands: CliCommand[]): string {
   );
   lines.push("");
   lines.push(
-    "Every command also accepts the global flags `--json`, `--no-input`, `-y/--yes`, " +
+    "Every command also accepts the global flags `-j/--json`, `--no-input`, `-y/--yes`, " +
       "`-q/--quiet`, `--workspace <slug>`, `--api-key <key>`, `-t/--team <key>`, " +
       "`-n/--limit <n>`, `--all`, `-f/--fields <a,b,c>`, `--no-color`, and `--debug`. " +
       "Only command-specific options are listed below.",

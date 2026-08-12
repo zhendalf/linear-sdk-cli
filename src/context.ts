@@ -59,9 +59,13 @@ export class Context {
     return this.options.team ?? this.config.team;
   }
 
-  /** Resolve the effective page limit. `--all` means exhaust (Infinity). */
+  /**
+   * Resolve the effective page limit. `--all` means exhaust (Infinity), and so
+   * does `--limit 0` — the reference CLI's spelling for "no limit", accepted
+   * here so a transplanted script does not silently get the 50-row default.
+   */
   get limit(): number {
-    if (this.options.all) return Infinity;
+    if (this.options.all || this.options.limit === 0) return Infinity;
     return this.options.limit && this.options.limit > 0 ? this.options.limit : 50;
   }
 }

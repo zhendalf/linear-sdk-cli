@@ -10,11 +10,14 @@ import { action } from "../lib/action.js";
 import {
   addFilterOptions,
   addCoreFilterOptions,
+  addAliasOption,
+  readAlias,
   parseList,
   parseIntOption,
   CYCLE_FLAG,
   CYCLE_DESC,
 } from "../lib/options.js";
+import { registerIssueCommentGroup } from "./comment.js";
 import { resolveBody } from "../lib/body.js";
 import { confirmDestructive, promptInput } from "../lib/prompt.js";
 import { usageError } from "../lib/errors.js";
@@ -59,7 +62,7 @@ export function registerIssue(program: Command): void {
   issue
     .command("view [id]", { isDefault: true })
     .description("Show an issue (defaults to the current branch's issue)")
-    .option("--web", "open the issue in the browser instead of printing")
+    .option("-w, --web", "open the issue in the browser instead of printing")
     .option("--comments", "include recent comments")
     .action(
       action(async (ctx: Context, opts, idArg?: string) => {
@@ -80,6 +83,8 @@ export function registerIssue(program: Command): void {
   const list = issue
     .command("list")
     .alias("ls")
+    // `query` is the reference CLI's name for this command; same code path.
+    .alias("query")
     .description("List issues with filters")
     .addHelpText(
       "after",
@@ -93,6 +98,12 @@ export function registerIssue(program: Command): void {
     )
     .action(
       action(async (ctx: Context, opts) => {
+        // `--all-states` is already how `list` behaves; accepting it keeps
+        // transplanted commands working, but pairing it with an explicit
+        // --state is a contradiction, so say so rather than pick one.
+        if (opts.allStates && opts.state) {
+          throw usageError("Pass either --state or --all-states, not both.");
+        }
         const rows = await svc.listIssues(
           ctx.client,
           {
@@ -104,7 +115,7 @@ export function registerIssue(program: Command): void {
             label: opts.label,
             priority: opts.priority,
             cycle: opts.cycle,
-            query: opts.query,
+            query: readAlias(opts, "--query", "--search"),
             sort: svc.resolveIssueSort(opts.sort, ctx.config),
             includeArchived: opts.includeArchived,
           },
@@ -114,7 +125,11 @@ export function registerIssue(program: Command): void {
         ctx.output.list(rows, ROW_COLUMNS, rows);
       }),
     );
-  addFilterOptions(list);
+  addFilterOptions(list).addOption(
+    // Not an alias of anything here — `list` already spans every state — but
+    // the reference ships it, so accept it as a no-op instead of erroring.
+    new Option("--all-states", "accepted for compatibility (list is all-states already)").hideHelp(),
+  );
 
   // mine --------------------------------------------------------------------
   // `list` stays general; `mine` is the opinionated "what's on my plate" view
@@ -155,7 +170,7 @@ export function registerIssue(program: Command): void {
             label: opts.label,
             priority: opts.priority,
             cycle: opts.cycle,
-            query: opts.query,
+            query: readAlias(opts, "--query", "--search"),
             sort: svc.resolveIssueSort(opts.sort, ctx.config),
             includeArchived: opts.includeArchived,
           },
@@ -207,7 +222,7 @@ export function registerIssue(program: Command): void {
   addCoreFilterOptions(search);
 
   // create ------------------------------------------------------------------
-  issue
+  const create = issue
     .command("create")
     .alias("new")
     .description("Create a new issue")
@@ -260,7 +275,7 @@ export function registerIssue(program: Command): void {
             cycle: opts.cycle,
             estimate: opts.estimate,
             parent: opts.parent,
-            dueDate: opts.due,
+            dueDate: readAlias(opts, "--due", "--due-date"),
           },
           ctx.defaultTeam,
         );
@@ -269,9 +284,10 @@ export function registerIssue(program: Command): void {
         );
       }),
     );
+  addAliasOption(create, "--due-date <date>", "--due");
 
   // update ------------------------------------------------------------------
-  issue
+  const update = issue
     .command("update [id]")
     .alias("edit")
     .description("Update an issue")
@@ -319,7 +335,7 @@ export function registerIssue(program: Command): void {
           cycle: opts.cycle,
           estimate: opts.estimate,
           parent: opts.parent,
-          dueDate: opts.due,
+          dueDate: readAlias(opts, "--due", "--due-date"),
           addLabel: opts.addLabel,
           removeLabel: opts.removeLabel,
           unassign: opts.unassign,
@@ -330,6 +346,7 @@ export function registerIssue(program: Command): void {
         );
       }),
     );
+  addAliasOption(update, "--due-date <date>", "--due");
 
   // assign / state ----------------------------------------------------------
   issue
@@ -378,9 +395,9 @@ export function registerIssue(program: Command): void {
     );
 
   // comment / comments ------------------------------------------------------
-  issue
+  const comment = issue
     .command("comment [id] [body]")
-    .description("Add a comment to an issue")
+    .description("Add a comment to an issue (or use the add/list/update/delete subcommands)")
     .option("--body-file <path>", "read comment body from a file ('-' = stdin)")
     .action(
       action(async (ctx: Context, opts, idArg?: string, bodyArg?: string) => {
@@ -392,6 +409,11 @@ export function registerIssue(program: Command): void {
         );
       }),
     );
+  // The reference CLI's `issue comment {add,list,update,delete}` layout, mounted
+  // on the same handlers as the top-level `comment` group. Commander dispatches
+  // to a subcommand only when the first operand matches one of these four names,
+  // so `linear issue comment TES-1 'body'` is untouched.
+  registerIssueCommentGroup(comment);
 
   issue
     .command("comments [id]")
@@ -486,7 +508,7 @@ export function registerIssue(program: Command): void {
     .option("--head <branch>", "head branch for the PR")
     .option("--draft", "create the PR as a draft")
     .option("--title <title>", "PR title (defaults to the issue title)")
-    .option("--web", "open the PR creation page in the browser")
+    .option("-w, --web", "open the PR creation page in the browser")
     .action(
       action(async (ctx: Context, opts, idArg?: string) => {
         if (!isGitRepo()) {

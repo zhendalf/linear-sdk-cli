@@ -59,8 +59,14 @@ Purely additive; nothing changes meaning. This is where most of the friction act
   default). `--status` → `--state` is already shipped.
 - **Accepted values:** `self` as an assignee sentinel alongside `me`/`@me`; `--limit 0` as a
   synonym for `--all`; cycle lookup by *name* (we take number/UUID/`current`, they take name/number/`active`) — accept the union.
-- **Command aliases:** `issue query` → `issue list`, `auth whoami` → `auth status`,
+- **Command aliases:** `issue query` → `issue list`, `auth whoami` → **our top-level `whoami`**,
   `issue comment {add,list,update,delete}` → our top-level `comment` group.
+
+  _(Corrected during implementation: this doc originally mapped `auth whoami` → `auth status`.
+  Their `auth whoami` prints workspace + user name/email/role, which is our `whoami`; their
+  `auth status` reports credential-file state, which ours does differently. Aliasing it to
+  `auth status` would have made a transplanted command succeed while showing different
+  information — the silent-divergence class Phase 1 exists to kill.)_
 
 ## Phase 3 — Capability gaps a transplanted script hits · ~2–3 days
 

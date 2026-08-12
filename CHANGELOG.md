@@ -8,6 +8,40 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Aliases for the reference `linear-cli`'s spellings.** Everything below is purely additive:
+  no existing flag, command, or output changed meaning. The goal is that a script or a habit
+  carried over from `linear-cli` keeps working instead of failing on a spelling.
+  - **Short flags.** `-j` for the global `--json` (the reference's most-used flag, on 17 of its
+    commands) and `-w` for `--web` on `issue view` / `issue pull-request`. Both letters were
+    free in our tree, so neither costs an existing meaning — we still hold one meaning per
+    letter everywhere, which is exactly why we are *not* adopting their `-t`/`-p`/`-a`/`-l`/`-s`
+    (see `ALIGNMENT.md`: their own tree spells `-t` as both `--title` and `--team`).
+  - **Long-flag spellings.** `--due-date` (`issue create`/`update`), `--target-date` (`project`,
+    `milestone`, `initiative` create/update), `--start-date` (`project create`/`update`),
+    `--search` (`issue list`/`mine`), and `--all-states` on `issue list`, where it is the
+    no-op it describes — `list` already spans every state. Aliases are registered *hidden*, so
+    `--help` and `linear commands --json` keep advertising exactly one spelling per flag; the
+    full mapping lives in README's "Coming from linear-cli". Passing both spellings at once is a
+    usage error rather than a silent pick: `--due 2026-01-01 --due-date 2026-02-01` is not a typo
+    anything should be guessing at. `project list --status`, which shipped earlier as a visible
+    duplicate option, now goes through this same mechanism.
+  - **Accepted values.** `self` joins `me`/`@me` as the viewer sentinel anywhere a user is named,
+    so `--assignee self` assigns to you instead of hunting for a user called "self".
+    `--limit 0` is accepted as a synonym for `--all` — it used to be a usage error, and the
+    silent-failure risk is the opposite direction: a transplanted `--limit 0` that quietly
+    returned the 50-row default would look like a complete result. `--all` stays the spelling we
+    teach. Cycles now resolve by **name** as well as number/id, and `active` is accepted
+    alongside `current` — the union of both CLIs' vocabularies, so no cycle reference from
+    either side is rejected.
+  - **Command aliases.** `issue query` (their name for this listing) runs the same command object
+    as `issue list`; `auth whoami` runs the identical handler as our top-level `whoami`; and
+    `issue comment` gained `add`/`list`/`update`/`delete` subcommands mounted on the same
+    handlers as the top-level `comment` group, so there is one implementation, not two.
+    `issue comment <id> <body>` is unchanged — commander only dispatches to a subcommand when
+    the *first* operand is one of those four names, which is the one behavior this touches: a
+    lone `linear issue comment add` used to mean "comment the word 'add' on the branch's issue"
+    and now reaches the subcommand (and says so loudly). The short aliases `ls`/`edit`/`rm` are
+    deliberately not registered under `issue comment`, to keep that collision at four words.
 - **`issue mine` — your unstarted work.** The reference `linear-cli` makes this its
   *default* listing (`issue list` there is an alias of `mine`), so a script or a habit carried
   over from it silently saw only your own unstarted issues. We keep `list` general — a command

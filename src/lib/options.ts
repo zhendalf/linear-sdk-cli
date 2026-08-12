@@ -37,20 +37,71 @@ export function parseIntOption(value: string): number {
 }
 
 /**
- * Strict positive-integer parser for `--limit`: accepts only `1`, `2`, … (no
- * leading zeros, no trailing junk, no `0`). Rejects `0`, `-1`, `12x`, `1.5`
- * with a clear usage error instead of silently falling back.
+ * Strict count parser for `--limit`: accepts `1`, `2`, … plus the single
+ * special value `0`, which the reference CLI spells as "no limit" and which we
+ * map onto `--all` (see `Context.limit`). Rejects `-1`, `12x`, `1.5` and
+ * leading zeros with a clear usage error instead of silently falling back.
  */
 export function parsePositiveInt(value: string): number {
+  if (value === "0") return 0;
   if (!/^[1-9]\d*$/.test(value)) {
-    throw usageError(`Expected --limit to be a positive integer, got '${value}'.`);
+    throw usageError(`Expected --limit to be a positive integer (or 0 for all), got '${value}'.`);
   }
   return Number.parseInt(value, 10);
 }
 
 /** Shared metavar + help for the cycle option (filter + create/update). */
 export const CYCLE_FLAG = "--cycle <n>";
-export const CYCLE_DESC = "cycle number, id, or 'current'";
+export const CYCLE_DESC = "cycle number, name, id, or 'current'";
+
+// --- Long-flag aliases -----------------------------------------------------
+//
+// The reference CLI spells several of our flags differently (`--due-date` for
+// `--due`, `--search` for `--query`, …). We accept both spellings so a
+// transplanted script keeps working, with one mechanism used everywhere:
+//
+//   1. the alias is registered as a *hidden* option, so `--help` and
+//      `linear commands --json` keep showing exactly one canonical spelling
+//      each and don't double in size;
+//   2. the action reads it through `readAlias`, which errors when BOTH
+//      spellings are passed rather than silently preferring one.
+//
+// Every alias is listed in README's "Coming from linear-cli" table.
+
+/** `"--due-date <date>"` → `"dueDate"`, matching commander's opts key. */
+function optionKey(flags: string): string {
+  const long = flags.split(/[ ,|]+/).find((f) => f.startsWith("--"));
+  if (!long) throw new Error(`No long flag in '${flags}'`);
+  return long.replace(/^--/, "").replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
+}
+
+/**
+ * Register `flags` as a hidden alias of the already-registered `canonical`
+ * option on `cmd`. Read the pair back with `readAlias`.
+ */
+export function addAliasOption(cmd: Command, flags: string, canonical: string): Command {
+  return cmd.addOption(new Option(flags, `alias of ${canonical}`).hideHelp());
+}
+
+/**
+ * Read an option that may have been given under either spelling.
+ *
+ * Rule: passing both spellings at once is a usage error. Neither wins by
+ * default — quietly preferring one would hide a real mistake (`--due 2026-01-01
+ * --due-date 2026-02-01` is not a typo we should guess at).
+ */
+export function readAlias<T = string>(
+  opts: Record<string, any>,
+  canonical: string,
+  alias: string,
+): T | undefined {
+  const canonicalValue = opts[optionKey(canonical)];
+  const aliasValue = opts[optionKey(alias)];
+  if (canonicalValue !== undefined && aliasValue !== undefined) {
+    throw usageError(`Pass either ${canonical} or ${alias}, not both.`);
+  }
+  return (canonicalValue ?? aliasValue) as T | undefined;
+}
 
 /**
  * Register the global options shared by all commands on the root program.
@@ -58,12 +109,12 @@ export const CYCLE_DESC = "cycle number, id, or 'current'";
  */
 export function addGlobalOptions(program: Command): Command {
   return program
-    .option("--json", "output machine-readable JSON")
+    .option("-j, --json", "output machine-readable JSON")
     .option("--no-color", "disable colored output")
     .option("--api-key <key>", "Linear API key (overrides env/config)")
     .option("--workspace <slug>", "select workspace credential profile")
     .option("-t, --team <key>", "default team key (e.g. TES)")
-    .option("-n, --limit <n>", "max results (positive integer)", parsePositiveInt)
+    .option("-n, --limit <n>", "max results (positive integer; 0 = all)", parsePositiveInt)
     .option("--all", "fetch all results (exhaust pagination)")
     .option("-f, --fields <a,b,c>", "select columns for human table output", parseList)
     .option("-y, --yes", "skip confirmation prompts")
@@ -103,7 +154,9 @@ export function addCoreFilterOptions(cmd: Command, set: FilterOptionSet = {}): C
  * is relevance-ordered).
  */
 export function addFilterOptions(cmd: Command, set: FilterOptionSet = {}): Command {
-  return addCoreFilterOptions(cmd, set)
+  addCoreFilterOptions(cmd, set)
     .addOption(new Option("--query <text>", "full-text search"))
     .addOption(new Option("--sort <field>", "sort order").choices(["priority", "updated", "created"]));
+  // `--search` is the reference CLI's spelling of the same filter.
+  return addAliasOption(cmd, "--search <text>", "--query");
 }
