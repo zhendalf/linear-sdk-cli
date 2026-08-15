@@ -206,7 +206,8 @@ API rejects roadmap mutations with a deprecation notice. Use `initiative` for ne
 | `--workspace <slug>` | Select which stored workspace credential to use. |
 | `-y, --yes` | Skip confirmation prompts (required for destructive actions when not a TTY). |
 | `--no-input` | Never prompt; fail with a usage error instead of hanging. |
-| `--no-color` · `-q, --quiet` · `--debug` | Disable color · silence status output · verbose errors. |
+| `--no-ansi` | Disable colored output (`--no-color` is accepted as an alias). |
+| `-q, --quiet` · `--debug` | Silence status output · verbose errors. |
 
 ## Scripting & agents
 
@@ -221,7 +222,9 @@ value per command:
 - **mutations** (`create`/`update`/`delete`/`archive`/…) emit the affected object — typically a
   small shape like `{ "id", "identifier", "url" }`, or `{ "id", "success": true }` when the API
   returns no body. Destructive commands add a flag such as `{ "deleted": true }` / `{ "archived": true }`.
-- **errors** go to **stderr** as `{"error":{"message":"…","code":"…"}}` and never to stdout.
+- **errors** go to **stderr** as `{"error":{"message":"…","code":"…"}}` and never to stdout. With
+  `--debug`, the extra detail is carried *inside* that object as `error.detail` rather than appended
+  after it, so `--json --debug` output stays parseable.
 
 Status, progress, and pagination notes always go to **stderr**, so `cmd --json` is safe to pipe
 into `jq` unconditionally:
@@ -242,6 +245,7 @@ ID=$(linear issue create --title "Fix" --team TES --json | jq -r '.id')
 | `3` | not-found/ambiguous | the referenced resource doesn't exist, or a name matched many |
 | `4` | auth | missing/invalid API key, or forbidden |
 | `5` | rate-limited | Linear rate limit hit |
+| `6` | cancelled | a confirmation prompt was declined — nothing was changed |
 
 The error `code` field in the JSON envelope is one of: `usage`, `auth`, `not_found`, `ambiguous`,
 `forbidden`, `validation`, `rate_limited`, `network`, `feature_not_accessible`, `api`, `runtime`.
@@ -251,9 +255,13 @@ so prefer the `code` field for fine-grained handling and the exit code for coars
 **Non-interactive flags** make runs deterministic in CI and agent loops:
 
 - **`--no-input`** — never prompt; anything that would be prompted for becomes a usage error
-  (exit `2`) instead of hanging. Use this whenever there's no human at the keyboard.
+  (exit `2`) instead of hanging. Use this whenever there's no human at the keyboard. **`--json`
+  implies this**, as does a stdout that is not a TTY: a prompt inside a pipeline is a hang, not a
+  question, so you never have to remember both flags.
 - **`-y, --yes`** — pre-confirm destructive actions (`delete`/`archive`). Without a TTY,
-  destructive commands *require* `--yes` (they refuse rather than block).
+  destructive commands *require* `--yes` (they refuse rather than block). If a human declines the
+  prompt, the command exits **`6`** and reports `{"cancelled": true, "action": "…"}` under `--json`
+  — never `0`, so `linear issue delete X && …` cannot run the `&&` side after a "no".
 - **`-q, --quiet`** — suppress success/status lines on stderr (errors still print).
 - **`-n, --limit <n>` / `--all`** — `--limit` caps results; `--all` exhausts pagination. With
   neither, the default cap is **50**. `--all` (and very large `--limit`) can be slow and

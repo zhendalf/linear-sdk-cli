@@ -1,220 +1,110 @@
-# Feature Parity Analysis — `linear-sdk-cli` vs `linear-cli`
+# Feature Parity — `linear-sdk-cli` vs `linear-cli`
 
-Comparison of **this project** (`linear-sdk-cli`, `/Users/z/code/linear-sdk-cli`) against the
-reference CLI (`linear-cli`, `/Users/z/work/linear-cli`, the schpet lineage).
+This project (`linear-sdk-cli`, `@linear/sdk`-based) compared against the reference CLI
+(`linear-cli` v2.1.0, GraphQL-codegen-based — github.com/zhendalf/linear-cli).
 
-_Generated 2026-06-27. Updated 2026-08-12 after a second pass against the reference's v2.1.0:
-search filters, project content/metadata, field-clearing on `issue update`, document container
-filters, milestone issue listing, and initiative priority/labels._
+_Rewritten 2026-08-12 against source and the live API, after an external audit found the previous
+version wrong or stale in ~25 places. **Read the method note at the bottom before editing this
+file** — the old version rotted because it was maintained from memory._
 
-## TL;DR
+## Where the two stand
 
-The two CLIs have **converged on the core workflow** and now differ mostly at the edges:
-
-- **`linear-sdk-cli` (ours) is broader across the Linear data model.** It ships whole resource
-  groups the reference lacks: notifications, webhooks, organization, favorites, standalone
-  comment threads (reply/resolve), attachment management, users, workflow states, roadmaps, and
-  full cycle CRUD.
-- **Ours has closed the reference's headline developer-workflow gaps.** Multi-workspace auth
-  (`auth list/default/token` + global `--workspace`), the GitHub PR workflow (`issue
-  pull-request`/`pr`, `issue describe`), and project/initiative **status updates**
-  (`project-update`, `initiative-update`, with `--health`) are all now first-class.
-- **`linear-cli` (reference) is still deeper on a few VCS/UX niceties.** It retains jj (jujutsu)
-  support and `issue commits`, Linear **agent sessions**, bulk operations, markdown rendering +
-  pager + image download, file-upload attachments, and a few `issue query` filters we lack
-  (date ranges, comment search, `--unassigned`).
-
-Neither is a superset. The remaining gaps in ours are the deferred items listed below; the
-reference would still need our whole notification/webhook/org/favorite breadth to match ours.
-
----
+- **Ours is the stronger base for agents and scripts.** Uniform JSON (lists = bare array, single =
+  bare object, errors = `{"error":{message,code}}` on stderr), stable error codes, meaningful exit
+  codes, and live discovery (`linear commands --json`, `linear schema`). The reference has no
+  equivalent contract — its shapes vary per command and it exits 1 for every handled failure.
+- **Theirs is the better terminal tool.** Rendered markdown, a pager, width- and Unicode-aware
+  tables, contextual empty states, masked secret input, richer interactive creation.
+- **We are broader across the Linear data model**; they are deeper in issue discovery, file
+  workflows, portfolio linkage, bulk operations, and VCS integration.
+- **Neither is a superset**, and after the 2026-08-12 alignment pass the *dangerous* differences are
+  gone: no command spelled the same way now returns different data (see `ALIGNMENT.md`).
 
 ## Architecture
 
-| Aspect | `linear-sdk-cli` (ours) | `linear-cli` (reference) |
+| Aspect | Ours | Reference |
 |---|---|---|
-| API layer | `@linear/sdk` (v87) wrapper | GraphQL codegen (`__codegen__`, typed documents) |
-| CLI framework | commander | commander |
-| Runtime / build | Bun, raw TS shipped | Bun, raw TS shipped |
-| Binary names | `linear` + `lin` | `linear` |
-| Auth model | **Multi-workspace** credentials w/ default (+ flag/env override) | **Multi-workspace** credentials w/ default |
-| Output | table default, `--json` opt-in | table default, per-command `-j/--json` |
-| Rendering | plain text | **charmd markdown render** + hyperlinks + image download |
-| Pager | none | auto-pager (`--no-pager`) |
-| VCS | git branch inference + GitHub PR (`issue pr`) + `issue describe` | git **and jj (jujutsu)**, GitHub PR, autolinks, `issue commits` |
-| Config file | user-config only (never reads project `.linear.toml` key) | `.linear.toml` / `.config/linear.toml` (git-root aware) |
-| Raw escape hatch | `api` (rich: query-file, vars-file, operation, raw) | `api` (query, variable, variables-json, paginate) + `schema` dump |
+| API layer | `@linear/sdk` **v89**, with tailored raw GraphQL for list queries | GraphQL codegen against a vendored schema |
+| CLI framework | commander 15 | commander |
+| Runtime | Bun, raw TS shipped (no build) | Bun, raw TS shipped |
+| Binaries | `linear`, `lin` | `linear` |
+| Auth | multi-workspace credentials + default | multi-workspace credentials + default |
+| Config | user config **and** project `.linear.toml` for non-secret settings (team/workspace/sort/vcs); the API key is **never** read from a project file | `.linear.toml` / `.config/linear.toml`, git-root aware |
+| Output | table default, `--json`/`-j` opt-in, `--fields` projection | table default, per-command `-j/--json`, markdown render + pager |
+| VCS | git; GitHub PR via `gh`; `issue describe` | git **and jj**; GitHub PR; autolinks; `issue commits` |
+| Escape hatch | `api` (query-file, vars-file, paginate, raw) + `schema` dump | `api` + `schema` dump |
 
-**Global flags — ours is richer.** Ours registers `--json --no-color --api-key --team/-t
---limit/-n --all --fields/-f --yes/-y --quiet/-q --no-input --debug` on *every* command. The
-reference's only global is `--workspace`; everything else (`--json`, `--web`, `--limit`,
-`--no-pager`) is declared per-command.
+**Global flags.** Ours registers `--json/-j --no-color --api-key --workspace -t/--team -n/--limit
+--all -f/--fields -y/--yes -q/--quiet --no-input --debug` on every command; a command may now
+declare its own version of a global to give it a local meaning (`issue update --team` moves an
+issue). The reference declares almost everything per-command. Ours is more uniform but advertises
+options some commands ignore — see `AUDIT.md` #8, which is only partly resolved.
 
----
+## Real gaps in OURS
 
-## Command-group coverage matrix
+Verified present in the reference and absent here. Anything reachable through `linear api` is still
+listed, because a raw GraphQL call is not an equivalent user-facing capability.
 
-| Group | Ours | Reference | Notes |
-|---|:--:|:--:|---|
-| issue | ✅ | ✅ | both have `pr`/`describe`; reference still deeper on `query`/`commits`/`agent-session`/bulk; ours has relations + sub/unsub |
-| team | ✅ | ✅ | reference: delete, autolinks, `--private`; ours: states/labels/cycles sub-lists, update |
-| project | ✅ | ✅ | near-parity; differing flags |
-| milestone | ✅ | ✅ | near-parity |
-| cycle | ✅ list/view/**current/create/update** | ⚠️ list/view only | **ours wins** — reference can't create/update cycles |
-| label | ✅ | ✅ | near-parity (ours: sub-labels via `--parent`) |
-| document | ✅ | ✅ | reference: `--icon`, `-e/--edit`, bulk, `--raw` |
-| initiative | ✅ | ✅ | reference: unarchive, add/remove-project, bulk, `--icon`, `--color` |
-| user | ✅ list/view/me | ❌ | **ours only** |
-| state (workflow) | ✅ list/view | ❌ (only via `team states`) | **ours only** as a group |
-| comment (top-level) | ✅ +reply/resolve/unresolve | ⚠️ only `issue comment` | **ours wins** on threads |
-| attachment | ✅ list/create/delete | ⚠️ only `issue attach` (file upload) | different shape — see gaps |
-| favorite | ✅ | ❌ | **ours only** |
-| roadmap | ✅ (deprecated API) | ❌ | **ours only** (limited value — API deprecated) |
-| notification | ✅ list/read/unread/read-all/archive/snooze | ❌ | **ours only** |
-| organization | ✅ view/members/invites | ❌ | **ours only** |
-| webhook | ✅ full CRUD | ❌ | **ours only** |
-| **auth (multi-workspace)** | ✅ login/list/default/token/status/logout + global `--workspace` | ✅ login/logout/list/default/token/whoami/status | **near-parity** (ours folds `whoami` into the top-level command) |
-| **project-update** | ✅ create/list (+health) | ✅ create/list (+health) | **parity** |
-| **initiative-update** | ✅ create/list (+health) | ✅ create/list (+health) | **parity** |
-| **schema** dump | ❌ | ✅ | **reference only** (niche — `api` reaches introspection) |
-| completion | ✅ | ❌ | **ours only** |
-| api | ✅ | ✅ | both |
-| config | ✅ (show) | ✅ (generate `.linear.toml`) | different purpose |
-
----
-
-## Closed since the original analysis
-
-_Second pass, 2026-08-12, after reviewing the reference's v2.0.0/v2.1.0 work:_
-
-- **`issue search` takes filters** (`--state/--assignee/--project/--label/--priority/--cycle/
-  --include-archived`) and is team-scoped like every other list command, with **`--all-teams`**
-  (also on `issue list`) to widen. Linear's `searchIssues` accepts an `IssueFilter`; we weren't
-  using it.
-- **Project markdown body and metadata** — `project create/update --content/--content-file`
-  (previously unreachable: only the one-line `description` was wired up), plus `--priority`,
-  `--label`, `--member`, `--icon`, `--color`.
-- **`issue update --unassign` / `--clear-cycle`** — clearing a field was previously impossible.
-- **`document list --project/--issue`**, and **`milestone view`** now lists its issues with an
-  explicit truncation notice.
-- **Initiative `--priority` and `--label`** — ahead of the reference here; Linear made these
-  fields public in `@linear/sdk` 88.2.
-
-Three bugs the reference's changelog surfaced were live in ours too and are fixed: `team
-members`/`user list` never sent `includeDisabled` (deactivated users were unlistable and the
-`Active` column was a constant `yes`), an invalid configured `sort` was silently ignored, and
-`issue search --json` reported empty labels.
-
-_First pass:_ these reference-only gaps were implemented and are now first-class:
-
-- **Multi-workspace auth** — `auth login/list/default/token/status/logout` keyed by workspace
-  slug, plus a global `--workspace` selector (and `LINEAR_WORKSPACE`). Credential selection is
-  flag/`LINEAR_API_KEY` → `--workspace`/env/`default_workspace`, never steered by project files.
-- **GitHub PR + `describe` workflow** — `issue pull-request` (`pr`) creates a GH PR via `gh`
-  (`--base/--head/--draft/--title/--web`, PR URL the only stdout in `--json`), and `issue
-  describe` prints the title + a `Fixes <ID>` / `References <ID>` commit trailer. The id is
-  inferred from the branch as usual; it never auto-pushes or creates branches.
-- **Status updates** — `project-update` (`pu`) and `initiative-update` (`iu`) with
-  `create <ref>` / `list <ref>`, `--body`/`--body-file`/`--editor`, and `--health
-  {onTrack,atRisk,offTrack}`.
-
----
-
-## Gaps in OURS (features the reference still has that we lack)
-
-Ranked by likely user value. These are the items deliberately **deferred**.
-
-### 1. Linear **agent sessions** — *high (forward-looking)*
-Reference `issue agent-session list|view` (filter by status). This is Linear's agent feature;
-ours has no coverage. → Worth adding given the direction of the product.
-
-### 2. Bulk operations — *medium*
-Reference supports `--bulk <ids...> / --bulk-file / --bulk-stdin` on `issue delete`, `document
-delete`, `initiative archive/delete`. Ours is one-at-a-time. → Add a shared bulk helper.
-
-### 3. Output ergonomics — markdown rendering, pager, image download — *medium (UX)*
-Reference renders issue/project/doc bodies via charmd, auto-pages long output (`--no-pager`), and
-downloads inline images (`--no-download`). Ours prints plain text. → Quality-of-life for `view`.
-
-### 4. Remaining `issue query` filters — *medium*
-Reference `issue query` also has `--search-comments --unassigned --created-after --updated-after
---project-label`, plus `issue mine` with `--web/--app`. Ours now matches on `--all-teams` (on
-both `list` and `search`) and shares the whole core filter set between them, but still lacks
-comment search, `--unassigned`, and date-range filters. → Extend our list filters.
-
-### 5. File-upload attachments + `issue attach/link` ergonomics — *medium*
-Reference `issue attach <file>` uploads a real file (with `--comment`); `issue link <url>` adds a
-URL link. Ours `attachment create` attaches a **URL only** (no file upload). → Add file upload.
-(Note: ours additionally has `attachment list/delete`, which the reference lacks.)
-
-### 6. `issue commits` + jj (jujutsu) — *low/medium*
-Reference lists commits for an issue and supports jj alongside git. Ours is git-only and has no
-`commits` subcommand.
-
-### 7. Smaller items
-- `schema` command (dump GraphQL SDL/introspection) — easy, niche (introspection is reachable
-  via `api`).
-- `team delete` with `--move-issues`, and `team create --private`; `team autolinks`.
-- `initiative add-project/remove-project/unarchive`, `--icon`, `--color` (ours now has
-  `--priority`/`--label`, which the reference lacks).
-- `document --icon`, `-e/--edit` (edit current body in `$EDITOR`), `document update --project`,
-  and the guard that refuses to overwrite a document carrying active inline comments.
-- **Private-by-default uploads** — not a gap today (we have no file upload at all), but if item 5
-  lands, follow the reference: workspace-only by default, explicit `--public`, never
-  auto-publishing images to `public.linear.app`.
-- `-w/--web` / `-a/--app` open flags across list/view commands (ours only has `issue view --web`).
-- `issue create --no-use-default-template` (template awareness).
-
----
+| Gap | Value | Notes |
+|---|---|---|
+| **File uploads** — `issue attach <file>`, `comment --attach` | Logs, screenshots, artifacts are core terminal/agent inputs | SDK exposes `fileUpload`; needs signed-upload + HTTP PUT. If built, copy their **private-by-default** posture with an explicit `--public` |
+| **Agent sessions** — `issue agent-session list/view` | Inspect coding-agent status and activity | SDK has the types; forward-looking |
+| **Initiative ↔ project linkage** — `initiative add-project`/`remove-project` | Portfolio workflows | Direct SDK methods |
+| **`initiative unarchive`** | Recovery | Direct SDK method |
+| **`project delete`** (we only archive) | Archive and trash are different lifecycle steps | Direct SDK method |
+| **`team delete`** (with `--move-issues`), **`team create --private`** | Consolidation; visibility at creation | `TeamCreateInput.private` exists |
+| **`team autolinks`** | GitHub repo onboarding | Not SDK work — `gh` integration |
+| **`issue commits`** + jj support | jj users; commit discovery | Needs a VCS abstraction; jj was explicitly dropped once already |
+| **Bulk operations** — `--bulk/--bulk-file/--bulk-stdin` | Generated id sets need one review and partial-failure handling | Loop existing mutations; no SDK blocker |
+| **Output ergonomics** — markdown rendering, pager, image download, `-a/--app` | The gap a human notices first | Their `charmd`/pager work is substantial |
+| **Document `--icon`, `-e/--edit`, `update --project`**, inline-comment overwrite guard | Metadata preservation and edit safety | Their guard refuses to overwrite a doc carrying active inline comments |
+| **Health-only status updates** | A health change should not require inventing prose | SDK permits an empty body; we require one |
+| **Richer `issue view`** — children, attachments, documents, threaded comments | Complete work context in one call | Typed SDK fields exist |
+| **Project slug resolution**, `--all-teams` on `project list` | URL-derived lookups; configured-team narrowing hides projects | Resolver work |
 
 ## Gaps in the REFERENCE (our advantages)
 
-These are whole areas the reference does **not** cover:
+Whole areas it does not cover: **notifications**, **webhooks**, **organization** metadata/invites,
+**favorites**, **roadmaps** (deprecated API), **cycle create/update** (it is read-only),
+**project archive** and broad project update (content/priority/members/icon/colour),
+**comment resolve/unresolve**, **issue subscribe/unsubscribe**, **attachment list/delete**,
+**team view/update**, **label update and sub-labels**, **user view/me**, **workflow-state view**,
+**initiative priority/labels**, resolved-config readback, `linear commands`/`schema` discovery,
+and shell completion.
 
-- **Notifications** — `notification list/read/unread/read-all/archive/snooze`.
-- **Webhooks** — full CRUD (`list/view/create/update/delete`).
-- **Organization** — `organization view/members/invites`.
-- **Favorites** — `favorite list/add/remove`.
-- **Comment threads** — `reply`, `resolve`, `unresolve` (reference only does add/list/update/delete).
-- **Cycle CRUD** — we can `create/update` and resolve `current`; the reference is read-only.
-- **Users / Workflow states** as first-class groups (`user list/view/me`, `state list/view`).
-- **Attachment management** — `attachment list/delete` (reference can only attach).
-- **Issue subscribe/unsubscribe**.
-- **Roadmaps** — present (though the Linear roadmap API is deprecated; low value).
-- **Shell completion** (`completion bash|zsh|fish`) and the `lin` alias.
-- **Richer global flags** — `--fields`, `--all`, global `--limit`, `--quiet`, `--no-input`, `--debug`.
+The audit also found **defects in the reference**: `initiative update` sends invalid lowercase
+status enums, `--search` silently drops `--milestone`, and several of its lists issue only one
+connection request (no pagination).
 
----
+## Differences we deliberately keep
 
-## Notable flag-level differences in shared commands
+Not gaps — choices. Full reasoning in `ALIGNMENT.md`.
 
-- **Priority:** ours `-P/--priority <0-4>`; reference `-p/--priority <1-4>` (different short flag
-  *and* range — reference's `-p` collides with our project short; watch this if cross-porting).
-- **Team short flag:** ours global `-t/--team`; reference uses `--team` per-command and `-t` for
-  `--title` on `issue create`. Divergent muscle memory.
-- **JSON:** ours global `--json`; reference per-command `-j/--json` (not universal).
-- **Issue create title:** ours `--title`; reference `-t/--title`.
-- **Description from file:** both support `--description-file`; ours also supports `-` for stdin
-  consistently across create/update/comment/document.
-- **Dates:** ours `--due`; reference `--due-date`. ours uses short kebab forms consistently —
-  `--target`/`--start`/`--end` (project, milestone, initiative, cycle); reference
-  `--target-date`/`--start-date`.
-- **Assignee "me":** ours accepts `me`; reference accepts `self`/`@me`.
+- `issue list` stays general; theirs aliases `list` to `mine`. We ship `mine` separately.
+- One meaning per short flag. Their tree spells `-t` as both `--title` and `--team`, `-f` four ways.
+- `--sort priority` sorts state **ascending** (active work first). Theirs hardcodes descending,
+  which the API answers with Backlog above In Progress.
+- `--all` is the spelling we teach for unlimited; `--limit 0` is accepted as their synonym.
+- Our uniform JSON envelope, rather than their per-command connection shapes.
 
----
+Their spellings are otherwise accepted as aliases (`--due-date`, `--target-date`, `--start-date`,
+`--search`, `--status`, `self`, `issue query`, `auth whoami`, `issue comment <verb>`).
 
-## Recommended parity roadmap for `linear-sdk-cli`
+## Method note — how to keep this file honest
 
-The foundational items (multi-workspace auth, GitHub PR/`describe`, status updates) have landed.
-The remaining, deliberately deferred priorities are:
+The previous version claimed `schema` was reference-only in three places while we shipped
+`linear schema`; called cycle support "full CRUD" when archive/delete do not exist; and listed
+`user list` and comment `reply` as ours-only when the reference has both. Every one of those came
+from editing prose rather than checking.
 
-1. **Agent sessions** (`issue agent-session list/view`) — forward-looking.
-2. **Bulk ops** (`--bulk/--bulk-file/--bulk-stdin` shared helper).
-3. **Output ergonomics** — markdown rendering + pager + image download on `view`; `-w/--web` /
-   `-a/--app` open flags; file-upload attachments.
-4. **Filter parity** on `issue list` (`--all-teams`, `--unassigned`, date ranges, comment search).
-5. **`issue commits` + jj** support.
-6. Minor: `schema` dump, `team delete --move-issues`, `--private`, `document --icon/--edit`.
+Before changing anything here:
 
-The reverse (porting our notification/webhook/org/favorite/comment-thread/cycle-CRUD coverage to
-the reference) is the bigger lift — our resource breadth is the harder thing to replicate.
+1. **Regenerate the command diff.** `linear commands --json | jq -r '.[].path' | sort` for ours;
+   for theirs, extract `Usage:` lines from `skills/linear-cli/references/*.md` in its repo.
+2. **Treat that diff as leads, not findings.** It produces false positives in both directions —
+   `issue query` is an *alias* of our `issue list`, and `issue relation add` is a *positional
+   operand* here, not a missing subcommand. Both looked like gaps and were not.
+3. **Verify against source or the live API**, and say which. A capability that exists under a
+   different name, or as a flag on another command, is parity — record where it lives.
+4. `AUDIT.md` holds the externally verified capability matrix with `file:line` citations; prefer
+   linking to it over restating it here.

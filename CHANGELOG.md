@@ -247,6 +247,111 @@ All notable changes to this project are documented here. The format is based on
   `--workspace`/`LINEAR_WORKSPACE`/`default_workspace`, and is never steered by project
   `.linear.toml`. When several workspaces are configured with no default, the error is deferred
   until a command actually needs the API — so `auth list`/`default`/`login` still work.
+- **`--no-input` did nothing** (AUDIT.md #3). It is the flag that makes the CLI safe to run
+  unattended, and it had never once had an effect. Two independent faults, either of which alone
+  was fatal. First, the key: commander stores a negation under the name with `no-` stripped, so the
+  parser wrote `input: false` while `Context` read `noInput` — a field nothing ever set, so the
+  guard was reading `undefined` forever. Second, and the reason fixing the key would not have been
+  enough: a lone negation is *also* seeded with a default of `true` on every command it is
+  registered on, including the root program, and `optsWithGlobals()` lets ancestors overwrite
+  descendants. Because global options are usable in any position, the flag is parsed by the
+  subcommand — so the root's default `true` then overwrote the subcommand's `false` on the way into
+  `Context`. Both `--no-input` and `--no-ansi`/`--no-color` are now registered as ordinary boolean
+  flags rather than commander negations: the key is ours to choose, and there is no default, so the
+  key is absent unless the user passed the flag and nothing can clobber it.
+- **`--json` and a non-TTY stdout now imply non-interactive.** A prompt inside a pipeline is not a
+  question, it is a hang — there is nobody at the other end to answer it. JSON output is what a
+  script or an agent asks for, so asking for it is enough to mean "do not stop and ask me"; the same
+  goes for a redirected stdout, which is where inquirer draws the prompt and would therefore write
+  the question into the caller's output. Commands that need a missing value now fail with the usual
+  usage error naming the flag to pass, instead of waiting forever.
+- **`--no-color` broke `label create`** (AUDIT.md #4). The global terminal-colour flag and the
+  entity flag `--color <hex>` both reduced to commander's `color` attribute, so
+  `label create --name x --team TES --no-color` put `color: false` into the mutation input and
+  Linear rejected the call outright: `Variable "$input" got invalid value false at "input.color"`.
+  `project` and `roadmap` escaped the crash only because their guards happened to be truthy-based —
+  they dropped the flag instead. Beyond the crash, there was simply no way to set an entity colour
+  *and* turn off terminal colour in one command, because one flag overwrote the other. The global
+  is now spelled **`--no-ansi`**, with `--no-color` kept as an alias on every command (it is the
+  conventional spelling, and both write the same key, so they cannot drift). Terminal colour and
+  entity colour are separate keys now, which makes the whole class of collision structurally
+  impossible rather than fixed one command at a time — a test walks the command tree and asserts no
+  option anywhere can write `false` into `color`.
+- **`auth login` echoed the API key** (AUDIT.md #9). The prompt used inquirer's `input`, so the
+  credential appeared on screen as it was typed and then stayed in the terminal's scrollback for as
+  long as the window lived. It now uses inquirer's `password` prompt, which never renders the value.
+  `--key` is unchanged for scripts, and nothing in the command logs or echoes the key — the receipt
+  names the user and the file it was written to.
+- **`--json --debug` produced output that could not be parsed.** The debug detail was appended
+  *after* the error envelope as a second, plaintext block, so the one combination a caller reaches
+  for when a scripted call misbehaves was the one that broke the contract:
+  `linear … --json --debug 2>&1 | jq` died with "Invalid numeric literal". In JSON mode the detail
+  now lives inside the envelope as `error.detail`. Without `--debug`, or when the error carries no
+  detail, the key is absent and the locked `{message, code}` shape is byte-for-byte what it was.
+- **A declined confirmation exited 0 and said nothing.** Every gated command answers a "no" with a
+  bare `return`, which produced an empty stdout and a success status — indistinguishable from a
+  delete that worked, so `linear issue delete X && …` ran the `&&` side after the user had just
+  said no. Declining now emits a cancellation receipt — `{"cancelled": true, "action": "…"}` on
+  stdout in JSON mode, a `Cancelled: …` note on stderr otherwise — and exits **6**, a code that is
+  neither success nor any of the failures, so a script can tell "you said no" apart from "it broke".
+  The receipt is emitted by `confirmDestructive` itself rather than at each of the ~14 call sites,
+  which is what makes it identical across every gated command instead of something each one has to
+  remember. (The exit code currently lives next to the prompt rather than in the `ExitCode` table
+  in `lib/errors.ts`; folding it in is a follow-up.)
+- **Integer flags accepted values they then quietly changed.** `Number.parseInt` stops at the first
+  character it cannot use, so `--priority 1.9` became `1` and `--estimate 2junk` became `2` — a
+  different request from the one that was typed, executed without comment. A flag value must now be
+  a complete integer. Priority additionally validates the 0–4 range locally, matching the wording
+  `initiative` has used all along, so the two cannot read as different rules.
+- **`project update --team` was accepted and ignored** (AUDIT.md #8). It is rejected now, rather
+  than implemented: a project belongs to *several* teams, and the existing `--teams` **replaces**
+  that whole set — so quietly treating `--team TES` as `--teams TES` would remove every other team
+  from the project, which is a destructive reading of a flag the user most likely meant as "also
+  this team". The error names `--teams` and says that it replaces. The flag is declared locally on
+  the command (which is what stops the global from being injected over it) and hidden, so `--help`
+  and `linear commands --json` advertise only the flag that works. `project create --team` is
+  untouched — there it is the genuine fallback team.
+- **`api --operation` did nothing at all** (AUDIT.md #7). It was passed as a fourth argument to the
+  SDK's `rawRequest`, which takes three — so it was discarded, and a multi-operation document went
+  to the API with no operation named. The API's answer to that is not "run the first one" but a
+  flat `The operation does not exist on the query.`, which made multi-operation documents unusable
+  and named the wrong culprit. There is no `operationName` to fix this with: the SDK's request body
+  carries only `{query, variables}`. So the selection is done before the request instead — the
+  document is parsed with `graphql` and the chosen operation, plus the fragments it uses
+  transitively, is printed as a new single-operation document. Unreferenced fragments and the other
+  operations are left behind. A document with one operation is still sent **verbatim**, so
+  formatting and comments survive and nothing changes for the common case. Choosing nothing from a
+  multi-operation document is now a usage error that lists the names, rather than a confusing error
+  from the server, and `--operation` naming an operation the document does not define is caught here
+  too.
+- **`api --paginate` never checked what it was re-running** (AUDIT.md #10). The loop re-executes the
+  whole document once per cursor, so a *mutation* whose payload happens to contain a paginatable
+  connection would have been executed once per page — creating duplicate entities, silently, in
+  proportion to how much data came back. It now refuses anything that is not a query, and refuses it
+  **before the first request**, so the check cannot itself cost a side effect. The kind is read from
+  the same parse that `--operation` uses, which means it is the *selected* operation that is
+  checked, not merely the first one in the file.
+- **`schema --json --output <file>` ignored the file.** The JSON branch returned before reaching the
+  write, so the introspection result went to stdout and no file was ever created — silently, since
+  the redirect the user asked for simply did not happen. Format and destination are independent now:
+  `--json -o f` writes introspection JSON to `f`, `-o f` alone writes SDL, and each without `-o`
+  goes to stdout. A destination that cannot be written is reported as a CLI error naming the path
+  rather than a raw `fs` throw.
+- **A malformed config file could print an API key to the terminal.** `smol-toml`'s parse error
+  embeds an excerpt of the offending source, and we passed that message through untouched — so a
+  config truncated mid-credential (`api_key = "lin_api_…` with no closing quote) printed the key to
+  stderr, where it lands in scrollback, CI logs and bug reports. The same channel let a project
+  `.linear.toml` — a file that is not ours and may arrive with a checkout — emit raw escape
+  sequences through our error output. We now report only the reason and the position (`line 3,
+  column 36`), never an excerpt from a credential-bearing file, and strip control characters and
+  bidi overrides from what remains. The error stays actionable: it still says exactly where to look.
+- **Credential writes could lose a config or leave a truncated one.** Writing the config in place
+  truncates it first, so a crash or a concurrently-running `linear` could observe — or leave behind
+  — a half-written file, which for this file means every stored credential gone. The write now goes
+  to a temp file in the same directory and is renamed over the target, which POSIX makes atomic: a
+  reader sees either the old config or the new one. The temp file is created `0600` so the key is
+  never briefly world-readable, and the final file is still asserted to `0600` rather than
+  inheriting whatever was there.
 
 ### Changed
 
