@@ -1,5 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { listStates, getStateDetail } from "../../src/services/state.js";
+import { connection } from "./_fakes.js";
 
 /** A team whose key matches the resolveTeam lookup, exposing a states() connection. */
 function makeClient(nodes: any[]) {
@@ -14,7 +15,7 @@ function makeClient(nodes: any[]) {
     }),
   };
   return {
-    teams: async () => ({ nodes: [team] }),
+    teams: async () => connection([team]),
     team: async () => team,
   } as any;
 }

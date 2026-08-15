@@ -9,6 +9,7 @@
 import type { LinearClient, Issue } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { notFound, ambiguous, usageError } from "./errors.js";
+import { collectWithMore, type Connection } from "./pagination.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const isUuid = (v: string): boolean => UUID_RE.test(v);
@@ -17,6 +18,54 @@ const IDENTIFIER_RE = /^([a-zA-Z][a-zA-Z0-9]*)-(\d+)$/;
 
 /** Known workflow-state types, used to decide name-vs-type filtering. */
 export const STATE_TYPES = ["triage", "backlog", "unstarted", "started", "completed", "canceled"];
+
+/**
+ * Page size and hard bound for the resolvers that match a name client-side.
+ *
+ * Those resolvers used to ask for a fixed `first: 100`/`first: 250` and match
+ * within whatever came back, so on a large workspace a team/state/cycle/
+ * milestone that existed past the cap resolved to a false `not_found` — and an
+ * ambiguity check only ever considered a prefix of the candidates. They now
+ * follow the connection instead.
+ *
+ * 250 is Linear's per-page maximum, so the common workspace still costs exactly
+ * the one request it always did; the extra requests are paid only by the
+ * workspaces that actually have more than 250 of something. The scan is bounded
+ * at 2000 (8 requests) rather than being unbounded: past that, guessing at a
+ * name is not the right tool, and the error says so instead of quietly
+ * truncating.
+ */
+const RESOLVE_PAGE = 250;
+const RESOLVE_SCAN_CAP = 2000;
+
+/** How many candidate names an error message will list before pointing at a command. */
+const MAX_LISTED = 25;
+
+/**
+ * Follow a connection to the end (bounded), for a resolver that has to match
+ * client-side. Hitting the bound is an honest error, not a silent prefix.
+ */
+async function scanAll<T>(conn: Connection<T>, plural: string, discovery: string): Promise<T[]> {
+  const { items, hasMore } = await collectWithMore(conn, RESOLVE_SCAN_CAP);
+  if (hasMore) {
+    throw usageError(
+      `More than ${RESOLVE_SCAN_CAP} ${plural} to search; pass the id instead (see '${discovery}').`,
+    );
+  }
+  return items;
+}
+
+/**
+ * The tail of a not-found message: the candidates when the set is small enough
+ * to be useful, otherwise the command that lists them. Both are free — the
+ * candidates are already in hand, and no message here costs a round-trip.
+ */
+function available(names: Array<string | null | undefined>, discovery: string): string {
+  const shown = names.filter((n): n is string => !!n);
+  if (shown.length === 0) return ` None to choose from (see '${discovery}').`;
+  if (shown.length > MAX_LISTED) return ` Run '${discovery}' to see the ${shown.length} options.`;
+  return ` Available: ${shown.join(", ")}.`;
+}
 
 export interface ResolvedTeam {
   id: string;
@@ -38,11 +87,20 @@ export async function resolveTeam(
     const team = await withRetry(() => client.team(value));
     return { id: team.id, key: team.key, name: team.name };
   }
-  const teams = await withRetry(() => client.teams({ first: 250 }));
+  const conn = await withRetry(() => client.teams({ first: RESOLVE_PAGE }));
+  const nodes = await scanAll<any>(conn as any, "teams", "linear team list");
   const lower = value.toLowerCase();
-  const byKey = teams.nodes.filter((t) => t.key.toLowerCase() === lower);
-  const matches = byKey.length ? byKey : teams.nodes.filter((t) => t.name.toLowerCase() === lower);
-  if (matches.length === 0) throw notFound(`No team matching '${value}'.`);
+  const byKey = nodes.filter((t: any) => t.key.toLowerCase() === lower);
+  const matches: any[] = byKey.length
+    ? byKey
+    : nodes.filter((t: any) => t.name.toLowerCase() === lower);
+  if (matches.length === 0)
+    throw notFound(
+      `No team matching '${value}'.${available(
+        nodes.map((t: any) => t.key),
+        "linear team list",
+      )}`,
+    );
   if (matches.length > 1) throw ambiguous(`Multiple teams match '${value}': ${matches.map((t) => t.key).join(", ")}`);
   const team = matches[0]!;
   return { id: team.id, key: team.key, name: team.name };
@@ -63,14 +121,22 @@ export async function resolveUserId(client: LinearClient, input: string): Promis
   if (isUuid(input)) return input;
   const isEmail = input.includes("@");
   const filter = isEmail ? { email: { eq: input } } : { displayName: { eqIgnoreCase: input } };
-  let users = await withRetry(() => client.users({ filter: filter as any, first: 10 }));
-  if (users.nodes.length === 0 && !isEmail) {
-    users = await withRetry(() => client.users({ filter: { name: { eqIgnoreCase: input } } as any, first: 10 }));
-  }
-  if (users.nodes.length === 0) throw notFound(`No user matching '${input}'.`);
-  if (users.nodes.length > 1)
-    throw ambiguous(`Multiple users match '${input}': ${users.nodes.map((u) => u.email).join(", ")}`);
-  return users.nodes[0]!.id;
+  const lookup = async (f: any) =>
+    scanAll(
+      (await withRetry(() => client.users({ filter: f, first: RESOLVE_PAGE }))) as any,
+      "users",
+      "linear user list",
+    );
+  let nodes: any[] = await lookup(filter);
+  if (nodes.length === 0 && !isEmail) nodes = await lookup({ name: { eqIgnoreCase: input } });
+  // The candidate set here is a server-side exact match, so there is nothing
+  // useful to list on a miss — point at the command that would show it instead
+  // of spending a round-trip on error text.
+  if (nodes.length === 0)
+    throw notFound(`No user matching '${input}'. Run 'linear user list' to see workspace members.`);
+  if (nodes.length > 1)
+    throw ambiguous(`Multiple users match '${input}': ${nodes.map((u: any) => u.email).join(", ")}`);
+  return nodes[0]!.id;
 }
 
 /** Resolve a workflow state (by name or type) within a team to a state id. */
@@ -80,16 +146,29 @@ export async function resolveStateId(
   input: string,
 ): Promise<string> {
   if (isUuid(input)) return input;
-  const team = await withRetry(() => client.team(teamId));
-  const states = await withRetry(() => team.states({ first: 100 }));
+  const nodes = await teamStates(client, teamId);
   const lower = input.toLowerCase();
-  const byName = states.nodes.filter((s) => s.name.toLowerCase() === lower);
-  const matches = byName.length ? byName : states.nodes.filter((s) => s.type.toLowerCase() === lower);
+  const byName = nodes.filter((s: any) => s.name.toLowerCase() === lower);
+  const matches: any[] = byName.length
+    ? byName
+    : nodes.filter((s: any) => s.type.toLowerCase() === lower);
   if (matches.length === 0)
-    throw notFound(`No workflow state '${input}' in team. Available: ${states.nodes.map((s) => s.name).join(", ")}`);
+    throw notFound(
+      `No workflow state '${input}' in team.${available(
+        nodes.map((s: any) => s.name),
+        "linear state list",
+      )}`,
+    );
   if (matches.length > 1)
     throw ambiguous(`Multiple states match '${input}': ${matches.map((s) => s.name).join(", ")}`);
   return matches[0]!.id;
+}
+
+/** Every workflow state in a team, following the connection past the first page. */
+async function teamStates(client: LinearClient, teamId: string): Promise<any[]> {
+  const team = await withRetry(() => client.team(teamId));
+  const conn = await withRetry(() => team.states({ first: RESOLVE_PAGE }));
+  return scanAll<any>(conn as any, "workflow states", "linear state list");
 }
 
 /**
@@ -108,25 +187,30 @@ export async function resolveLabelIds(
       ids.push(name);
       continue;
     }
-    const labels = await withRetry(() =>
-      client.issueLabels({ filter: { name: { eqIgnoreCase: name } } as any, first: 50 }),
+    const conn = await withRetry(() =>
+      client.issueLabels({ filter: { name: { eqIgnoreCase: name } } as any, first: RESOLVE_PAGE }),
     );
-    if (labels.nodes.length === 0) throw notFound(`No label matching '${name}'.`);
+    // Scanned rather than capped: the team narrowing below can discard every
+    // label on the first page, so a fixed page cap could turn a label that
+    // exists into a not-found.
+    const nodes = await scanAll<any>(conn as any, "labels", "linear label list");
+    if (nodes.length === 0)
+      throw notFound(`No label matching '${name}'. Run 'linear label list' to see the options.`);
 
     // Narrow to this team's labels + workspace-level labels when a team is known.
     // If a team is known and nothing is in scope, that's not-found (do NOT fall
     // back to an out-of-scope label from another team).
-    let candidates = labels.nodes;
+    let candidates: any[] = nodes;
     if (teamId) {
       const scoped = await Promise.all(
-        labels.nodes.map(async (l) => ({ label: l, team: await l.team })),
+        nodes.map(async (l: any) => ({ label: l, team: await l.team })),
       );
       candidates = scoped.filter((s) => !s.team || s.team.id === teamId).map((s) => s.label);
       if (candidates.length === 0) throw notFound(`No label '${name}' in this team or workspace.`);
     }
 
     // Prefer an exact (case-sensitive) match.
-    const exact = candidates.filter((l) => l.name === name);
+    const exact = candidates.filter((l: any) => l.name === name);
     const finalists = exact.length ? exact : candidates;
     if (finalists.length > 1) {
       throw ambiguous(
@@ -156,11 +240,18 @@ export async function resolveInitiativeLabelIds(
       ids.push(name);
       continue;
     }
-    const labels: any = await withRetry(() =>
-      (client as any).initiativeLabels({ filter: { name: { eqIgnoreCase: name } }, first: 50 }),
+    const conn: any = await withRetry(() =>
+      (client as any).initiativeLabels({
+        filter: { name: { eqIgnoreCase: name } },
+        first: RESOLVE_PAGE,
+      }),
     );
-    const candidates = (labels.nodes as any[]).filter((l) => !l.isGroup);
-    if (candidates.length === 0) throw notFound(`No initiative label matching '${name}'.`);
+    const nodes = await scanAll<any>(conn, "initiative labels", "linear initiative label list");
+    const candidates = nodes.filter((l) => !l.isGroup);
+    if (candidates.length === 0)
+      throw notFound(
+        `No initiative label matching '${name}'. Run 'linear initiative label list' to see the options.`,
+      );
 
     // Prefer an exact (case-sensitive) match before declaring ambiguity.
     const exact = candidates.filter((l) => l.name === name);
@@ -187,11 +278,18 @@ export async function resolveProjectLabelIds(
       ids.push(name);
       continue;
     }
-    const labels: any = await withRetry(() =>
-      (client as any).projectLabels({ filter: { name: { eqIgnoreCase: name } }, first: 50 }),
+    const conn: any = await withRetry(() =>
+      (client as any).projectLabels({
+        filter: { name: { eqIgnoreCase: name } },
+        first: RESOLVE_PAGE,
+      }),
     );
-    const candidates = (labels.nodes as any[]).filter((l) => !l.isGroup);
-    if (candidates.length === 0) throw notFound(`No project label matching '${name}'.`);
+    const nodes = await scanAll<any>(conn, "project labels", "linear project label list");
+    const candidates = nodes.filter((l) => !l.isGroup);
+    if (candidates.length === 0)
+      throw notFound(
+        `No project label matching '${name}'. Run 'linear project label list' to see the options.`,
+      );
 
     const exact = candidates.filter((l) => l.name === name);
     const finalists = exact.length ? exact : candidates;
@@ -209,25 +307,32 @@ export async function firstStateOfType(
   teamId: string,
   type: string,
 ): Promise<string> {
-  const team = await withRetry(() => client.team(teamId));
-  const states = await withRetry(() => team.states({ first: 100 }));
-  const ofType = states.nodes
-    .filter((s) => s.type === type)
-    .sort((a, b) => a.position - b.position);
-  if (ofType.length === 0) throw notFound(`No '${type}' workflow state in this team.`);
+  const nodes = await teamStates(client, teamId);
+  const ofType = nodes
+    .filter((s: any) => s.type === type)
+    .sort((a: any, b: any) => a.position - b.position);
+  if (ofType.length === 0)
+    throw notFound(
+      `No '${type}' workflow state in this team.${available(
+        [...new Set(nodes.map((s: any) => s.type as string))],
+        "linear state list",
+      )}`,
+    );
   return ofType[0]!.id;
 }
 
 /** Resolve a project by name or id. */
 export async function resolveProjectId(client: LinearClient, input: string): Promise<string> {
   if (isUuid(input)) return input;
-  const projects = await withRetry(() =>
-    client.projects({ filter: { name: { eqIgnoreCase: input } } as any, first: 10 }),
+  const conn = await withRetry(() =>
+    client.projects({ filter: { name: { eqIgnoreCase: input } } as any, first: RESOLVE_PAGE }),
   );
-  if (projects.nodes.length === 0) throw notFound(`No project matching '${input}'.`);
-  if (projects.nodes.length > 1)
-    throw ambiguous(`Multiple projects match '${input}': ${projects.nodes.map((p) => p.name).join(", ")}`);
-  return projects.nodes[0]!.id;
+  const nodes = await scanAll<any>(conn as any, "projects", "linear project list");
+  if (nodes.length === 0)
+    throw notFound(`No project matching '${input}'. Run 'linear project list' to see the options.`);
+  if (nodes.length > 1)
+    throw ambiguous(`Multiple projects match '${input}': ${nodes.map((p: any) => p.name).join(", ")}`);
+  return nodes[0]!.id;
 }
 
 /**
@@ -254,11 +359,17 @@ export async function resolveCycleId(
     // Not a number and not a sentinel → a cycle name. Names are optional in
     // Linear, so the candidate set is filtered client-side over the team's
     // cycles rather than through a server-side name filter.
-    const named = await withRetry(() => team.cycles({ first: 250 }));
+    const conn = await withRetry(() => team.cycles({ first: RESOLVE_PAGE }));
+    const nodes = await scanAll<any>(conn as any, "cycles", "linear cycle list");
     const lower = input.toLowerCase();
-    const matches = named.nodes.filter((c) => c.name?.toLowerCase() === lower);
+    const matches = nodes.filter((c: any) => c.name?.toLowerCase() === lower);
     if (matches.length === 0)
-      throw notFound(`No cycle named '${input}' in this team (try a number, id, or 'current').`);
+      throw notFound(
+        `No cycle named '${input}' in this team (try a number, id, or 'current').${available(
+          nodes.map((c: any) => c.name),
+          "linear cycle list",
+        )}`,
+      );
     if (matches.length > 1)
       throw ambiguous(`Multiple cycles named '${input}'; pass the cycle number or id instead.`);
     return matches[0]!.id;
@@ -276,10 +387,17 @@ export async function resolveMilestoneId(
 ): Promise<string> {
   if (isUuid(input)) return input;
   const project = await withRetry(() => client.project(projectId));
-  const milestones = await withRetry(() => project.projectMilestones({ first: 100 }));
+  const conn = await withRetry(() => project.projectMilestones({ first: RESOLVE_PAGE }));
+  const nodes = await scanAll<any>(conn as any, "milestones", "linear milestone list");
   const lower = input.toLowerCase();
-  const matches = milestones.nodes.filter((m) => m.name.toLowerCase() === lower);
-  if (matches.length === 0) throw notFound(`No milestone '${input}' in this project.`);
+  const matches = nodes.filter((m: any) => m.name.toLowerCase() === lower);
+  if (matches.length === 0)
+    throw notFound(
+      `No milestone '${input}' in this project.${available(
+        nodes.map((m: any) => m.name),
+        "linear milestone list",
+      )}`,
+    );
   if (matches.length > 1) throw ambiguous(`Multiple milestones match '${input}'.`);
   return matches[0]!.id;
 }

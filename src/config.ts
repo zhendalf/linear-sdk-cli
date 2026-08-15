@@ -14,8 +14,20 @@
  */
 
 import { homedir } from "node:os";
-import { join, dirname, parse as parsePath } from "node:path";
-import { readFileSync, existsSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { join, dirname, basename, parse as parsePath } from "node:path";
+import {
+  readFileSync,
+  existsSync,
+  mkdirSync,
+  writeFileSync,
+  chmodSync,
+  openSync,
+  closeSync,
+  fsyncSync,
+  renameSync,
+  unlinkSync,
+} from "node:fs";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { CliError } from "./lib/errors.js";
 
@@ -86,13 +98,58 @@ function asString(v: unknown): string | undefined {
   return typeof v === "string" && v.length > 0 ? v : undefined;
 }
 
+/**
+ * Strip control characters so nothing a config file contains can drive the
+ * terminal (ANSI escapes, `\r` overwrite tricks) or smuggle bidi overrides into
+ * an error message. C0, DEL, C1, and the bidi embedding/override controls —
+ * spelled as escapes so no literal control byte lives in this source.
+ */
+const CONTROL_CHARS = new RegExp(
+  // eslint-disable-next-line no-control-regex
+  "[\\u0000-\\u001F\\u007F-\\u009F\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]",
+  "g",
+);
+
+function sanitize(text: string, max = 200): string {
+  const clean = text.replace(CONTROL_CHARS, "");
+  return clean.length > max ? clean.slice(0, max) + "…" : clean;
+}
+
+/**
+ * Describe a TOML parse failure WITHOUT quoting the file.
+ *
+ * smol-toml's `message` embeds a code block of the offending lines, so a
+ * truncated `api_key = "lin_api_…` line would print the secret to stderr, and a
+ * project-controlled `.linear.toml` could inject escape sequences the same way.
+ * We keep only the reason (a fixed string from smol-toml's own vocabulary) plus
+ * the position, and sanitize even that.
+ */
+function describeTomlError(err: unknown): string {
+  const reason = sanitize(String((err as Error)?.message ?? err).split("\n")[0] ?? "");
+  const { line, column } = err as { line?: unknown; column?: unknown };
+  const where =
+    typeof line === "number" && typeof column === "number"
+      ? ` (line ${line}, column ${column})`
+      : "";
+  return (reason || "invalid TOML") + where;
+}
+
 /** Raw parse of a TOML file into a plain object, with a friendly error. */
 function parseTomlFile(path: string): Record<string, unknown> {
+  let text: string;
   try {
-    return parseToml(readFileSync(path, "utf8")) as Record<string, unknown>;
+    text = readFileSync(path, "utf8");
   } catch (err) {
     throw new CliError(
-      `Failed to parse config at ${path}: ${(err as Error).message}`,
+      `Cannot read config at ${sanitize(path, 512)}: ${sanitize((err as Error).message)}`,
+      "runtime",
+    );
+  }
+  try {
+    return parseToml(text) as Record<string, unknown>;
+  } catch (err) {
+    throw new CliError(
+      `Failed to parse config at ${sanitize(path, 512)}: ${describeTomlError(err)}`,
       "runtime",
     );
   }
@@ -276,11 +333,46 @@ function readUserObject(path: string): Record<string, unknown> {
   return parseTomlFile(path);
 }
 
-/** Serialize + persist a config object with 0600 perms. */
+/**
+ * Serialize + persist a config object ATOMICALLY, with 0600 perms.
+ *
+ * Writing in place truncates the file first, so a crash — or a concurrent
+ * reader, or a second `linear auth login` — could see a half-written config and
+ * lose every stored credential. Instead we write a temp file in the same
+ * directory (same filesystem, so the rename is atomic), fsync it, and rename it
+ * over the target: a reader sees either the old config or the new one, never a
+ * torn one. The temp file is created 0600 from the start, so the key is never
+ * momentarily readable by anyone else — as before, 0600 is asserted rather than
+ * inherited, so a config that was loosened by hand is tightened again.
+ */
 function writeUserObject(path: string, obj: Record<string, unknown>): void {
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, stringifyToml(obj) + "\n", { mode: 0o600 });
-  chmodSync(path, 0o600);
+  const dir = dirname(path);
+  mkdirSync(dir, { recursive: true });
+
+  const mode = 0o600;
+  const tmp = join(dir, `.${basename(path)}.${process.pid}-${randomBytes(6).toString("hex")}.tmp`);
+  const body = stringifyToml(obj) + "\n";
+  try {
+    // 'wx' refuses to clobber, so two racing writers cannot share a temp file.
+    const fd = openSync(tmp, "wx", mode);
+    try {
+      writeFileSync(fd, body, "utf8");
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+    // The create mode is masked by umask; restate it before the file is linked
+    // into place under its real name.
+    chmodSync(tmp, mode);
+    renameSync(tmp, path);
+  } catch (err) {
+    try {
+      unlinkSync(tmp);
+    } catch {
+      // Nothing to clean up.
+    }
+    throw err;
+  }
 }
 
 function workspacesTable(obj: Record<string, unknown>): Record<string, { api_key?: string }> {

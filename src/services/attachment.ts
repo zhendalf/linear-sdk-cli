@@ -10,7 +10,8 @@
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { collect, pageSize } from "../lib/pagination.js";
-import { usageError, notFound } from "../lib/errors.js";
+import { notFound } from "../lib/errors.js";
+import { assertMutation, unwrapMutation } from "../lib/mutation.js";
 import { resolveIssue } from "../lib/resolve.js";
 
 export interface AttachmentRow {
@@ -74,17 +75,18 @@ export async function createAttachment(
   };
   if (opts.subtitle !== undefined) input.subtitle = opts.subtitle;
 
-  const payload = await withRetry(() => client.createAttachment(input as any));
-  const attachment = await payload.attachment;
-  if (!attachment) throw usageError("Attachment creation returned no attachment.");
-  return attachment;
+  return unwrapMutation(
+    withRetry(() => client.createAttachment(input as any)),
+    "attachment",
+    "Attachment creation",
+  );
 }
 
 /** Delete an attachment by id; returns the removed attachment's id/title. */
 export async function deleteAttachment(client: LinearClient, id: string) {
   const attachment = await withRetry(() => client.attachment(id));
   if (!attachment) throw notFound(`No attachment ${id}.`);
-  await withRetry(() => client.deleteAttachment(id));
+  await assertMutation(withRetry(() => client.deleteAttachment(id)), "Attachment deletion");
   return { id: attachment.id, title: attachment.title };
 }
 

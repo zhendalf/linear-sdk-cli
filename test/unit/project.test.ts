@@ -1,5 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { buildFilter, createProject, updateProject } from "../../src/services/project.js";
+import { connection } from "./_fakes.js";
 
 const client = {} as any;
 
@@ -60,20 +61,20 @@ describe("createProject / updateProject (input building)", () => {
 
   /** A client stub covering team, user and project-label resolution. */
   function stub(capture: (input: any) => void, mutation: "create" | "update") {
-    const payload = { project: Promise.resolve({ id: "p1", name: "P", url: "u" }) };
+    const payload = { success: true, project: Promise.resolve({ id: "p1", name: "P", url: "u" }) };
     return {
-      teams: async () => ({ nodes: [{ id: "team-1", key: "TES", name: "Test" }] }),
-      users: async () => ({ nodes: [{ id: "user-1", email: "a@b.c" }] }),
+      teams: async () => connection([{ id: "team-1", key: "TES", name: "Test" }]),
+      users: async () => connection([{ id: "user-1", email: "a@b.c" }]),
       project: async (id: string) => ({ id }),
-      projectLabels: async (vars: any) => ({
-        nodes:
+      projectLabels: async (vars: any) =>
+        connection(
           vars.filter.name.eqIgnoreCase === "platform"
             ? [
                 { id: "grp", name: "Platform", isGroup: true },
                 { id: "lbl", name: "platform", isGroup: false },
               ]
             : [{ id: "lbl2", name: "infra", isGroup: false }],
-      }),
+        ),
       createProject: async (input: any) => {
         if (mutation === "create") capture(input);
         return payload;

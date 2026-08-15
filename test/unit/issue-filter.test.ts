@@ -8,6 +8,7 @@ import {
   updateIssue,
   MINE_STATE_TYPES,
 } from "../../src/services/issue.js";
+import { connection } from "./_fakes.js";
 
 const client = {
   viewer: Promise.resolve({ id: "viewer-id" }),
@@ -174,9 +175,9 @@ describe("buildFilter", () => {
   it("resolves a milestone name to an id inside --project", async () => {
     const scoped = {
       ...client,
-      projects: async () => ({ nodes: [{ id: "proj-1", name: "Auth" }] }),
+      projects: async () => connection([{ id: "proj-1", name: "Auth" }]),
       project: async () => ({
-        projectMilestones: async () => ({ nodes: [{ id: "ms-1", name: "Beta" }] }),
+        projectMilestones: async () => connection([{ id: "ms-1", name: "Beta" }]),
       }),
     } as any;
     const f = await buildFilter(scoped, { project: "Auth", milestone: "beta" }, undefined);
@@ -449,7 +450,7 @@ describe("updateIssue clearing fields", () => {
       issues: async () => ({ nodes: [issue] }),
       updateIssue: async (_id: string, input: any) => {
         capture(input);
-        return { issue: Promise.resolve(issue) };
+        return { success: true, issue: Promise.resolve(issue) };
       },
     }) as any;
 
@@ -480,33 +481,53 @@ describe("updateIssue --team (a real team move)", () => {
   function moveClient(capture: (input: any) => void) {
     return {
       issue: async () => issue,
-      issues: async () => ({ nodes: [issue] }),
-      teams: async () => ({
-        nodes: [
+      issues: async () => connection([issue]),
+      teams: async () =>
+        connection([
           { id: "team-tes", key: "TES", name: "Test" },
           { id: "team-eng", key: "ENG", name: "Engineering" },
-        ],
-      }),
+        ]),
       team: async (id: string) => ({
         id,
-        states: async () => ({
-          nodes: [
-            { id: `${id}-review`, name: "In Review", type: "started", position: 1 },
-          ],
-        }),
+        states: async () =>
+          connection([{ id: `${id}-review`, name: "In Review", type: "started", position: 1 }]),
       }),
-      issueLabels: async () => ({
-        nodes: [
+      issueLabels: async () =>
+        connection([
           { id: "label-eng", name: "bug", team: Promise.resolve({ id: "team-eng" }) },
           { id: "label-tes", name: "bug", team: Promise.resolve({ id: "team-tes" }) },
-        ],
-      }),
+        ]),
       updateIssue: async (_id: string, input: any) => {
         capture(input);
-        return { issue: Promise.resolve(issue) };
+        return { success: true, issue: Promise.resolve(issue) };
       },
     } as any;
   }
+
+  // AUDIT #6's headline: `updateIssue` used to fall back to the issue it had
+  // resolved *before* the mutation, so a payload the API refused still printed
+  // "Updated TES-1" and exited 0. The result must come from the payload.
+  it("returns the issue the payload carried, not the one it resolved", async () => {
+    const before = { id: "i1", identifier: "TES-1", title: "OLD", team: Promise.resolve({ id: "team-tes" }) };
+    const after = { id: "i1", identifier: "TES-1", title: "NEW" };
+    const client = {
+      issues: async () => connection([before]),
+      updateIssue: async () => ({ success: true, issue: Promise.resolve(after) }),
+    } as any;
+    expect(await updateIssue(client, "TES-1", { title: "NEW" })).toBe(after as any);
+  });
+
+  it("fails rather than reporting the pre-mutation issue when the API refuses", async () => {
+    const before = { id: "i1", identifier: "TES-1", title: "OLD", team: Promise.resolve({ id: "team-tes" }) };
+    const client = {
+      issues: async () => connection([before]),
+      updateIssue: async () => ({ success: false, issue: Promise.resolve(null) }),
+    } as any;
+    await expect(updateIssue(client, "TES-1", { title: "NEW" })).rejects.toMatchObject({
+      code: "api",
+      exitCode: 1,
+    });
+  });
 
   it("sends teamId for the destination team", async () => {
     let captured: any;

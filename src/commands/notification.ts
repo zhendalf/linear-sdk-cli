@@ -41,10 +41,10 @@ export function registerNotification(program: Command): void {
     .description("Mark a notification as read")
     .action(
       action(async (ctx: Context, _opts, id: string) => {
+        // The service throws unless the API confirmed the write, so this
+        // receipt is what happened rather than what was asked for.
         const n = await svc.setRead(ctx.client, id, true);
-        ctx.output.emit({ id: n.id, read: true }, () =>
-          ctx.output.success(`Marked ${n.id} read`),
-        );
+        ctx.output.emit(n, () => ctx.output.success(`Marked ${n.id} read`));
       }),
     );
 
@@ -55,9 +55,7 @@ export function registerNotification(program: Command): void {
     .action(
       action(async (ctx: Context, _opts, id: string) => {
         const n = await svc.setRead(ctx.client, id, false);
-        ctx.output.emit({ id: n.id, read: false }, () =>
-          ctx.output.success(`Marked ${n.id} unread`),
-        );
+        ctx.output.emit(n, () => ctx.output.success(`Marked ${n.id} unread`));
       }),
     );
 
@@ -68,7 +66,11 @@ export function registerNotification(program: Command): void {
     .action(
       action(async (ctx: Context) => {
         const res = await svc.markAllRead(ctx.client);
-        ctx.output.emit(res, () => ctx.output.success(`Marked ${res.count} notification(s) read`));
+        ctx.output.emit(res, () => {
+          ctx.output.success(`Marked ${res.count} of ${res.attempted} notification(s) read`);
+          // A partial batch says so out loud instead of hiding behind the count.
+          for (const f of res.failed) ctx.output.warn(`${f.id}: ${f.error}`);
+        });
       }),
     );
 
@@ -93,9 +95,7 @@ export function registerNotification(program: Command): void {
     .action(
       action(async (ctx: Context, _opts, id: string, untilISO: string) => {
         const n = await svc.snoozeNotification(ctx.client, id, untilISO);
-        ctx.output.emit({ id: n.id, snoozedUntilAt: untilISO }, () =>
-          ctx.output.success(`Snoozed ${n.id} until ${untilISO}`),
-        );
+        ctx.output.emit(n, () => ctx.output.success(`Snoozed ${n.id} until ${untilISO}`));
       }),
     );
 }

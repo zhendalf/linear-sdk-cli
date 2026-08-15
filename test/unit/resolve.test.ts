@@ -5,9 +5,13 @@ import {
   resolveUserId,
   resolveIssue,
   resolveCycleId,
+  resolveStateId,
+  resolveMilestoneId,
+  firstStateOfType,
   STATE_TYPES,
 } from "../../src/lib/resolve.js";
 import { CliError } from "../../src/lib/errors.js";
+import { connection } from "./_fakes.js";
 
 const UUID = "01234567-89ab-cdef-0123-456789abcdef";
 
@@ -21,12 +25,11 @@ describe("isUuid", () => {
 
 describe("resolveTeam", () => {
   const client = {
-    teams: async () => ({
-      nodes: [
+    teams: async () =>
+      connection([
         { id: "t1", key: "TES", name: "Test" },
         { id: "t2", key: "ENG", name: "Engineering" },
-      ],
-    }),
+      ]),
     team: async (id: string) => ({ id, key: "TES", name: "Test" }),
   } as any;
 
@@ -51,8 +54,8 @@ describe("resolveUserId", () => {
   const client = {
     viewer: Promise.resolve({ id: "viewer-id" }),
     users: async ({ filter }: any) => {
-      if (filter.email) return { nodes: [{ id: "u-email", email: "a@b.com" }] };
-      return { nodes: [{ id: "u-name", email: "named@b.com" }] };
+      if (filter.email) return connection([{ id: "u-email", email: "a@b.com" }]);
+      return connection([{ id: "u-name", email: "named@b.com" }]);
     },
   } as any;
 
@@ -79,7 +82,7 @@ describe("resolveIssue", () => {
     const client = {
       issues: async (args: any) => {
         captured = args.filter;
-        return { nodes: [{ id: "iss-1", identifier: "TES-7" }] };
+        return connection([{ id: "iss-1", identifier: "TES-7" }]);
       },
     } as any;
     const issue = await resolveIssue(client, "tes-7");
@@ -107,7 +110,7 @@ describe("resolveCycleId", () => {
       cycles: async (args: any) => {
         calls.push(args);
         const num = args?.filter?.number?.eq;
-        return { nodes: num === undefined ? cycles : cycles.filter((c) => c.number === num) };
+        return connection(num === undefined ? cycles : cycles.filter((c) => c.number === num));
       },
     };
     return { client: { team: async () => team } as any, calls };
@@ -155,12 +158,11 @@ describe("resolveCycleId", () => {
     const client = {
       team: async () => ({
         activeCycle: Promise.resolve(null),
-        cycles: async () => ({
-          nodes: [
+        cycles: async () =>
+          connection([
             { id: "c1", number: 1, name: "Sprint" },
             { id: "c2", number: 2, name: "sprint" },
-          ],
-        }),
+          ]),
       }),
     } as any;
     await expect(resolveCycleId(client, "t1", "Sprint")).rejects.toMatchObject({
@@ -178,5 +180,179 @@ describe("STATE_TYPES", () => {
   it("includes the canonical workflow types", () => {
     expect(STATE_TYPES).toContain("started");
     expect(STATE_TYPES).toContain("backlog");
+  });
+});
+
+/**
+ * Resolution used to happen inside a fixed `first: 100`/`first: 250` window, so
+ * on a large workspace a name that existed past the cap resolved to a false
+ * `not_found` — and the ambiguity check only ever saw a prefix of the
+ * candidates. Every one of these fails against that code: each target lives
+ * past the page the old cap would have stopped at.
+ */
+describe("resolution past the first page", () => {
+  /** `n` teams, paged as Linear pages them, with the wanted one near the end. */
+  function bigTeamClient(n: number) {
+    const teams = Array.from({ length: n }, (_, i) => ({
+      id: `t${i}`,
+      key: `T${i}`,
+      name: `Team ${i}`,
+    }));
+    return { teams: async ({ first }: any) => connection(teams, first) } as any;
+  }
+
+  it("finds a team past the old 250 cap", async () => {
+    const t = await resolveTeam(bigTeamClient(300), "T260", undefined);
+    expect(t.id).toBe("t260");
+  });
+
+  it("finds a team by name past the old cap too", async () => {
+    const t = await resolveTeam(bigTeamClient(300), "Team 299", undefined);
+    expect(t.id).toBe("t299");
+  });
+
+  it("finds a workflow state past the old 100 cap", async () => {
+    const states = Array.from({ length: 300 }, (_, i) => ({
+      id: `s${i}`,
+      name: `State ${i}`,
+      type: i === 299 ? "started" : "unstarted",
+      position: i,
+    }));
+    const client = {
+      team: async () => ({ states: async ({ first }: any) => connection(states, first) }),
+    } as any;
+    expect(await resolveStateId(client, "t1", "State 150")).toBe("s150");
+    // firstStateOfType reads the same list, so it was capped identically.
+    expect(await firstStateOfType(client, "t1", "started")).toBe("s299");
+  });
+
+  it("finds a cycle by name past the old 250 cap", async () => {
+    const cycles = Array.from({ length: 400 }, (_, i) => ({
+      id: `c${i}`,
+      number: i,
+      name: `Cycle ${i}`,
+    }));
+    const client = {
+      team: async () => ({
+        activeCycle: Promise.resolve(null),
+        cycles: async ({ first }: any) => connection(cycles, first),
+      }),
+    } as any;
+    expect(await resolveCycleId(client, "t1", "Cycle 300")).toBe("c300");
+  });
+
+  it("finds a milestone past the old 100 cap", async () => {
+    const ms = Array.from({ length: 150 }, (_, i) => ({ id: `m${i}`, name: `MS ${i}` }));
+    const client = {
+      project: async () => ({
+        projectMilestones: async ({ first }: any) => connection(ms, first),
+      }),
+    } as any;
+    expect(await resolveMilestoneId(client, "p1", "MS 120")).toBe("m120");
+  });
+
+  // Ambiguity is only meaningful over the whole candidate set: with a fixed
+  // cap, a second match past the cap was silently invisible.
+  it("sees a duplicate that lives past the first page", async () => {
+    const teams = [
+      { id: "t0", key: "A0", name: "Duplicate" },
+      ...Array.from({ length: 300 }, (_, i) => ({
+        id: `t${i + 1}`,
+        key: `K${i}`,
+        name: `Team ${i}`,
+      })),
+      { id: "tLast", key: "ZZ", name: "duplicate" },
+    ];
+    const client = { teams: async ({ first }: any) => connection(teams, first) } as any;
+    await expect(resolveTeam(client, "Duplicate", undefined)).rejects.toMatchObject({
+      code: "ambiguous",
+    });
+  });
+
+  // The scan is bounded rather than unbounded, and says so instead of quietly
+  // matching within a prefix.
+  it("refuses honestly rather than truncating when the workspace is enormous", async () => {
+    const teams = Array.from({ length: 2500 }, (_, i) => ({
+      id: `t${i}`,
+      key: `T${i}`,
+      name: `Team ${i}`,
+    }));
+    const client = { teams: async ({ first }: any) => connection(teams, first) } as any;
+    await expect(resolveTeam(client, "T2400", undefined)).rejects.toMatchObject({ code: "usage" });
+    await expect(resolveTeam(client, "T2400", undefined)).rejects.toThrow(/pass the id instead/);
+  });
+});
+
+/**
+ * `resolveStateId` already listed the valid states on a miss; the other
+ * resolvers said only that nothing matched. Each message now either lists the
+ * candidates it already has in hand, or names the command that would show them
+ * — neither costs an extra round-trip.
+ */
+describe("not-found messages point somewhere", () => {
+  it("lists the teams when there are few enough to read", async () => {
+    const client = {
+      teams: async () =>
+        connection([
+          { id: "t1", key: "TES", name: "Test" },
+          { id: "t2", key: "ENG", name: "Engineering" },
+        ]),
+    } as any;
+    await expect(resolveTeam(client, "NOPE", undefined)).rejects.toThrow(
+      /Available: TES, ENG\./,
+    );
+  });
+
+  it("points at the list command instead of dumping hundreds of teams", async () => {
+    const teams = Array.from({ length: 300 }, (_, i) => ({
+      id: `t${i}`,
+      key: `T${i}`,
+      name: `Team ${i}`,
+    }));
+    const client = { teams: async ({ first }: any) => connection(teams, first) } as any;
+    const err = await resolveTeam(client, "NOPE", undefined).catch((e) => e);
+    expect(err.message).toMatch(/linear team list/);
+    expect(err.message).not.toMatch(/T250/);
+  });
+
+  it("lists the milestones in the project", async () => {
+    const client = {
+      project: async () => ({
+        projectMilestones: async () => connection([{ id: "m1", name: "Beta" }]),
+      }),
+    } as any;
+    await expect(resolveMilestoneId(client, "p1", "Nope")).rejects.toThrow(/Available: Beta\./);
+  });
+
+  it("lists the named cycles in the team", async () => {
+    const client = {
+      team: async () => ({
+        activeCycle: Promise.resolve(null),
+        cycles: async () =>
+          connection([
+            { id: "c1", number: 1, name: "Sprint One" },
+            { id: "c2", number: 2, name: null },
+          ]),
+      }),
+    } as any;
+    // The unnamed cycle is skipped rather than listed as an empty option.
+    await expect(resolveCycleId(client, "t1", "Nope")).rejects.toThrow(/Available: Sprint One\./);
+  });
+
+  it("names the state types available when no state of a type exists", async () => {
+    const client = {
+      team: async () => ({
+        states: async () =>
+          connection([{ id: "s1", name: "Todo", type: "unstarted", position: 0 }]),
+      }),
+    } as any;
+    await expect(firstStateOfType(client, "t1", "started")).rejects.toThrow(
+      /Available: unstarted\./,
+    );
+  });
+
+  it("points a user miss at the user list", async () => {
+    const client = { users: async () => connection([]) } as any;
+    await expect(resolveUserId(client, "nobody")).rejects.toThrow(/linear user list/);
   });
 });

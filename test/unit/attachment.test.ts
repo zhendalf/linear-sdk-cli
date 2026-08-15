@@ -6,6 +6,7 @@ import {
   createAttachment,
   deleteAttachment,
 } from "../../src/services/attachment.js";
+import { connection } from "./_fakes.js";
 
 const UUID = "01234567-89ab-cdef-0123-456789abcdef";
 
@@ -35,12 +36,13 @@ function makeClient(record: { create?: any; deleted?: string } = {}) {
     }),
   };
   return {
-    issues: async () => ({ nodes: [issue] }),
+    issues: async () => connection([issue]),
     issue: async (id: string) => ({ ...issue, id }),
     attachment: async (id: string) => ({ id, title: "Doomed" }),
     createAttachment: async (input: any) => {
       record.create = input;
       return {
+        success: true,
         attachment: Promise.resolve({
           id: "new-att",
           title: input.title,

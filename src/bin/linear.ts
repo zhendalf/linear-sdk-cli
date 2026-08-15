@@ -31,7 +31,8 @@ main().catch((err) => {
   const argv = process.argv.slice(2);
   const json = argv.includes("--json");
   const debug = argv.includes("--debug");
-  const color = !argv.includes("--no-color") && process.stderr.isTTY === true && !json;
+  const noAnsi = argv.includes("--no-ansi") || argv.includes("--no-color");
+  const color = !noAnsi && process.stderr.isTTY === true && !json;
   const out = new Output({ json, color, quiet: false, debug });
   out.error(cliError);
   process.exit(cliError.exitCode);

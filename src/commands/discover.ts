@@ -1,7 +1,8 @@
 /**
  * Discovery commands for agents and scripts:
  *   - `linear commands` — a machine-readable tree of every (sub)command.
- *   - `linear schema`   — the Linear GraphQL schema as SDL (or raw introspection).
+ *   - `linear schema`   — the Linear GraphQL schema as SDL (or raw introspection
+ *     with --json). `-o <file>` chooses the destination for either format.
  *
  * Both are registered last (in cli.ts) so they can introspect the full program.
  */
@@ -12,7 +13,7 @@ import { buildClientSchema, getIntrospectionQuery, printSchema } from "graphql";
 import { action } from "../lib/action.js";
 import { withRetry } from "../client.js";
 import { walkCommands, type CommandNode } from "../lib/introspect.js";
-import { usageError } from "../lib/errors.js";
+import { usageError, CliError } from "../lib/errors.js";
 import type { Context } from "../context.js";
 
 /** `linear commands` — emit the command tree (bare array in --json). */
@@ -66,29 +67,45 @@ export function registerSchema(program: Command): void {
         "  linear schema -o /tmp/linear.graphql && grep 'type Issue' /tmp/linear.graphql",
         "  linear schema | less",
         "  linear schema --json | jq '.__schema.types | length'",
+        "  linear schema --json -o /tmp/introspection.json",
       ].join("\n"),
     )
-    .action(
-      action(async (ctx: Context, opts) => {
-        const result: any = await withRetry(() =>
-          (ctx.client.client as any).rawRequest(getIntrospectionQuery()),
-        );
-        const introspection = result.data;
-        if (!introspection) throw usageError("Introspection returned no schema data.");
+    .action(action(runSchema));
+}
 
-        if (ctx.output.json) {
-          // Raw introspection result — bare object on stdout.
-          ctx.output.emit(introspection, () => {});
-          return;
-        }
+/** The `schema` action body, exported so tests can drive it against a fake client. */
+export async function runSchema(ctx: Context, opts: Record<string, any>): Promise<void> {
+  const result: any = await withRetry(() =>
+    (ctx.client.client as any).rawRequest(getIntrospectionQuery()),
+  );
+  const introspection = result.data;
+  if (!introspection) throw usageError("Introspection returned no schema data.");
 
-        const sdl = printSchema(buildClientSchema(introspection));
-        if (opts.output) {
-          writeFileSync(opts.output, sdl + "\n", "utf8");
-          ctx.output.success(`Wrote schema to ${opts.output}`);
-        } else {
-          ctx.output.line(sdl);
-        }
-      }),
-    );
+  // Format and destination are independent: --json picks the format, -o picks
+  // where it lands. (The JSON branch used to return before reaching the write,
+  // so `--json -o file` printed to stdout and left no file.)
+  const json = ctx.output.json;
+  if (opts.output) {
+    const body = json
+      ? JSON.stringify(introspection, null, 2)
+      : printSchema(buildClientSchema(introspection));
+    writeSchemaFile(opts.output, body + "\n");
+    ctx.output.success(`Wrote ${json ? "introspection JSON" : "schema"} to ${opts.output}`);
+    return;
+  }
+
+  if (json) {
+    // Raw introspection result — bare object on stdout.
+    ctx.output.emit(introspection, () => {});
+    return;
+  }
+  ctx.output.line(printSchema(buildClientSchema(introspection)));
+}
+
+function writeSchemaFile(path: string, body: string): void {
+  try {
+    writeFileSync(path, body, "utf8");
+  } catch (err) {
+    throw new CliError(`Cannot write to '${path}': ${(err as Error).message}`, "runtime");
+  }
 }

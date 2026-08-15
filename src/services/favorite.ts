@@ -14,6 +14,7 @@ import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { collect, pageSize } from "../lib/pagination.js";
 import { usageError } from "../lib/errors.js";
+import { assertMutation, unwrapMutation } from "../lib/mutation.js";
 import { resolveIssue, resolveProjectId, isUuid } from "../lib/resolve.js";
 
 export interface FavoriteRow {
@@ -117,14 +118,15 @@ export async function buildFavoriteInput(
 /** Create a favorite for the single resolved target; unwraps the payload. */
 export async function addFavorite(client: LinearClient, opts: AddOptions) {
   const input = await buildFavoriteInput(client, opts);
-  const payload = await withRetry(() => client.createFavorite(input as any));
-  const favorite = await payload.favorite;
-  if (!favorite) throw usageError("Favorite creation returned no favorite.");
-  return favorite;
+  return unwrapMutation(
+    withRetry(() => client.createFavorite(input as any)),
+    "favorite",
+    "Favorite creation",
+  );
 }
 
 /** Delete a favorite by id. */
 export async function removeFavorite(client: LinearClient, id: string) {
-  await withRetry(() => client.deleteFavorite(id));
+  await assertMutation(withRetry(() => client.deleteFavorite(id)), "Favorite removal");
   return { id };
 }

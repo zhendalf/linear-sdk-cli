@@ -285,6 +285,7 @@ export function registerIssue(program: Command): void {
           arg: opts.description,
           file: opts.descriptionFile,
           interactive: !!opts.editor && ctx.isTTY,
+          editorRequested: !!opts.editor,
         });
         const created = await svc.createIssue(
           ctx.client,

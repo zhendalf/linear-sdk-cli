@@ -6,6 +6,7 @@ import {
   createInitiative,
   updateInitiative,
 } from "../../src/services/initiative.js";
+import { connection } from "./_fakes.js";
 
 describe("resolveStatus", () => {
   it("normalizes a lowercase status to the enum value", () => {
@@ -59,10 +60,10 @@ describe("createInitiative (mocked client)", () => {
   it("builds an input with name, description, owner id and status", async () => {
     let captured: any;
     const client = {
-      users: () => Promise.resolve({ nodes: [{ id: "owner-id", email: "a@b.c" }] }),
+      users: () => Promise.resolve(connection([{ id: "owner-id", email: "a@b.c" }])),
       createInitiative: (input: any) => {
         captured = input;
-        return Promise.resolve({ initiative: Promise.resolve({ id: "i1", name: input.name }) });
+        return Promise.resolve({ success: true, initiative: Promise.resolve({ id: "i1", name: input.name }) });
       },
     } as any;
 
@@ -89,7 +90,7 @@ describe("createInitiative (mocked client)", () => {
     const client = {
       createInitiative: (input: any) => {
         captured = input;
-        return Promise.resolve({ initiative: Promise.resolve({ id: "i2", name: input.name }) });
+        return Promise.resolve({ success: true, initiative: Promise.resolve({ id: "i2", name: input.name }) });
       },
     } as any;
 
@@ -97,12 +98,12 @@ describe("createInitiative (mocked client)", () => {
     expect(captured).toEqual({ name: "Bare" });
   });
 
-  it("throws when the payload returns no initiative", async () => {
+  it("fails when the payload carries no initiative", async () => {
     const client = {
-      createInitiative: () => Promise.resolve({ initiative: Promise.resolve(null) }),
+      createInitiative: () => Promise.resolve({ success: true, initiative: Promise.resolve(null) }),
     } as any;
     await expect(createInitiative(client, { name: "x" })).rejects.toMatchObject({
-      code: "usage",
+      code: "api",
     });
   });
 });
@@ -128,18 +129,19 @@ describe("updateInitiative (mocked client)", () => {
     let captured: any;
     const client = idClient({
       initiativeLabels: (vars: any) =>
-        Promise.resolve({
-          nodes:
+        Promise.resolve(
+          connection(
             vars.filter.name.eqIgnoreCase === "platform"
               ? [
                   { id: "grp", name: "Platform", isGroup: true },
                   { id: "lbl", name: "platform", isGroup: false },
                 ]
               : [{ id: "lbl2", name: "infra", isGroup: false }],
-        }),
+          ),
+        ),
       updateInitiative: (_id: string, input: any) => {
         captured = input;
-        return Promise.resolve({ initiative: Promise.resolve({ id: "i1", name: "n" }) });
+        return Promise.resolve({ success: true, initiative: Promise.resolve({ id: "i1", name: "n" }) });
       },
     });
 
@@ -152,8 +154,8 @@ describe("updateInitiative (mocked client)", () => {
 
   it("rejects an unknown label", async () => {
     const client = idClient({
-      initiativeLabels: () => Promise.resolve({ nodes: [] }),
-      updateInitiative: () => Promise.resolve({ initiative: Promise.resolve({ id: "i1" }) }),
+      initiativeLabels: () => Promise.resolve(connection([])),
+      updateInitiative: () => Promise.resolve({ success: true, initiative: Promise.resolve({ id: "i1" }) }),
     });
     await expect(
       updateInitiative(client, "00000000-0000-4000-8000-000000000000", { label: ["nope"] }),
@@ -165,7 +167,7 @@ describe("updateInitiative (mocked client)", () => {
     const client = idClient({
       updateInitiative: (_id: string, input: any) => {
         captured = input;
-        return Promise.resolve({ initiative: Promise.resolve({ id: "i1", name: "n" }) });
+        return Promise.resolve({ success: true, initiative: Promise.resolve({ id: "i1", name: "n" }) });
       },
     });
     await updateInitiative(client, "00000000-0000-4000-8000-000000000000", {

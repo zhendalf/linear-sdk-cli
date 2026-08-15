@@ -16,8 +16,15 @@ import { usageError } from "./errors.js";
 export interface BodyInputs {
   arg?: string;
   file?: string;
-  /** Whether $EDITOR may be invoked (TTY + not --no-input). */
+  /** Whether $EDITOR may be invoked (TTY + not --no-input/--json). */
   interactive: boolean;
+  /**
+   * The user explicitly asked for the editor (`--editor`). Kept separate from
+   * `interactive` so an unavailable editor fails instead of silently producing
+   * an empty body — `--editor --json` used to create issues with no description
+   * at all, since `--json` implies non-interactive.
+   */
+  editorRequested?: boolean;
   /** Initial content to seed the editor with. */
   template?: string;
 }
@@ -26,6 +33,12 @@ export function resolveBody(inputs: BodyInputs): string | undefined {
   if (inputs.arg !== undefined) return inputs.arg;
   if (inputs.file !== undefined) return readBodyFile(inputs.file);
   if (inputs.interactive) return openEditor(inputs.template ?? "");
+  if (inputs.editorRequested) {
+    throw usageError(
+      "--editor needs an interactive terminal, and is unavailable under --json, --no-input, " +
+        "or when input/output is redirected. Pass the text directly or read it from a file.",
+    );
+  }
   return undefined;
 }
 

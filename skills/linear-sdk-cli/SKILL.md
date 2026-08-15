@@ -66,7 +66,9 @@ stderr), so it is always safe to pipe into `jq`. The envelope is a stable contra
   `{ "id": "...", "url": "..." }`, or `{ "id": "...", "success": true }` when the API
   returns no body; destructive commands add a flag like `{ "deleted": true }` /
   `{ "archived": true }`.
-- **errors** → **stderr** as `{"error":{"message":"…","code":"…"}}`, never on stdout.
+- **errors** → **stderr** as `{"error":{"message":"…","code":"…"}}`, never on stdout. With
+  `--debug` the extra detail rides _inside_ that object as `error.detail`, so `--json --debug`
+  stays parseable.
 
 ```bash
 linear issue list --json | jq -r '.[].identifier'
@@ -77,10 +79,13 @@ ID=$(linear issue create --title "Fix" --team TES --json | jq -r '.id')
 ### Fail fast, never prompt
 
 - **`--no-input`** — never prompt. Anything that would be prompted for becomes a usage
-  error (exit `2`) instead of hanging. Use this whenever no human is at the keyboard.
-  (In a non-TTY the CLI already refuses to block, but `--no-input` makes it explicit.)
+  error (exit `2`) instead of hanging. **`--json` already implies this**, as does a stdout
+  that is not a TTY, so an agent gets it for free; pass it anyway when you want the
+  intent on the record.
 - **`-y, --yes`** — pre-confirm destructive actions (`delete`/`archive`). Without a TTY,
-  destructive commands _require_ `--yes` or they refuse rather than block.
+  destructive commands _require_ `--yes` or they refuse rather than block. If a human
+  declines the prompt, the command exits `6` and prints `{"cancelled": true, "action": "…"}`
+  under `--json` — never `0`.
 - **`-q, --quiet`** — suppress success/status lines on stderr (errors still print).
 
 ```bash
@@ -100,6 +105,7 @@ Exit codes are stable and distinct:
 |  `3` | not-found / ambiguous (resource missing, or a name matched many) |
 |  `4` | auth — missing/invalid key or forbidden                          |
 |  `5` | rate-limited                                                     |
+|  `6` | cancelled — a confirmation prompt was declined; nothing changed  |
 
 The error envelope's `code` field is finer-grained — one of: `usage`, `auth`,
 `not_found`, `ambiguous`, `forbidden`, `validation`, `rate_limited`, `network`,

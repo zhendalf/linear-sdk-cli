@@ -12,6 +12,8 @@
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { collectRawQuery } from "../lib/pagination.js";
+import { assertMutation } from "../lib/mutation.js";
+import { normalizeError } from "../lib/errors.js";
 
 export interface NotificationRow {
   id: string;
@@ -87,40 +89,73 @@ export async function listNotifications(
  * Mark a single notification read (now) or unread (null).
  *
  * NotificationPayload exposes only {success,lastSyncId} (no notification body),
- * so we return the id we acted on alongside success.
+ * so there is no entity to unwrap — `assertMutation` is the whole check, and a
+ * refused write throws instead of being handed back as `{success:false}` for a
+ * caller to ignore.
  */
 export async function setRead(client: LinearClient, id: string, read: boolean) {
   const input = { readAt: read ? new Date().toISOString() : null };
-  const payload = await withRetry(() => client.updateNotification(id, input as any));
-  return { id, success: payload.success };
+  await assertMutation(
+    withRetry(() => client.updateNotification(id, input as any)),
+    read ? "Marking notification read" : "Marking notification unread",
+  );
+  return { id, read };
 }
 
-/** Mark all of the viewer's notifications read via the batch mutation. */
+/** One notification's outcome within `markAllRead`. */
+export interface MarkAllItem {
+  id: string;
+  read: boolean;
+  error?: string;
+}
+
 /**
  * Mark all of the viewer's unread notifications as read. The SDK's
  * `notificationMarkReadAll` requires a specific entity type (an empty input is
  * rejected with "entity type is not supported"), so we instead enumerate unread
- * notifications and mark each read. Returns how many were updated.
+ * notifications and mark each read.
+ *
+ * This is a batch of independent mutations, so it reports what actually
+ * happened per item rather than a hardcoded aggregate: `count` is the number
+ * that really went through, and `failed` carries the ones that did not, with the
+ * API's reason. One bad notification does not abort the rest — but it can no
+ * longer be reported as a success.
  */
-export async function markAllRead(client: LinearClient): Promise<{ success: boolean; count: number }> {
+export async function markAllRead(
+  client: LinearClient,
+): Promise<{ success: boolean; count: number; attempted: number; failed: MarkAllItem[] }> {
   const rows = await listNotifications(client, Infinity, false);
   const unread = rows.filter((r) => !r.readAt);
   const readAt = new Date().toISOString();
+  const failed: MarkAllItem[] = [];
+  let count = 0;
   for (const r of unread) {
-    await withRetry(() => client.updateNotification(r.id, { readAt } as any));
+    try {
+      await assertMutation(
+        withRetry(() => client.updateNotification(r.id, { readAt } as any)),
+        "Marking notification read",
+      );
+      count += 1;
+    } catch (err) {
+      failed.push({ id: r.id, read: false, error: normalizeError(err).message });
+    }
   }
-  return { success: true, count: unread.length };
+  return { success: failed.length === 0, count, attempted: unread.length, failed };
 }
 
 export async function archiveNotification(client: LinearClient, id: string): Promise<boolean> {
-  const payload = await withRetry(() => client.archiveNotification(id));
-  return payload.success;
+  await assertMutation(
+    withRetry(() => client.archiveNotification(id)),
+    "Notification archive",
+  );
+  return true;
 }
 
 /** Snooze a notification until the given ISO timestamp. */
 export async function snoozeNotification(client: LinearClient, id: string, untilISO: string) {
-  const payload = await withRetry(() =>
-    client.updateNotification(id, { snoozedUntilAt: untilISO } as any),
+  await assertMutation(
+    withRetry(() => client.updateNotification(id, { snoozedUntilAt: untilISO } as any)),
+    "Notification snooze",
   );
-  return { id, success: payload.success };
+  return { id, snoozedUntilAt: untilISO };
 }

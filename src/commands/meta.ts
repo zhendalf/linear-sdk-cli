@@ -16,7 +16,7 @@ import {
   resolveConfig,
 } from "../config.js";
 import { authError, usageError } from "../lib/errors.js";
-import { promptInput } from "../lib/prompt.js";
+import { promptSecret } from "../lib/prompt.js";
 import { firstTeam, type Context } from "../context.js";
 
 /**
@@ -67,8 +67,12 @@ export function registerMeta(program: Command): void {
       // The global `--workspace <slug>` selects the slug to store under
       // (default: derived from the key's organization urlKey).
       action(async (ctx: Context, opts) => {
+        // `--key` still works for scripts. When prompted, the key is masked —
+        // it is a credential, and it must not reach the screen or scrollback.
+        // Nothing below echoes it either: the receipt reports the user and the
+        // file it was written to, never the value.
         let key: string | undefined = opts.key;
-        if (!key) key = await promptInput(ctx, "Linear API key:", { required: true });
+        if (!key) key = await promptSecret(ctx, "Linear API key:", { required: true });
         key = key.trim();
         // Validate before persisting and learn the workspace slug.
         const client = new LinearClient({ apiKey: key });

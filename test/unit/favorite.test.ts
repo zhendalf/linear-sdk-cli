@@ -4,6 +4,7 @@ import {
   entityLabel,
   favoriteName,
 } from "../../src/services/favorite.js";
+import { connection } from "./_fakes.js";
 
 const UUID = "01234567-89ab-cdef-0123-456789abcdef";
 
@@ -11,10 +12,10 @@ const UUID = "01234567-89ab-cdef-0123-456789abcdef";
 function makeClient() {
   return {
     // resolveIssue(TES-123) → issues({filter}) → first node
-    issues: async () => ({ nodes: [{ id: "issue-1", identifier: "TES-123" }] }),
+    issues: async () => connection([{ id: "issue-1", identifier: "TES-123" }]),
     issue: async (id: string) => ({ id, identifier: "TES-123" }),
     // resolveProjectId("Apollo") → projects({filter}) → first node
-    projects: async () => ({ nodes: [{ id: "proj-1", name: "Apollo" }] }),
+    projects: async () => connection([{ id: "proj-1", name: "Apollo" }]),
   } as any;
 }
 

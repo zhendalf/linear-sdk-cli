@@ -14,6 +14,7 @@ import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { collect } from "../lib/pagination.js";
 import { usageError, notFound, ambiguous } from "../lib/errors.js";
+import { assertMutation, unwrapMutation } from "../lib/mutation.js";
 import { resolveUserId, isUuid } from "../lib/resolve.js";
 
 export interface RoadmapRow {
@@ -95,10 +96,11 @@ export async function createRoadmap(client: LinearClient, opts: CreateOptions) {
   if (opts.owner) input.ownerId = await resolveUserId(client, opts.owner);
   if (opts.color) input.color = opts.color;
 
-  const payload = await withRetry(() => client.createRoadmap(input as any));
-  const roadmap = await payload.roadmap;
-  if (!roadmap) throw usageError("Roadmap creation returned no roadmap.");
-  return roadmap;
+  return unwrapMutation(
+    withRetry(() => client.createRoadmap(input as any)),
+    "roadmap",
+    "Roadmap creation",
+  );
 }
 
 export interface UpdateOptions {
@@ -118,13 +120,16 @@ export async function updateRoadmap(client: LinearClient, idArg: string, opts: U
 
   if (Object.keys(input).length === 0)
     throw usageError("Nothing to update; pass at least one field.");
-  const payload = await withRetry(() => client.updateRoadmap(roadmap.id, input as any));
-  return (await payload.roadmap) ?? roadmap;
+  return unwrapMutation(
+    withRetry(() => client.updateRoadmap(roadmap.id, input as any)),
+    "roadmap",
+    "Roadmap update",
+  );
 }
 
 export async function deleteRoadmap(client: LinearClient, idArg: string) {
   const roadmap = await resolveRoadmap(client, idArg);
-  await withRetry(() => client.deleteRoadmap(roadmap.id));
+  await assertMutation(withRetry(() => client.deleteRoadmap(roadmap.id)), "Roadmap deletion");
   return roadmap;
 }
 
