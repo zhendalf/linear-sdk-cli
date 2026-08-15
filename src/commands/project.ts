@@ -2,9 +2,10 @@
  * `linear project` (alias `p`) — work with projects.
  */
 
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import { action } from "../lib/action.js";
 import { parseList, parseIntOption, addAliasOption, readAlias } from "../lib/options.js";
+import { usageError } from "../lib/errors.js";
 import { resolveBody } from "../lib/body.js";
 import { confirmDestructive, promptInput } from "../lib/prompt.js";
 import type { Context } from "../context.js";
@@ -171,8 +172,27 @@ export function registerProject(program: Command): void {
     .option("-l, --label <name>", "replace the labels (repeatable / comma-separated)", parseList)
     .option("--icon <name>", "Linear icon name, capitalized (e.g. Rocket)")
     .option("--color <hex>", "project color (e.g. #EB5757)")
+    // `-t/--team` is a global on every other command, so it is the flag a user
+    // reaches for here too — and it did nothing at all: `project update --team X`
+    // alone reported "Nothing to update", and alongside another flag it was
+    // dropped without a word. Declaring it locally stops addGlobalOptions from
+    // injecting the global, which lets the action reject it by name.
+    //
+    // Rejecting rather than implementing: a project belongs to *several* teams,
+    // and `--teams` REPLACES that whole set. Quietly treating `--team TES` as
+    // `--teams TES` would therefore remove every other team from the project —
+    // a destructive reading of a flag the user almost certainly meant as "also
+    // this team". Hidden, so `--help` and `linear commands --json` advertise
+    // only `--teams`, the flag that works.
+    .addOption(new Option("-t, --team <key>", "not supported here; use --teams").hideHelp())
     .action(
       action(async (ctx: Context, opts, idArg: string) => {
+        if (opts.team !== undefined) {
+          throw usageError(
+            "--team does not apply to `project update`: a project belongs to several teams. " +
+              "Use --teams <key,...> to set them (this replaces the project's current teams).",
+          );
+        }
         const description = resolveBody({
           arg: opts.description,
           file: opts.descriptionFile,

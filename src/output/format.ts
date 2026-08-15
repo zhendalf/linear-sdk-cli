@@ -79,14 +79,47 @@ export class Output {
     process.stderr.write((this.opts.color ? pc.yellow("! ") : "! ") + text + "\n");
   }
 
-  /** Print a normalized error envelope to stderr. */
-  error(err: CliError): void {
+  /**
+   * A destructive action the user declined at the confirmation prompt.
+   *
+   * Declining is not a failure, so this is not the error envelope — but it is
+   * not silence either. In JSON mode it is a real result on stdout, so a
+   * pipeline still gets something parseable back instead of nothing; in human
+   * mode it is a stderr note. The caller sets the exit code (see
+   * `EXIT_CANCELLED` in lib/prompt.ts), which is what stops
+   * `linear issue delete X && …` from running the `&&` side.
+   */
+  cancelled(action: string): void {
     if (this.opts.json) {
-      process.stderr.write(JSON.stringify({ error: { message: err.message, code: err.code } }) + "\n");
-    } else {
-      process.stderr.write((this.opts.color ? pc.red("error: ") : "error: ") + err.message + "\n");
+      this.writeJson({ cancelled: true, action });
+      return;
     }
-    if (this.opts.debug && err.detail) {
+    if (!this.opts.quiet) {
+      process.stderr.write((this.opts.color ? pc.yellow("! ") : "! ") + `Cancelled: ${action}\n`);
+    }
+  }
+
+  /**
+   * Print a normalized error envelope to stderr.
+   *
+   * In JSON mode `--debug` detail goes *inside* the envelope. It used to be
+   * appended afterwards as a second, plaintext block, which meant the one
+   * combination a caller reaches for when a scripted call misbehaves —
+   * `--json --debug` — was the one that produced unparseable output:
+   * `linear … --json --debug 2>&1 | jq` died on "Invalid numeric literal".
+   */
+  error(err: CliError): void {
+    const showDetail = this.opts.debug && err.detail !== undefined;
+    if (this.opts.json) {
+      // `message` and `code` keep their positions; `detail` is additive, and
+      // absent entirely without --debug.
+      const error: Record<string, unknown> = { message: err.message, code: err.code };
+      if (showDetail) error.detail = err.detail;
+      process.stderr.write(JSON.stringify({ error }) + "\n");
+      return;
+    }
+    process.stderr.write((this.opts.color ? pc.red("error: ") : "error: ") + err.message + "\n");
+    if (showDetail) {
       process.stderr.write(
         (this.opts.color ? pc.dim("detail: ") : "detail: ") +
           JSON.stringify(err.detail, null, 2) +

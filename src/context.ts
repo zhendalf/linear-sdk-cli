@@ -9,9 +9,23 @@ import { resolveConfig, type ResolvedConfig } from "./config.js";
 import { createClient } from "./client.js";
 import { Output } from "./output/format.js";
 
+/**
+ * The globals as the parser actually stores them.
+ *
+ * This interface used to declare `noInput` while commander stored `input:
+ * false` — the field was never written by anything, stayed `undefined` forever,
+ * and the prompt guard built on it never fired. The two agree now because the
+ * flags are registered as plain booleans (`NoFlagOption` in lib/options.ts)
+ * whose keys we choose, rather than as commander negations whose keys we only
+ * assumed. `test/unit/options.test.ts` pins the keys against a real parse, so
+ * the type cannot quietly go back to describing a parser that does not exist.
+ */
 export interface GlobalOptions {
   json?: boolean;
-  color?: boolean; // commander sets false for --no-color
+  /** `--no-ansi`, or its alias `--no-color`. Present (true) only when passed. */
+  noAnsi?: boolean;
+  /** `--no-input`. Present (true) only when passed. */
+  noInput?: boolean;
   apiKey?: string;
   /** A key, or several — `issue list`/`mine`/`search` make `--team` repeatable. */
   team?: string | string[];
@@ -22,7 +36,6 @@ export interface GlobalOptions {
   yes?: boolean;
   quiet?: boolean;
   debug?: boolean;
-  noInput?: boolean;
 }
 
 /** `--team` may arrive repeated (issue queries); single-team consumers take the first. */
@@ -47,8 +60,19 @@ export class Context {
       flags: { apiKey: options.apiKey, team: firstTeam(options.team), workspace: options.workspace },
     });
     const color =
-      options.color !== false && options.json !== true && process.stdout.isTTY === true;
-    this.isTTY = process.stdin.isTTY === true && !options.noInput;
+      options.noAnsi !== true && options.json !== true && process.stdout.isTTY === true;
+    // Four independent reasons not to prompt, and any one of them is enough.
+    // The first two are the user saying so; the last two are the situation
+    // saying so. `--json` counts because JSON is what a script or an agent
+    // asks for, and a prompt inside a pipeline is a hang, not a question —
+    // there is no one at the other end to answer it. Non-TTY stdout counts for
+    // the same reason: inquirer draws on stdout, so a redirect would send the
+    // question into the file the caller is collecting.
+    this.isTTY =
+      options.noInput !== true &&
+      options.json !== true &&
+      process.stdin.isTTY === true &&
+      process.stdout.isTTY === true;
     this.output = new Output({
       json: options.json === true,
       color,

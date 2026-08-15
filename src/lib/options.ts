@@ -30,10 +30,44 @@ export function parseList(value: string, previous: string[] = []): string[] {
   return previous;
 }
 
+/**
+ * A *complete* integer token.
+ *
+ * `Number.parseInt` stops at the first character it cannot use, so the previous
+ * parser answered a different question than the user asked: `--priority 1.9`
+ * became 1 and `--estimate 2junk` became 2, both silently. A flag value that is
+ * not entirely an integer is a typo, and a typo should cost an error message,
+ * not a wrong mutation.
+ */
 export function parseIntOption(value: string): number {
-  const n = Number.parseInt(value, 10);
-  if (!Number.isFinite(n)) throw usageError(`Expected an integer, got '${value}'`);
+  if (!/^-?\d+$/.test(value)) throw usageError(`Expected an integer, got '${value}'`);
+  return Number.parseInt(value, 10);
+}
+
+/**
+ * Priority as Linear defines it: a complete integer in 0–4. The API does reject
+ * out-of-range values on the round-trip, but locally is where it costs nothing,
+ * and it makes issue/project priority behave like initiative priority, which
+ * has validated locally all along (`resolvePriority` in services/initiative.ts —
+ * the wording here matches deliberately, so the two cannot read as different
+ * rules).
+ */
+export function parsePriority(value: string): number {
+  const n = parseIntOption(value);
+  if (n < 0 || n > 4)
+    throw usageError(
+      `Invalid priority '${value}'. Valid: 0 (none), 1 (urgent), 2 (high), 3 (medium), 4 (low).`,
+    );
   return n;
+}
+
+/**
+ * The filter spelling of `--priority`. Validates exactly like `parsePriority`
+ * but hands back the canonical *string* the issue filter already consumes, so
+ * the check lands at the CLI boundary without reshaping the service interface.
+ */
+function parsePriorityFilter(value: string): string {
+  return String(parsePriority(value));
 }
 
 /**
@@ -103,11 +137,58 @@ export function readAlias<T = string>(
   return (canonicalValue ?? aliasValue) as T | undefined;
 }
 
+/**
+ * A `--no-…` global registered as an ordinary boolean flag rather than as
+ * commander's *negation* of a positive option. Two bugs came out of leaving
+ * these as negations, and neither is obvious from the flag's spelling:
+ *
+ *  1. **The storage key is shared.** Commander stores a negation under the name
+ *     with `no-` stripped, so `--no-color` owns the attribute `color` — the very
+ *     one the entity flag `--color <hex>` owns on labels, projects and roadmaps.
+ *     `label create --name x --team TES --no-color` therefore put `color: false`
+ *     into the mutation input and Linear rejected it: `Variable "$input" got
+ *     invalid value false at "input.color"`. There was also no way to set an
+ *     entity colour *and* turn off terminal colour, since one flag overwrote
+ *     the other.
+ *
+ *  2. **A lone negation is seeded with a default of `true`** on every command it
+ *     is registered on — including the root program — and `optsWithGlobals()`
+ *     lets **ancestors overwrite descendants**. With `enablePositionalOptions()`
+ *     the flag is parsed by the *sub*command, so the root's default `true` then
+ *     overwrote the subcommand's explicit `false`. That is the second, deeper
+ *     half of the dead `--no-input`: even reading `input === false` would have
+ *     seen `true`, because by the time `Context` gets the merged options the
+ *     `false` is gone.
+ *
+ * As a plain boolean neither happens: the key is ours to choose and cannot
+ * collide with an entity field, and there is no default, so the key is simply
+ * absent unless the user passed the flag — and an absent key cannot clobber
+ * anything during the merge. Present ⇒ `true`, which is what the flag's own name
+ * says it means.
+ */
+class NoFlagOption extends Option {
+  private readonly key: string;
+  constructor(flags: string, description: string, key?: string) {
+    super(flags, description);
+    // Opt out of commander's negation handling; see above.
+    this.negate = false;
+    this.key = key ?? super.attributeName();
+  }
+  override attributeName(): string {
+    return this.key;
+  }
+}
+
 /** The global option set, as fresh Option instances (they are per-command state). */
 function globalOptions(): Option[] {
   return [
     new Option("-j, --json", "output machine-readable JSON"),
-    new Option("--no-color", "disable colored output"),
+    new NoFlagOption("--no-ansi", "disable colored output"),
+    // `--no-color` is the conventional spelling and stays supported everywhere,
+    // including on the commands that own a `--color <hex>` of their own — which
+    // is the entire point. It shares the canonical flag's key, so the two
+    // spellings cannot drift apart.
+    new NoFlagOption("--no-color", "alias of --no-ansi", "noAnsi").hideHelp(),
     new Option("--api-key <key>", "Linear API key (overrides env/config)"),
     new Option("--workspace <slug>", "select workspace credential profile"),
     new Option("-t, --team <key>", "default team key (e.g. TES)"),
@@ -118,7 +199,7 @@ function globalOptions(): Option[] {
     new Option("-f, --fields <a,b,c>", "select columns for human table output").argParser(parseList),
     new Option("-y, --yes", "skip confirmation prompts"),
     new Option("-q, --quiet", "suppress status output"),
-    new Option("--no-input", "never prompt; fail instead"),
+    new NoFlagOption("--no-input", "never prompt; fail instead"),
     new Option("--debug", "verbose errors (stack traces, raw GraphQL)"),
   ];
 }
@@ -184,7 +265,7 @@ export function addCoreFilterOptions(cmd: Command, set: FilterOptionSet = {}): C
     )
     .addOption(new Option("--milestone <name>", "filter by project milestone"))
     .addOption(new Option("-l, --label <name>", "filter by label (repeat to narrow)").argParser(parseList))
-    .addOption(new Option("-P, --priority <0-4>", "filter by priority"))
+    .addOption(new Option("-P, --priority <0-4>", "filter by priority").argParser(parsePriorityFilter))
     .addOption(new Option(CYCLE_FLAG, CYCLE_DESC))
     .addOption(new Option("--created-after <date>", "only issues created at/after a date (YYYY-MM-DD)"))
     .addOption(new Option("--updated-after <date>", "only issues updated at/after a date (YYYY-MM-DD)"))

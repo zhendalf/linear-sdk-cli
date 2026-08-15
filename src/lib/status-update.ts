@@ -73,6 +73,7 @@ export function resolveUpdateBody(ctx: Context, opts: Record<string, any>): stri
     arg: opts.body,
     file: opts.bodyFile,
     interactive: !!opts.editor && ctx.isTTY,
+    editorRequested: !!opts.editor,
   });
   if (body === undefined || body.trim() === "") {
     throw usageError("An update needs a body. Pass --body, --body-file, or --editor.");
