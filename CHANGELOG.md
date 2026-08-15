@@ -186,8 +186,66 @@ All notable changes to this project are documented here. The format is based on
   cap (previously it stopped silently).
 - **`--cycle`** uses a single metavar and description everywhere (`--cycle <n>`,
   "cycle number, id, or 'current'") across filters and create/update.
+- **A resolution failure now points somewhere.** `resolveStateId` already listed the team's states
+  when a name did not match, and nothing else did — a miss said only that nothing matched, leaving
+  you to guess whether the name was wrong, the scope was wrong, or the thing did not exist. Every
+  resolver now ends its not-found message with either the candidates or the command that lists
+  them, and neither costs a round-trip: the resolvers that scan (team, workflow state, cycle,
+  milestone) already hold the full candidate set, so they list it — capped at 25 names, past which
+  they name the discovery command instead of pasting a wall of text. The ones that match through a
+  server-side filter (user, project, label) have no candidate set to show and name the command
+  instead of fetching one just to write an error.
 
 ### Fixed
+
+- **Mutations could report a success the API never gave** (AUDIT.md #6). Every Linear mutation
+  answers with a payload carrying `success: Boolean!`, and almost nothing here read it. The
+  create/update paths did have a guard, but it tested whether the *entity* came back, not whether
+  the write happened — so a `{success: false}` that still carried an entity walked through it — and
+  the deletes, archives, subscribes and notification writes discarded the payload unread. Driven
+  against a client whose every write is refused, **50 of the 51 mutating service entry points
+  resolved happily**; `comment delete` was the single one that checked. The sharpest case was
+  `issue update`, which fell back to the issue it had resolved *before* the mutation, so a
+  `{success: false, issue: null}` printed `Updated TES-1` and exited **0** — the shell would run the
+  `&&` side of a command that changed nothing. All of it now goes through one helper
+  (`unwrapMutation` / `assertMutation`, `src/lib/mutation.ts`) that requires `success === true` and,
+  where the payload is supposed to carry an entity, that the entity is really there. The payloads
+  that genuinely carry nothing but `{success, lastSyncId}` are handled as that, rather than by
+  pretending an entity exists.
+
+  A refusal is reported as **`api`, exit 1** rather than the `usage`/exit 2 these paths used to
+  throw. Exit 2 tells a script it called the CLI wrong; the caller typed a valid command and the
+  server declined it, and the two deserve different codes. `notification read`/`snooze`/`archive`
+  now emit a receipt of what the API confirmed instead of restating the request — the command used
+  to print `✓ Marked … read` and `{"read": true}` whatever the payload said.
+
+- **`notification read-all` claimed every notification was marked read.** It hardcoded
+  `success: true` and reported the number of *unread* notifications it found, not the number it
+  actually marked, so a batch where some writes were refused looked identical to one where none
+  were. It now derives the aggregate: `count` is how many really went through, `attempted` how many
+  it tried, and `failed` lists the ones that did not with the API's reason. A single refusal no
+  longer aborts the rest — it is reported instead of hidden, and the human output names each one.
+
+- **`milestone view` reported `issuesTruncated: false` while hiding issues** (AUDIT.md #5). The
+  truncation check read `pageInfo.hasNextPage` off the connection *after* collecting from it, and
+  `fetchNext()` mutates that connection in place — so the flag described the last page fetched
+  rather than the issues the limit hid. With 180 issues at `--limit 150` it returned 150 and said
+  nothing was hidden, suppressing the `… more (use --all)` notice at exactly the moment it was
+  needed. Truncation is now a fact rather than an inference: one extra item is requested (in the
+  same page, so it costs no round-trip) and its presence is the answer. The unit test that shipped
+  alongside the bug passed because its mock's `fetchNext()` returned a *fresh object* instead of
+  mutating — every faked connection in the suite now comes from one faithful builder
+  (`test/unit/_fakes.ts`) that appends in place and returns `this`, as the SDK does.
+
+- **Name resolution stopped at a fixed page, so a large workspace got false `not_found`s.** The
+  resolvers that match client-side asked for a fixed `first: 100`/`first: 250` and searched only
+  what came back: a team, workflow state, cycle or milestone that existed past the cap could not be
+  resolved by name, and — worse, because it is silent — the *ambiguity* check only ever saw a prefix,
+  so a duplicate name past the cap was invisible and the CLI picked one arbitrarily. Resolution now
+  follows the connection. The page size is 250 (Linear's maximum), so the ordinary workspace still
+  costs the single request it always did and only workspaces that really have more than 250 of
+  something pay for extra pages. The scan is bounded at 2000 rather than unbounded, and hitting the
+  bound is an honest error asking for the id — not a quiet truncation.
 
 - **`project list --state` filtered nothing at all.** It built `state: {eq: …}`, which targets
   Linear's deprecated legacy `Project.state` field — the API silently ignores it, so every value,

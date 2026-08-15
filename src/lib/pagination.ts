@@ -31,6 +31,32 @@ export function pageSize(limit: number): number {
   return Math.min(Math.max(limit, 1), 100);
 }
 
+/**
+ * `collect`, plus an honest answer to "were there more?".
+ *
+ * The connection cannot answer that after the fact: `fetchNext()` mutates the
+ * connection in place, so once collection stops at `limit` the object's
+ * `pageInfo.hasNextPage` describes the *last page fetched*, not the items the
+ * limit hid. Reading it post-collection reports "nothing was hidden" precisely
+ * when the final page happened to be the last one — which is the common case.
+ *
+ * So we ask for one more than we need and let the extra item be the evidence.
+ * Callers should size the first page with `pageSizeForMore(limit)` so the
+ * spare slot costs no extra request.
+ */
+export async function collectWithMore<T>(
+  conn: Connection<T>,
+  limit: number,
+): Promise<{ items: T[]; hasMore: boolean }> {
+  const nodes = await collect(conn, limit + 1);
+  return { items: nodes.slice(0, limit), hasMore: nodes.length > limit };
+}
+
+/** Page size for a `collectWithMore(limit)`: room for the sentinel item. */
+export function pageSizeForMore(limit: number): number {
+  return pageSize(limit === Infinity ? Infinity : limit + 1);
+}
+
 /** A GraphQL connection page as returned by a raw query. */
 interface RawConnection {
   nodes: any[];

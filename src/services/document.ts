@@ -10,6 +10,7 @@ import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { collectRawQuery } from "../lib/pagination.js";
 import { usageError, notFound } from "../lib/errors.js";
+import { assertMutation, unwrapMutation } from "../lib/mutation.js";
 import { resolveProjectId, resolveIssue, resolveTeam, isUuid } from "../lib/resolve.js";
 
 export interface DocumentRow {
@@ -150,10 +151,11 @@ export async function createDocument(client: LinearClient, opts: CreateOptions) 
     input.teamId = (await resolveTeam(client, opts.team!, undefined)).id;
   }
 
-  const payload = await withRetry(() => client.createDocument(input as any));
-  const document = await payload.document;
-  if (!document) throw usageError("Document creation returned no document.");
-  return document;
+  return unwrapMutation(
+    withRetry(() => client.createDocument(input as any)),
+    "document",
+    "Document creation",
+  );
 }
 
 export interface UpdateOptions {
@@ -174,15 +176,16 @@ export async function updateDocument(
   if (Object.keys(input).length === 0)
     throw usageError("Nothing to update; pass at least one of --title, --content.");
 
-  const payload = await withRetry(() => client.updateDocument(document.id, input as any));
-  const updated = await payload.document;
-  if (!updated) throw usageError("Document update returned no document.");
-  return updated;
+  return unwrapMutation(
+    withRetry(() => client.updateDocument(document.id, input as any)),
+    "document",
+    "Document update",
+  );
 }
 
 export async function deleteDocument(client: LinearClient, idArg: string) {
   const document = await resolveDocument(client, idArg);
-  await withRetry(() => client.deleteDocument(document.id));
+  await assertMutation(withRetry(() => client.deleteDocument(document.id)), "Document deletion");
   return document;
 }
 

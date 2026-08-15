@@ -6,6 +6,7 @@ import {
   getDocumentDetail,
   listDocuments,
 } from "../../src/services/document.js";
+import { connection } from "./_fakes.js";
 
 const UUID = "01234567-89ab-cdef-0123-456789abcdef";
 
@@ -19,11 +20,12 @@ describe("createDocument (input building)", () => {
 
   it("resolves a team container to teamId", async () => {
     const createDocumentMock = vi.fn().mockResolvedValue({
+      success: true,
       document: Promise.resolve({ id: "d1", title: "Spec", url: "u" }),
     });
     const client = {
       createDocument: createDocumentMock,
-      teams: vi.fn().mockResolvedValue({ nodes: [{ id: "team-1", key: "TES", name: "Test" }] }),
+      teams: vi.fn().mockResolvedValue(connection([{ id: "team-1", key: "TES", name: "Test" }])),
     } as any;
 
     const doc = await createDocument(client, { title: "Spec", team: "TES" });
@@ -33,6 +35,7 @@ describe("createDocument (input building)", () => {
 
   it("includes content when provided (including empty string)", async () => {
     const createDocumentMock = vi.fn().mockResolvedValue({
+      success: true,
       document: Promise.resolve({ id: "d2", title: "T", url: "u" }),
     });
     const client = { createDocument: createDocumentMock } as any;
@@ -50,13 +53,12 @@ describe("createDocument (input building)", () => {
 
   it("resolves a project name to projectId", async () => {
     const createDocumentMock = vi.fn().mockResolvedValue({
+      success: true,
       document: Promise.resolve({ id: "d3", title: "T", url: "u" }),
     });
     const client = {
       createDocument: createDocumentMock,
-      projects: vi
-        .fn()
-        .mockResolvedValue({ nodes: [{ id: "proj-1", name: "Roadmap" }] }),
+      projects: vi.fn().mockResolvedValue(connection([{ id: "proj-1", name: "Roadmap" }])),
     } as any;
 
     await createDocument(client, { title: "T", project: "Roadmap" });
@@ -65,6 +67,7 @@ describe("createDocument (input building)", () => {
 
   it("passes a project uuid through directly without a lookup", async () => {
     const createDocumentMock = vi.fn().mockResolvedValue({
+      success: true,
       document: Promise.resolve({ id: "d4", title: "T", url: "u" }),
     });
     const projectsMock = vi.fn();
@@ -75,13 +78,14 @@ describe("createDocument (input building)", () => {
     expect(createDocumentMock).toHaveBeenCalledWith({ title: "T", projectId: UUID });
   });
 
-  it("throws a usage error when the payload has no document", async () => {
+  it("fails when the payload carries no document", async () => {
     const client = {
-      createDocument: vi.fn().mockResolvedValue({ document: Promise.resolve(null) }),
+      createDocument: vi.fn().mockResolvedValue({ success: true, document: Promise.resolve(null) }),
     } as any;
     // Pass a uuid container so we reach the payload check, not the container guard.
     await expect(createDocument(client, { title: "T", project: UUID })).rejects.toMatchObject({
-      code: "usage",
+      code: "api",
+      exitCode: 1,
     });
   });
 });
@@ -96,6 +100,7 @@ describe("updateDocument (guards + input building)", () => {
 
   it("sends only the fields provided", async () => {
     const updateDocumentMock = vi.fn().mockResolvedValue({
+      success: true,
       document: Promise.resolve({ id: UUID, title: "New", url: "u" }),
     });
     const client = {
@@ -151,8 +156,8 @@ describe("listDocuments (container filters)", () => {
 
   function stub(sent: any[]) {
     return {
-      projects: async () => ({ nodes: [{ id: "proj-1", name: "Auth" }] }),
-      issues: async () => ({ nodes: [{ id: "issue-1", identifier: "TES-1" }] }),
+      projects: async () => connection([{ id: "proj-1", name: "Auth" }]),
+      issues: async () => connection([{ id: "issue-1", identifier: "TES-1" }]),
       client: {
         rawRequest: async (_q: string, vars: any) => {
           sent.push(vars);

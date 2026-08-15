@@ -1,20 +1,19 @@
 import { describe, it, expect, vi } from "bun:test";
 import { createWebhook, updateWebhook } from "../../src/services/webhook.js";
+import { connection } from "./_fakes.js";
 
 /** Minimal mock LinearClient: records the input passed to create/update. */
 function mockClient(overrides: Record<string, any> = {}) {
   const calls: { create?: any; update?: any } = {};
   const client: any = {
-    teams: vi.fn(async () => ({
-      nodes: [{ id: "team-uuid", key: "TES", name: "Test" }],
-    })),
+    teams: vi.fn(async () => connection([{ id: "team-uuid", key: "TES", name: "Test" }])),
     createWebhook: vi.fn(async (input: any) => {
       calls.create = input;
-      return { webhook: Promise.resolve({ id: "wh-1", url: input.url, enabled: true, resourceTypes: input.resourceTypes }) };
+      return { success: true, webhook: Promise.resolve({ id: "wh-1", url: input.url, enabled: true, resourceTypes: input.resourceTypes }) };
     }),
     updateWebhook: vi.fn(async (_id: string, input: any) => {
       calls.update = input;
-      return { webhook: Promise.resolve({ id: "wh-1", url: input.url, enabled: input.enabled, resourceTypes: input.resourceTypes }) };
+      return { success: true, webhook: Promise.resolve({ id: "wh-1", url: input.url, enabled: input.enabled, resourceTypes: input.resourceTypes }) };
     }),
     ...overrides,
   };

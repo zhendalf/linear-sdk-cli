@@ -49,6 +49,7 @@ describe("createProjectUpdate (mocked client)", () => {
       createProjectUpdate: (input: any) => {
         captured = input;
         return Promise.resolve({
+          success: true,
           projectUpdate: Promise.resolve({
             id: "pu1",
             body: input.body,
@@ -73,6 +74,7 @@ describe("createProjectUpdate (mocked client)", () => {
       createProjectUpdate: (input: any) => {
         captured = input;
         return Promise.resolve({
+          success: true,
           projectUpdate: Promise.resolve({
             id: "pu2",
             body: input.body,
@@ -88,13 +90,14 @@ describe("createProjectUpdate (mocked client)", () => {
     expect(captured).toEqual({ projectId: UUID, body: "hi" });
   });
 
-  it("throws when the payload returns no update", async () => {
+  it("fails when the payload carries no update", async () => {
     const client = {
       project: () => Promise.resolve({ id: UUID }),
-      createProjectUpdate: () => Promise.resolve({ projectUpdate: Promise.resolve(null) }),
+      createProjectUpdate: () => Promise.resolve({ success: true, projectUpdate: Promise.resolve(null) }),
     } as any;
     await expect(createProjectUpdate(client, UUID, { body: "x" })).rejects.toMatchObject({
-      code: "usage",
+      code: "api",
+      exitCode: 1,
     });
   });
 });
@@ -107,6 +110,7 @@ describe("createInitiativeUpdate (mocked client)", () => {
       createInitiativeUpdate: (input: any) => {
         captured = input;
         return Promise.resolve({
+          success: true,
           initiativeUpdate: Promise.resolve({
             id: "iu1",
             body: input.body,
@@ -124,13 +128,14 @@ describe("createInitiativeUpdate (mocked client)", () => {
     expect(created).toMatchObject({ id: "iu1", health: "atRisk", user: "Bo" });
   });
 
-  it("throws when the payload returns no update", async () => {
+  it("fails when the payload carries no update", async () => {
     const client = {
       initiative: () => Promise.resolve({ id: "init-1" }),
-      createInitiativeUpdate: () => Promise.resolve({ initiativeUpdate: Promise.resolve(null) }),
+      createInitiativeUpdate: () => Promise.resolve({ success: true, initiativeUpdate: Promise.resolve(null) }),
     } as any;
     await expect(createInitiativeUpdate(client, UUID, { body: "x" })).rejects.toMatchObject({
-      code: "usage",
+      code: "api",
+      exitCode: 1,
     });
   });
 });

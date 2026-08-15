@@ -9,6 +9,7 @@
 import { Command, Option } from "commander";
 import { resolveBody } from "./body.js";
 import { usageError } from "./errors.js";
+import { unwrapMutation } from "./mutation.js";
 import type { Context } from "../context.js";
 import type { Column } from "../output/table.js";
 
@@ -42,8 +43,7 @@ export async function normalizeUpdatePayload(
   payload: any,
   payloadKey: string,
 ): Promise<UpdateRow & { url: string }> {
-  const update = await payload[payloadKey];
-  if (!update) throw usageError("Status update creation returned no update.");
+  const update: any = await unwrapMutation(payload, payloadKey, "Status update creation");
   const user = await update.user;
   return {
     id: update.id,

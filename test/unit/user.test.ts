@@ -1,5 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { listUsers, getUserDetail, getViewer } from "../../src/services/user.js";
+import { connection } from "./_fakes.js";
 
 /** Build a fake User SDK model. */
 function fakeUser(over: Record<string, any> = {}): Record<string, any> {
@@ -24,10 +25,9 @@ function fakeUser(over: Record<string, any> = {}): Record<string, any> {
   };
 }
 
-/** A connection whose nodes are returned by collect() without paging. */
-function conn(nodes: any[]): any {
-  return { nodes, pageInfo: { hasNextPage: false }, fetchNext: async () => conn(nodes) };
-}
+// A faithful SDK connection (see _fakes.ts): fetchNext() mutates and returns
+// `this`, which is what the real one does and what an ad-hoc literal did not.
+const conn = <T,>(nodes: T[]) => connection(nodes) as any;
 
 describe("listUsers", () => {
   it("maps the user connection to display rows", async () => {

@@ -110,6 +110,27 @@ exactly when it is needed. The unit test passed because its mock's `fetchNext` r
 object instead of mutating, so the multi-page path was never exercised.
 **Fix:** request `limit + 1` and derive truncation from the extra item; fix the mock.
 
+**FIXED**, both halves. Reproduced first with a mock faithful to the SDK — `fetchNext()` appends to
+`this.nodes`, mutates `this.pageInfo` and returns `this` (`node_modules/@linear/sdk` `Connection`) —
+which gave exactly the audit's numbers: 180 issues at `--limit 150` returned 150 and reported
+`issuesTruncated: false`. Truncation is now a fact rather than an inference read off a connection
+that collection has already moved past: `collectWithMore` ([pagination.ts](src/lib/pagination.ts))
+asks for one item beyond the limit and the presence of that item *is* the answer. The spare slot is
+requested in the same page (`pageSizeForMore`), so detecting truncation costs no extra round-trip
+for a limit that fits in one page. Verified live on `test-workspace-bla` (3 issues, `-n 2` → 2 and
+`issuesTruncated: true` with the `… more (use --all)` notice; `-n 3` → false; `--all` → false); the
+*multi-page* half is proven at unit level rather than live, because reproducing it against the API
+means creating 150+ issues in one milestone.
+
+The mock was the more important half. The infidelity was not confined to `milestone.test.ts` —
+**twenty test files faked a connection**, some as a bare `{ nodes }` with no `pageInfo` at all, and
+every local `conn()` helper returned a fresh object from `fetchNext()`. They now all build on one
+faithful builder ([test/unit/_fakes.ts](test/unit/_fakes.ts)), so a service that reads a connection
+after collecting from it meets the SDK's semantics instead of a convenient fiction. The same file
+supplies faithful mutation *payloads*, which is what finding #6 turned out to need. A test asserting
+the connection's own `hasNextPage` is `false` while `hasMore` is `true` is now in the suite, so the
+wrong fix cannot look right later.
+
 ### 6. Mutations can report success they never checked **[verified]**
 `setRead` returns `{id, success}` ([notification.ts:94](src/services/notification.ts:94)) and the command
 discards `success`, emitting `{id, read:true}` and `✓ Marked … read` unconditionally
@@ -118,6 +139,33 @@ regardless of the per-item results. `updateIssue` falls back to the *pre-mutatio
 payload has no issue ([issue.ts:~430](src/services/issue.ts:430)), so a `{success:false, issue:null}`
 payload prints `Updated TES-1` and exits 0. **Fix:** one `unwrapMutation` helper asserting
 `success === true` and entity presence.
+
+**FIXED**, as the class of bug it is rather than the three named instances. All 19 files in
+`src/services/` were swept; the three the audit names were the visible tip. Driving every one of the
+**51 mutating entry points** against a client whose every write answers `{success:false}` while
+still carrying an entity, **50 of them resolved happily** — `comment delete` was the only place in
+the codebase that read `success`. The create/update paths *looked* guarded, but the guard tested
+whether the entity came back, not whether the write happened, so a refusal carrying an entity walked
+straight through; the deletes, archives, subscribes and notification writes discarded the payload
+unread. `updateIssue` was the worst of them, returning the pre-mutation issue exactly as reported.
+
+Everything now goes through `unwrapMutation` / `assertMutation`
+([mutation.ts](src/lib/mutation.ts)). The split matters: some Linear payloads genuinely carry
+nothing but `{success, lastSyncId}` (deletes, archives, `updateNotification`), and those use
+`assertMutation` and return a receipt of what was confirmed, rather than being handed a fake entity.
+One deliberate change beyond the finding: a refusal is now **`api`, exit 1**, where these paths threw
+`usage`, exit 2. Exit 2 tells a script it called the CLI wrong; here the caller typed a valid command
+and the server declined it. `markAllRead` no longer hardcodes an aggregate — it reports `count`
+(what really went through), `attempted`, and a `failed` list carrying the API's reason per item, and
+one refusal does not abort the rest.
+
+The proof is unit-level and stated as such: a real `{success:false}` from Linear cannot be provoked
+on demand, so there is no live coverage of the failure path — only of the happy paths, re-verified
+live on `test-workspace-bla` (issue create/update/state/subscribe/unsubscribe, label
+create/update/delete, comment add/delete, milestone create/update, `notification read-all`). The
+sweep ([test/unit/mutation-sweep.test.ts](test/unit/mutation-sweep.test.ts)) covers the refusal path
+for every entry point in both shapes — with and without an entity in the payload — and all 104 of
+its assertions fail against the code as it was.
 
 ### 7. `api --operation` is inert **[verified]**
 We pass a 4th argument to `rawRequest`, which takes three
@@ -201,6 +249,30 @@ non-atomic; `issue start` mutates Linear before checkout, so a checkout failure 
 changed.
 
 Several of this list have since been reproduced and **FIXED**:
+
+- **Fixed resolver page caps** — reproduced exactly as reported. With 300 teams, `resolveTeam` for
+  the team at index 260 returned `not_found`; likewise a workflow state past `first: 100`, a cycle
+  name past `first: 250`, a milestone past `first: 100`. The audit understated it in one way: the
+  silent half is worse than the loud one. A false `not_found` at least stops you, but the
+  *ambiguity* check also only ever saw a prefix, so a duplicate name past the cap was invisible and
+  the CLI picked one arbitrarily and carried on. Resolution now follows the connection
+  ([resolve.ts](src/lib/resolve.ts)). **On the request cost:** the page size is 250, Linear's
+  maximum and what two of these resolvers already asked for, so the ordinary workspace still costs
+  the single request it always did — only workspaces that genuinely hold more than 250 of something
+  pay for extra pages, and then proportionally. The scan is **bounded at 2000** (8 requests) rather
+  than unbounded: past that, guessing at a name is the wrong tool, and hitting the bound is an
+  honest usage error asking for the id instead of a quiet truncation. The label/user/project
+  resolvers match through a server-side exact filter, so they were never really capped, but they
+  scan too now — `resolveLabelIds` narrows its results by team afterwards, which could discard a
+  whole page and turn a label that exists into a not-found.
+- **Resolution failures now point somewhere** (the ergonomics pass). `resolveStateId` listed the
+  team's states on a miss and nothing else did. Every resolver now ends a not-found with either the
+  candidates or the command that lists them, at no extra round-trip: the scanning resolvers already
+  hold the candidate set, so they list it (capped at 25 names, past which they name the discovery
+  command rather than paste a wall of text); the server-filtered ones have nothing in hand and name
+  the command instead of fetching a list purely to write an error. Verified live: `state list --team
+  NOPE` → "No team matching 'NOPE'. Available: TES."; `--assignee nobodyhere` → "No user matching
+  'nobodyhere'. Run 'linear user list' to see workspace members."
 
 - **Permissive `parseInt`** — confirmed exactly as reported (`parseIntOption("1.9")` → `1`,
   `"2junk"` → `2`). A flag value must now be a complete integer token, so the CLI can no longer
@@ -294,8 +366,8 @@ Kept here so the report is not read as uniformly authoritative:
 
 1. Fix the two silent-wrong-results filters (#1, #2) — smallest diffs, worst consequences.
 2. Fix `--no-input` (#3) and the `--color` collision (#4).
-3. Add `unwrapMutation` and apply it across services (#6).
-4. Fix milestone truncation and the unfaithful mock (#5).
+3. ~~Add `unwrapMutation` and apply it across services (#6).~~ **Done.**
+4. ~~Fix milestone truncation and the unfaithful mock (#5).~~ **Done.**
 5. Guard `api --paginate` to queries; implement or remove `--operation`; fix `schema -o` (#7, #10).
 6. Decide the global-options policy (#8) — the blanket injection is the root cause of a whole class.
 7. Mask the API-key prompt (#9).

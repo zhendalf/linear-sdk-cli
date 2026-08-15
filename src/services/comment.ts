@@ -14,6 +14,7 @@ import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { pageSize } from "../lib/pagination.js";
 import { usageError, notFound } from "../lib/errors.js";
+import { assertMutation, unwrapMutation } from "../lib/mutation.js";
 import { resolveIssue } from "../lib/resolve.js";
 
 export interface CommentRow {
@@ -71,9 +72,11 @@ export async function listComments(
 /** Add a comment to an issue. */
 export async function addComment(client: LinearClient, issueArg: string, body: string) {
   const issue = await resolveIssue(client, issueArg);
-  const payload = await withRetry(() => client.createComment({ issueId: issue.id, body }));
-  const comment = await payload.comment;
-  if (!comment) throw usageError("Comment creation returned no comment.");
+  const comment = await unwrapMutation(
+    withRetry(() => client.createComment({ issueId: issue.id, body })),
+    "comment",
+    "Comment creation",
+  );
   return { issue, comment };
 }
 
@@ -100,35 +103,34 @@ interface ParentComment {
 export async function replyToComment(client: LinearClient, commentId: string, body: string) {
   const parent = await getParent(client, commentId);
   if (!parent.issueId) throw usageError("Can only reply to comments that belong to an issue.");
-  const payload = await withRetry(() =>
-    client.createComment({ parentId: parent.id, issueId: parent.issueId!, body }),
+  const comment = await unwrapMutation(
+    withRetry(() => client.createComment({ parentId: parent.id, issueId: parent.issueId!, body })),
+    "comment",
+    "Reply creation",
   );
-  const comment = await payload.comment;
-  if (!comment) throw usageError("Reply creation returned no comment.");
   return { parent, comment, issue: parent.issue };
 }
 
 export async function updateComment(client: LinearClient, commentId: string, body: string) {
-  const payload = await withRetry(() => client.updateComment(commentId, { body }));
-  const comment = await payload.comment;
-  if (!comment) throw usageError("Comment update returned no comment.");
-  return comment;
+  return unwrapMutation(
+    withRetry(() => client.updateComment(commentId, { body })),
+    "comment",
+    "Comment update",
+  );
 }
 
 export async function deleteComment(client: LinearClient, commentId: string) {
-  const payload = await withRetry(() => client.deleteComment(commentId));
-  if (!payload.success) throw usageError("Comment deletion failed.");
+  await assertMutation(withRetry(() => client.deleteComment(commentId)), "Comment deletion");
   return { id: commentId };
 }
 
 /** Resolve (or unresolve) a comment thread. */
 export async function setResolved(client: LinearClient, commentId: string, resolved: boolean) {
-  const payload = await withRetry(() =>
-    resolved ? client.commentResolve(commentId) : client.commentUnresolve(commentId),
+  return unwrapMutation(
+    withRetry(() => (resolved ? client.commentResolve(commentId) : client.commentUnresolve(commentId))),
+    "comment",
+    `Comment ${resolved ? "resolve" : "unresolve"}`,
   );
-  const comment = await payload.comment;
-  if (!comment) throw usageError(`Comment ${resolved ? "resolve" : "unresolve"} returned no comment.`);
-  return comment;
 }
 
 /** Look a comment up by id via rawRequest (the typed getter is broken in v87). */

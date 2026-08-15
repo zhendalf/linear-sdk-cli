@@ -5,11 +5,11 @@ import {
   listInvites,
   inviteStatus,
 } from "../../src/services/organization.js";
+import { connection } from "./_fakes.js";
 
-/** A connection stub matching the shape `collect()` expects. */
-function conn(nodes: any[]) {
-  return { nodes, pageInfo: { hasNextPage: false }, fetchNext: async () => conn(nodes) };
-}
+// A faithful SDK connection (see _fakes.ts): fetchNext() mutates and returns
+// `this`, which is what the real one does and what an ad-hoc literal did not.
+const conn = <T,>(nodes: T[]) => connection(nodes) as any;
 
 describe("getOrganizationDetail", () => {
   it("maps the workspace getter to a flat detail object", async () => {

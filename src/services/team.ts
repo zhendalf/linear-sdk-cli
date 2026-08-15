@@ -10,6 +10,7 @@ import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { collect, pageSize } from "../lib/pagination.js";
 import { usageError } from "../lib/errors.js";
+import { unwrapMutation } from "../lib/mutation.js";
 import { resolveTeam } from "../lib/resolve.js";
 
 export interface TeamRow {
@@ -190,10 +191,11 @@ export async function createTeam(client: LinearClient, opts: CreateTeamOptions) 
   const input: Record<string, any> = { name: opts.name };
   if (opts.key !== undefined) input.key = opts.key;
   if (opts.description !== undefined) input.description = opts.description;
-  const payload = await withRetry(() => client.createTeam(input as any));
-  const team = await payload.team;
-  if (!team) throw usageError("Team creation returned no team.");
-  return team;
+  return unwrapMutation(
+    withRetry(() => client.createTeam(input as any)),
+    "team",
+    "Team creation",
+  );
 }
 
 export interface UpdateTeamOptions {
@@ -215,8 +217,9 @@ export async function updateTeam(
   if (opts.description !== undefined) input.description = opts.description;
   if (Object.keys(input).length === 0)
     throw usageError("Nothing to update; pass at least one field (--name/--key/--description).");
-  const payload = await withRetry(() => client.updateTeam(resolved.id, input as any));
-  const team = await payload.team;
-  if (!team) throw usageError("Team update returned no team.");
-  return team;
+  return unwrapMutation(
+    withRetry(() => client.updateTeam(resolved.id, input as any)),
+    "team",
+    "Team update",
+  );
 }

@@ -59,7 +59,7 @@ describe("addComment", () => {
   it("creates a comment on the resolved issue and unwraps the payload", async () => {
     const issue = issueModel();
     const created = { id: "new", url: "url" };
-    const createComment = vi.fn().mockResolvedValue({ comment: Promise.resolve(created) });
+    const createComment = vi.fn().mockResolvedValue({ success: true, comment: Promise.resolve(created) });
     const client = { issue: vi.fn().mockResolvedValue(issue), createComment } as any;
 
     const res = await addComment(client, ISSUE_UUID, "hi");
@@ -68,12 +68,15 @@ describe("addComment", () => {
     expect(res.issue).toBe(issue as any);
   });
 
-  it("throws a usage error when the payload has no comment", async () => {
+  it("fails when the payload carries no comment, rather than inventing one", async () => {
     const client = {
       issue: vi.fn().mockResolvedValue(issueModel()),
-      createComment: vi.fn().mockResolvedValue({ comment: Promise.resolve(null) }),
+      createComment: vi.fn().mockResolvedValue({ success: true, comment: Promise.resolve(null) }),
     } as any;
-    await expect(addComment(client, ISSUE_UUID, "hi")).rejects.toMatchObject({ code: "usage" });
+    await expect(addComment(client, ISSUE_UUID, "hi")).rejects.toMatchObject({
+      code: "api",
+      exitCode: 1,
+    });
   });
 });
 
@@ -91,7 +94,7 @@ describe("replyToComment", () => {
     const parentIssue = { id: "issue-id", identifier: "TES-9" };
     const node = { id: "parent-id", issueId: "issue-id", issue: parentIssue };
     const created = { id: "reply-id", url: "url" };
-    const createComment = vi.fn().mockResolvedValue({ comment: Promise.resolve(created) });
+    const createComment = vi.fn().mockResolvedValue({ success: true, comment: Promise.resolve(created) });
     const client = clientWithParent(node, createComment);
 
     const res = await replyToComment(client, "parent-id", "re");
@@ -118,7 +121,7 @@ describe("replyToComment", () => {
 describe("updateComment", () => {
   it("passes a body-only update input and unwraps the payload", async () => {
     const updated = { id: "c1", url: "u" };
-    const updateCommentFn = vi.fn().mockResolvedValue({ comment: Promise.resolve(updated) });
+    const updateCommentFn = vi.fn().mockResolvedValue({ success: true, comment: Promise.resolve(updated) });
     const client = { updateComment: updateCommentFn } as any;
 
     const res = await updateComment(client, "c1", "new body");
@@ -137,16 +140,16 @@ describe("deleteComment", () => {
     expect(res).toEqual({ id: "c1" });
   });
 
-  it("throws a usage error when the API reports failure", async () => {
+  it("fails when the API reports success: false", async () => {
     const client = { deleteComment: vi.fn().mockResolvedValue({ success: false }) } as any;
-    await expect(deleteComment(client, "c1")).rejects.toMatchObject({ code: "usage" });
+    await expect(deleteComment(client, "c1")).rejects.toMatchObject({ code: "api", exitCode: 1 });
   });
 });
 
 describe("setResolved", () => {
   it("dispatches to commentResolve when resolving", async () => {
     const resolved = { id: "c1" };
-    const commentResolve = vi.fn().mockResolvedValue({ comment: Promise.resolve(resolved) });
+    const commentResolve = vi.fn().mockResolvedValue({ success: true, comment: Promise.resolve(resolved) });
     const commentUnresolve = vi.fn();
     const client = { commentResolve, commentUnresolve } as any;
 
@@ -159,7 +162,7 @@ describe("setResolved", () => {
   it("dispatches to commentUnresolve when unresolving", async () => {
     const unresolved = { id: "c1" };
     const commentResolve = vi.fn();
-    const commentUnresolve = vi.fn().mockResolvedValue({ comment: Promise.resolve(unresolved) });
+    const commentUnresolve = vi.fn().mockResolvedValue({ success: true, comment: Promise.resolve(unresolved) });
     const client = { commentResolve, commentUnresolve } as any;
 
     const res = await setResolved(client, "c1", false);

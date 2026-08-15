@@ -10,8 +10,9 @@
 
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
-import { collect } from "../lib/pagination.js";
+import { collect, collectWithMore, pageSizeForMore } from "../lib/pagination.js";
 import { usageError } from "../lib/errors.js";
+import { assertMutation, unwrapMutation } from "../lib/mutation.js";
 import { resolveProjectId } from "../lib/resolve.js";
 
 export interface MilestoneRow {
@@ -78,9 +79,11 @@ export async function getMilestoneDetail(
   const milestone = await resolveMilestone(client, id);
   const [project, issueConn] = await Promise.all([
     milestone.project,
-    milestone.issues({ first: limit === Infinity ? 100 : Math.min(limit, 100) }),
+    milestone.issues({ first: pageSizeForMore(limit) }),
   ]);
-  const issueNodes = await collect(issueConn as any, limit);
+  // One extra issue is requested so truncation is a fact we hold, not a guess
+  // read off a connection that collection has already mutated past.
+  const { items: issueNodes, hasMore } = await collectWithMore(issueConn as any, limit);
   const issues = await Promise.all(
     issueNodes.map(async (i: any) => ({
       identifier: i.identifier,
@@ -99,8 +102,8 @@ export async function getMilestoneDetail(
     createdAt: milestone.createdAt.toISOString(),
     updatedAt: milestone.updatedAt.toISOString(),
     issues,
-    // The connection reports only that more exist, never how many.
-    issuesTruncated: issues.length >= limit && issueConn.pageInfo.hasNextPage,
+    // We know only that more exist, never how many.
+    issuesTruncated: hasMore,
   };
 }
 
@@ -130,10 +133,11 @@ export async function createMilestone(
   if (opts.description !== undefined) input.description = opts.description;
   if (opts.targetDate) input.targetDate = opts.targetDate;
 
-  const payload = await withRetry(() => client.createProjectMilestone(input as any));
-  const milestone = await payload.projectMilestone;
-  if (!milestone) throw usageError("Milestone creation returned no milestone.");
-  return milestone;
+  return unwrapMutation(
+    withRetry(() => client.createProjectMilestone(input as any)),
+    "projectMilestone",
+    "Milestone creation",
+  );
 }
 
 export interface UpdateOptions {
@@ -151,12 +155,18 @@ export async function updateMilestone(client: LinearClient, id: string, opts: Up
 
   if (Object.keys(input).length === 0)
     throw usageError("Nothing to update; pass at least one field.");
-  const payload = await withRetry(() => client.updateProjectMilestone(milestone.id, input as any));
-  return (await payload.projectMilestone) ?? milestone;
+  return unwrapMutation(
+    withRetry(() => client.updateProjectMilestone(milestone.id, input as any)),
+    "projectMilestone",
+    "Milestone update",
+  );
 }
 
 export async function deleteMilestone(client: LinearClient, id: string) {
   const milestone = await resolveMilestone(client, id);
-  await withRetry(() => client.deleteProjectMilestone(milestone.id));
+  await assertMutation(
+    withRetry(() => client.deleteProjectMilestone(milestone.id)),
+    "Milestone deletion",
+  );
   return milestone;
 }

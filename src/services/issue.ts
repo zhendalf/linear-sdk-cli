@@ -10,6 +10,7 @@ import type { ResolvedConfig } from "../config.js";
 import { withRetry } from "../client.js";
 import { collect, collectRawQuery } from "../lib/pagination.js";
 import { usageError, notFound } from "../lib/errors.js";
+import { assertMutation, unwrapMutation } from "../lib/mutation.js";
 import {
   resolveUserId,
   resolveProjectId,
@@ -508,10 +509,11 @@ export async function createIssue(
   if (opts.cycle) input.cycleId = await resolveCycleId(client, team.id, opts.cycle);
   if (opts.parent) input.parentId = (await resolveIssue(client, opts.parent)).id;
 
-  const payload = await withRetry(() => client.createIssue(input as any));
-  const issue = await payload.issue;
-  if (!issue) throw usageError("Issue creation returned no issue.");
-  return issue;
+  return unwrapMutation(
+    withRetry(() => client.createIssue(input as any)),
+    "issue",
+    "Issue creation",
+  );
 }
 
 export interface UpdateOptions {
@@ -581,34 +583,48 @@ export async function updateIssue(client: LinearClient, idArg: string, opts: Upd
   }
 
   if (Object.keys(input).length === 0) throw usageError("Nothing to update; pass at least one field.");
-  const payload = await withRetry(() => client.updateIssue(issue.id, input as any));
-  return (await payload.issue) ?? issue;
+  // The updated issue comes from the payload, never from `issue` — falling back
+  // to the pre-mutation entity would print "Updated TES-1" for a write the API
+  // refused.
+  return unwrapMutation(
+    withRetry(() => client.updateIssue(issue.id, input as any)),
+    "issue",
+    "Issue update",
+  );
 }
 
 export async function archiveIssue(client: LinearClient, idArg: string, unarchive: boolean) {
   const issue = await resolveIssue(client, idArg);
-  await withRetry(() => (unarchive ? client.unarchiveIssue(issue.id) : client.archiveIssue(issue.id)));
+  await assertMutation(
+    withRetry(() => (unarchive ? client.unarchiveIssue(issue.id) : client.archiveIssue(issue.id))),
+    unarchive ? "Issue unarchive" : "Issue archive",
+  );
   return issue;
 }
 
 export async function deleteIssue(client: LinearClient, idArg: string) {
   const issue = await resolveIssue(client, idArg);
-  await withRetry(() => client.deleteIssue(issue.id));
+  await assertMutation(withRetry(() => client.deleteIssue(issue.id)), "Issue deletion");
   return issue;
 }
 
 export async function setSubscription(client: LinearClient, idArg: string, subscribe: boolean) {
   const issue = await resolveIssue(client, idArg);
-  await withRetry(() =>
-    subscribe ? client.issueSubscribe(issue.id) : client.issueUnsubscribe(issue.id),
+  await assertMutation(
+    withRetry(() => (subscribe ? client.issueSubscribe(issue.id) : client.issueUnsubscribe(issue.id))),
+    subscribe ? "Issue subscribe" : "Issue unsubscribe",
   );
   return issue;
 }
 
 export async function commentOnIssue(client: LinearClient, idArg: string, body: string) {
   const issue = await resolveIssue(client, idArg);
-  const payload = await withRetry(() => client.createComment({ issueId: issue.id, body }));
-  return { issue, comment: await payload.comment };
+  const comment = await unwrapMutation(
+    withRetry(() => client.createComment({ issueId: issue.id, body })),
+    "comment",
+    "Comment creation",
+  );
+  return { issue, comment };
 }
 
 export async function listComments(client: LinearClient, idArg: string, limit: number) {
@@ -644,7 +660,10 @@ export async function startIssue(
     const stateId = opts.stateInput
       ? await resolveStateId(client, teamId, opts.stateInput)
       : await firstStateOfType(client, teamId, "started");
-    await withRetry(() => client.updateIssue(issue.id, { stateId }));
+    await assertMutation(
+      withRetry(() => client.updateIssue(issue.id, { stateId })),
+      "Issue update",
+    );
   }
   return issue;
 }
@@ -662,7 +681,12 @@ export async function addRemoveRelation(
   const apiType = type === "blocked_by" ? "blocks" : type;
   const [from, to] = type === "blocked_by" ? [other, issue] : [issue, other];
   if (op === "add") {
-    await withRetry(() => client.createIssueRelation({ issueId: from.id, relatedIssueId: to.id, type: apiType as any }));
+    await assertMutation(
+      withRetry(() =>
+        client.createIssueRelation({ issueId: from.id, relatedIssueId: to.id, type: apiType as any }),
+      ),
+      "Relation creation",
+    );
   } else {
     // The single relation record may live on either issue (direction matters for
     // blocks/blocked_by). Search `from`'s direct + inverse relations for a record
@@ -673,7 +697,10 @@ export async function addRemoveRelation(
     ]);
     const match = await findRelation([...direct, ...inverse] as any[], from.id, to.id, apiType);
     if (!match) throw notFound(`No ${type} relation between ${issue.identifier} and ${other.identifier}.`);
-    await withRetry(() => client.deleteIssueRelation(match.id));
+    await assertMutation(
+      withRetry(() => client.deleteIssueRelation(match.id)),
+      "Relation removal",
+    );
   }
   return { issue, other };
 }

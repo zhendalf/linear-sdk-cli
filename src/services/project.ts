@@ -9,6 +9,7 @@ import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { collect, collectRawQuery } from "../lib/pagination.js";
 import { usageError, notFound, ambiguous } from "../lib/errors.js";
+import { assertMutation, unwrapMutation } from "../lib/mutation.js";
 import {
   resolveTeam,
   resolveUserId,
@@ -194,10 +195,11 @@ export async function createProject(
   if (opts.icon) input.icon = opts.icon;
   if (opts.color) input.color = opts.color;
 
-  const payload = await withRetry(() => client.createProject(input as any));
-  const project = await payload.project;
-  if (!project) throw usageError("Project creation returned no project.");
-  return project;
+  return unwrapMutation(
+    withRetry(() => client.createProject(input as any)),
+    "project",
+    "Project creation",
+  );
 }
 
 export interface UpdateOptions {
@@ -238,16 +240,17 @@ export async function updateProject(client: LinearClient, idArg: string, opts: U
 
   if (Object.keys(input).length === 0)
     throw usageError("Nothing to update; pass at least one field.");
-  const payload = await withRetry(() => client.updateProject(projectId, input as any));
-  const project = await payload.project;
-  if (!project) throw usageError("Project update returned no project.");
-  return project;
+  return unwrapMutation(
+    withRetry(() => client.updateProject(projectId, input as any)),
+    "project",
+    "Project update",
+  );
 }
 
 export async function archiveProject(client: LinearClient, idArg: string) {
   const projectId = await resolveProjectId(client, idArg);
   const project = await withRetry(() => client.project(projectId));
-  await withRetry(() => client.archiveProject(projectId));
+  await assertMutation(withRetry(() => client.archiveProject(projectId)), "Project archive");
   return project;
 }
 

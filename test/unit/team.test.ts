@@ -1,11 +1,11 @@
 import { describe, it, expect } from "bun:test";
 import { listTeams, listMembers, listStates, updateTeam, createTeam } from "../../src/services/team.js";
 import { CliError } from "../../src/lib/errors.js";
+import { connection } from "./_fakes.js";
 
-/** A connection stub matching the shape `collect()` expects. */
-function conn(nodes: any[]) {
-  return { nodes, pageInfo: { hasNextPage: false }, fetchNext: async () => conn(nodes) };
-}
+// A faithful SDK connection (see _fakes.ts): fetchNext() mutates and returns
+// `this`, which is what the real one does and what an ad-hoc literal did not.
+const conn = <T,>(nodes: T[]) => connection(nodes) as any;
 
 const TEAMS = [
   { id: "t1", key: "TES", name: "Test" },

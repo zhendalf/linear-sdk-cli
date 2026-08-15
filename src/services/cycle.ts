@@ -9,6 +9,7 @@ import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { collect, pageSize } from "../lib/pagination.js";
 import { usageError, notFound } from "../lib/errors.js";
+import { unwrapMutation } from "../lib/mutation.js";
 import { resolveTeam, resolveCycleId, isUuid } from "../lib/resolve.js";
 
 export interface CycleRow {
@@ -99,10 +100,11 @@ export async function createCycle(
   };
   if (opts.name !== undefined) input.name = opts.name;
 
-  const payload = await withRetry(() => client.createCycle(input as any));
-  const cycle = await payload.cycle;
-  if (!cycle) throw usageError("Cycle creation returned no cycle.");
-  return cycle;
+  return unwrapMutation(
+    withRetry(() => client.createCycle(input as any)),
+    "cycle",
+    "Cycle creation",
+  );
 }
 
 export interface UpdateOptions {
@@ -127,10 +129,11 @@ export async function updateCycle(
   if (Object.keys(input).length === 0)
     throw usageError("Nothing to update; pass at least one of --name, --start, --end.");
 
-  const payload = await withRetry(() => client.updateCycle(cycleId, input as any));
-  const cycle = await payload.cycle;
-  if (!cycle) throw usageError("Cycle update returned no cycle.");
-  return cycle;
+  return unwrapMutation(
+    withRetry(() => client.updateCycle(cycleId, input as any)),
+    "cycle",
+    "Cycle update",
+  );
 }
 
 /**

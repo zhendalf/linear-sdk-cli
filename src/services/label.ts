@@ -11,6 +11,7 @@ import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { collectRawQuery } from "../lib/pagination.js";
 import { usageError, notFound, ambiguous } from "../lib/errors.js";
+import { assertMutation, unwrapMutation } from "../lib/mutation.js";
 import { resolveTeam, resolveLabelIds, isUuid } from "../lib/resolve.js";
 
 export interface LabelRow {
@@ -103,10 +104,11 @@ export async function createLabel(
     input.parentId = parentId;
   }
 
-  const payload = await withRetry(() => client.createIssueLabel(input as any));
-  const label = await payload.issueLabel;
-  if (!label) throw usageError("Label creation returned no label.");
-  return label;
+  return unwrapMutation(
+    withRetry(() => client.createIssueLabel(input as any)),
+    "issueLabel",
+    "Label creation",
+  );
 }
 
 export interface UpdateOptions {
@@ -125,17 +127,18 @@ export async function updateLabel(client: LinearClient, idArg: string, opts: Upd
   if (Object.keys(input).length === 0)
     throw usageError("Nothing to update; pass at least one of --name, --color, --description.");
 
-  const payload = await withRetry(() => client.updateIssueLabel(id, input as any));
-  const label = await payload.issueLabel;
-  if (!label) throw usageError("Label update returned no label.");
-  return label;
+  return unwrapMutation(
+    withRetry(() => client.updateIssueLabel(id, input as any)),
+    "issueLabel",
+    "Label update",
+  );
 }
 
 export async function deleteLabel(client: LinearClient, idArg: string) {
   const id = await resolveLabel(client, idArg);
   // Fetch the label first so we can report its name after deletion.
   const label = await withRetry(() => client.issueLabel(id));
-  await withRetry(() => client.deleteIssueLabel(id));
+  await assertMutation(withRetry(() => client.deleteIssueLabel(id)), "Label deletion");
   return label;
 }
 

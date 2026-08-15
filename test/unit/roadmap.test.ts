@@ -7,11 +7,11 @@ import {
   deleteRoadmap,
   getRoadmapDetail,
 } from "../../src/services/roadmap.js";
+import { connection } from "./_fakes.js";
 
-/** A connection-like object as the SDK returns it (no more pages). */
-function conn<T>(nodes: T[]) {
-  return { nodes, pageInfo: { hasNextPage: false }, fetchNext: async () => conn(nodes) };
-}
+// A faithful SDK connection (see _fakes.ts): fetchNext() mutates and returns
+// `this`, which is what the real one does and what an ad-hoc literal did not.
+const conn = <T,>(nodes: T[]) => connection(nodes) as any;
 
 describe("toRow", () => {
   it("projects a roadmap to the row shape, normalizing missing description", () => {
@@ -44,7 +44,7 @@ describe("createRoadmap", () => {
     const client = {
       createRoadmap: vi.fn(async (input: any) => {
         expect(input).toEqual({ name: "New", description: "desc" });
-        return { roadmap: Promise.resolve(created) };
+        return { success: true, roadmap: Promise.resolve(created) };
       }),
     } as any;
     const out = await createRoadmap(client, { name: "New", description: "desc" });
@@ -56,18 +56,21 @@ describe("createRoadmap", () => {
       viewer: Promise.resolve({ id: "viewer-id" }),
       createRoadmap: vi.fn(async (input: any) => {
         expect(input.ownerId).toBe("viewer-id");
-        return { roadmap: Promise.resolve({ id: "r1", name: "x", url: "u" }) };
+        return { success: true, roadmap: Promise.resolve({ id: "r1", name: "x", url: "u" }) };
       }),
     } as any;
     await createRoadmap(client, { name: "x", owner: "me" });
     expect(client.createRoadmap).toHaveBeenCalled();
   });
 
-  it("throws a usage error when the payload has no roadmap", async () => {
+  it("fails when the payload carries no roadmap", async () => {
     const client = {
-      createRoadmap: vi.fn(async () => ({ roadmap: Promise.resolve(null) })),
+      createRoadmap: vi.fn(async () => ({ success: true, roadmap: Promise.resolve(null) })),
     } as any;
-    await expect(createRoadmap(client, { name: "x" })).rejects.toMatchObject({ code: "usage" });
+    await expect(createRoadmap(client, { name: "x" })).rejects.toMatchObject({
+      code: "api",
+      exitCode: 1,
+    });
   });
 });
 
@@ -86,7 +89,7 @@ describe("updateRoadmap", () => {
       updateRoadmap: vi.fn(async (id: string, input: any) => {
         expect(id).toBe("r1");
         expect(input).toEqual({ name: "H1 renamed" });
-        return { roadmap: Promise.resolve({ id: "r1", name: "H1 renamed" }) };
+        return { success: true, roadmap: Promise.resolve({ id: "r1", name: "H1 renamed" }) };
       }),
     } as any;
     const out = await updateRoadmap(client, "h1", { name: "H1 renamed" });

@@ -11,6 +11,7 @@ import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { collectRawQuery } from "../lib/pagination.js";
 import { usageError, notFound, ambiguous } from "../lib/errors.js";
+import { assertMutation, unwrapMutation } from "../lib/mutation.js";
 import { resolveUserId, resolveInitiativeLabelIds, isUuid } from "../lib/resolve.js";
 
 /** The five status values Linear accepts for an initiative (InitiativeStatus enum). */
@@ -149,10 +150,11 @@ export async function createInitiative(client: LinearClient, opts: CreateOptions
   if (opts.priority !== undefined) input.priority = resolvePriority(opts.priority);
   if (opts.label?.length) input.labelIds = await resolveInitiativeLabelIds(client, opts.label);
 
-  const payload = await withRetry(() => client.createInitiative(input as any));
-  const initiative = await payload.initiative;
-  if (!initiative) throw usageError("Initiative creation returned no initiative.");
-  return initiative;
+  return unwrapMutation(
+    withRetry(() => client.createInitiative(input as any)),
+    "initiative",
+    "Initiative creation",
+  );
 }
 
 export interface UpdateOptions {
@@ -184,21 +186,28 @@ export async function updateInitiative(
   if (Object.keys(input).length === 0)
     throw usageError("Nothing to update; pass at least one field.");
 
-  const payload = await withRetry(() => client.updateInitiative(initiative.id, input as any));
-  const updated = await payload.initiative;
-  if (!updated) throw usageError("Initiative update returned no initiative.");
-  return updated;
+  return unwrapMutation(
+    withRetry(() => client.updateInitiative(initiative.id, input as any)),
+    "initiative",
+    "Initiative update",
+  );
 }
 
 export async function archiveInitiative(client: LinearClient, idArg: string) {
   const initiative = await resolveInitiative(client, idArg);
-  await withRetry(() => client.archiveInitiative(initiative.id));
+  await assertMutation(
+    withRetry(() => client.archiveInitiative(initiative.id)),
+    "Initiative archive",
+  );
   return initiative;
 }
 
 export async function deleteInitiative(client: LinearClient, idArg: string) {
   const initiative = await resolveInitiative(client, idArg);
-  await withRetry(() => client.deleteInitiative(initiative.id));
+  await assertMutation(
+    withRetry(() => client.deleteInitiative(initiative.id)),
+    "Initiative deletion",
+  );
   return initiative;
 }
 

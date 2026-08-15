@@ -10,6 +10,7 @@ import { type LinearClient, WebhookResourceType } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { collect } from "../lib/pagination.js";
 import { usageError, notFound } from "../lib/errors.js";
+import { assertMutation, unwrapMutation } from "../lib/mutation.js";
 import { resolveTeam } from "../lib/resolve.js";
 
 /** The valid webhook resource-type strings (e.g. "Issue", "IssueSLA"). */
@@ -121,10 +122,11 @@ export async function createWebhook(client: LinearClient, opts: CreateOptions) {
   if (opts.label !== undefined) input.label = opts.label;
   if (opts.secret !== undefined) input.secret = opts.secret;
 
-  const payload = await withRetry(() => client.createWebhook(input as any));
-  const webhook = await payload.webhook;
-  if (!webhook) throw usageError("Webhook creation returned no webhook.");
-  return webhook;
+  return unwrapMutation(
+    withRetry(() => client.createWebhook(input as any)),
+    "webhook",
+    "Webhook creation",
+  );
 }
 
 export interface UpdateOptions {
@@ -150,16 +152,17 @@ export async function updateWebhook(client: LinearClient, id: string, opts: Upda
   if (Object.keys(input).length === 0)
     throw usageError("Nothing to update; pass at least one of --url, --enabled/--disabled, --resource.");
 
-  const payload = await withRetry(() => client.updateWebhook(id, input as any));
-  const webhook = await payload.webhook;
-  if (!webhook) throw usageError("Webhook update returned no webhook.");
-  return webhook;
+  return unwrapMutation(
+    withRetry(() => client.updateWebhook(id, input as any)),
+    "webhook",
+    "Webhook update",
+  );
 }
 
 export async function deleteWebhook(client: LinearClient, id: string): Promise<WebhookDetail> {
   const webhook = await getWebhookDetail(client, id).catch(() => {
     throw notFound(`No webhook matching '${id}'.`);
   });
-  await withRetry(() => client.deleteWebhook(id));
+  await assertMutation(withRetry(() => client.deleteWebhook(id)), "Webhook deletion");
   return webhook;
 }

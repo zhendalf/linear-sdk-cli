@@ -6,18 +6,19 @@ import {
   updateCycle,
   getCycleDetail,
 } from "../../src/services/cycle.js";
+import { connection } from "./_fakes.js";
 
 const UUID = "01234567-89ab-cdef-0123-456789abcdef";
 
 /** A client whose team lookups resolve TES, and which records mutation inputs. */
 function makeClient(record: { create?: any; update?: any } = {}) {
   return {
-    teams: async () => ({ nodes: [{ id: "team-1", key: "TES", name: "Test" }] }),
+    teams: async () => connection([{ id: "team-1", key: "TES", name: "Test" }]),
     team: async (id: string) => ({
       id,
       key: "TES",
       name: "Test",
-      cycles: async () => ({ nodes: [{ id: "cyc-3", number: 3 }] }),
+      cycles: async () => connection([{ id: "cyc-3", number: 3 }]),
     }),
     cycle: async (id: string) => ({
       id,
@@ -32,11 +33,11 @@ function makeClient(record: { create?: any; update?: any } = {}) {
     }),
     createCycle: async (input: any) => {
       record.create = input;
-      return { cycle: Promise.resolve({ id: "new-cyc", number: 9 }) };
+      return { success: true, cycle: Promise.resolve({ id: "new-cyc", number: 9 }) };
     },
     updateCycle: async (id: string, input: any) => {
       record.update = { id, input };
-      return { cycle: Promise.resolve({ id, number: 5 }) };
+      return { success: true, cycle: Promise.resolve({ id, number: 5 }) };
     },
   } as any;
 }
