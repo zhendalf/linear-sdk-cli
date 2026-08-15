@@ -1,5 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
+import {
+  mkdtempSync,
+  writeFileSync,
+  rmSync,
+  mkdirSync,
+  openSync,
+  closeSync,
+  statSync,
+  chmodSync,
+  readdirSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -318,6 +328,128 @@ describe("structured credential writers", () => {
     expect(list.find((e) => e.slug === "org-a")?.isDefault).toBe(true);
     expect(list.find((e) => e.slug === "org-b")?.isDefault).toBe(false);
   });
+});
+
+describe("config parse errors never quote the file", () => {
+  const SECRET = "lin_api_SUPERSECRETVALUE";
+
+  it("does not echo a truncated api_key line (the secret) into the error", () => {
+    // A file that got truncated mid-credential: smol-toml's own message embeds
+    // the offending source line, which would print the key to stderr.
+    writeUserConfig(`default_workspace = "org"\n[workspaces."org"]\napi_key = "${SECRET}\n`);
+    let message = "";
+    try {
+      resolveConfig({ env: baseEnv() });
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toMatch(/Failed to parse config at/);
+    expect(message).not.toContain(SECRET);
+    expect(message).not.toContain("api_key");
+    // Still actionable: the reason and the position survive.
+    expect(message).toMatch(/control characters are not allowed in strings/);
+    expect(message).toMatch(/\(line 3, column \d+\)/);
+  });
+
+  it("strips control characters a project .linear.toml tries to inject", () => {
+    const esc = String.fromCharCode(27);
+    // A project file is not trusted: raw ANSI would let it repaint or clear the
+    // user's terminal through our error output.
+    writeProjectConfig(projectDir, `team = "${esc}[31mPWNED${esc}[2J unterminated\n`);
+    let message = "";
+    try {
+      resolveConfig({ env: baseEnv(), cwd: projectDir });
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toMatch(/Failed to parse config at/);
+    expect(message).not.toContain(esc);
+    expect(message).not.toContain("PWNED");
+    // eslint-disable-next-line no-control-regex
+    expect(message).not.toMatch(new RegExp("[\\u0000-\\u001F\\u007F-\\u009F]"));
+  });
+
+  it("caps a pathologically long reason instead of flooding stderr", () => {
+    writeUserConfig(`x = ${"9".repeat(5000)}e${"9".repeat(5000)}\n`);
+    let message = "";
+    try {
+      resolveConfig({ env: baseEnv() });
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    // path + reason(<=200) + position — nowhere near the 10k source line.
+    expect(message.length).toBeLessThan(1000);
+  });
+});
+
+describe("credential writes are atomic", () => {
+  let savedXdg: string | undefined;
+  let savedHome: string | undefined;
+
+  beforeEach(() => {
+    savedXdg = process.env.XDG_CONFIG_HOME;
+    savedHome = process.env.HOME;
+    process.env.XDG_CONFIG_HOME = xdg;
+    process.env.HOME = root;
+  });
+
+  afterEach(() => {
+    if (savedXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = savedXdg;
+    if (savedHome === undefined) delete process.env.HOME;
+    else process.env.HOME = savedHome;
+  });
+
+  it("a reader holding the old file still sees a COMPLETE config after a write", () => {
+    writeCredential("org-a", "lin_api_a000000000");
+    const path = userConfigPath(baseEnv());
+    const before = readFileSync(path, "utf8");
+
+    // A concurrent `linear` process opens the config, then we replace it. An
+    // in-place truncate+write would let that reader observe a half-written
+    // file; replacing the path by rename cannot.
+    const fd = openSync(path, "r");
+    try {
+      writeCredential("org-b", "lin_api_b000000000");
+      const seen = readFileSync(fd, "utf8");
+      expect(seen).toBe(before);
+      expect(parseToml(seen)).toBeTruthy();
+    } finally {
+      closeSync(fd);
+    }
+
+    // ...and the new content did land.
+    expect((parseToml(readFileSync(path, "utf8")) as any).workspaces["org-b"].api_key).toBe(
+      "lin_api_b000000000",
+    );
+  });
+
+  it("the replacement is a new file, not a rewrite of the old inode", () => {
+    writeCredential("org-a", "lin_api_a000000000");
+    const path = userConfigPath(baseEnv());
+    const first = statSync(path).ino;
+    writeCredential("org-b", "lin_api_b000000000");
+    expect(statSync(path).ino).not.toBe(first);
+  });
+
+  it("leaves no temp files behind", () => {
+    writeCredential("org-a", "lin_api_a000000000");
+    writeCredential("org-b", "lin_api_b000000000");
+    setDefaultWorkspace("org-b");
+    removeCredential("org-a");
+    expect(readdirSync(join(xdg, "linear"))).toEqual(["config.toml"]);
+  });
+
+  it("keeps the credential file at 0600, tightening one that was loosened", () => {
+    writeCredential("org-a", "lin_api_a000000000");
+    const path = userConfigPath(baseEnv());
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+
+    chmodSync(path, 0o644);
+    writeCredential("org-b", "lin_api_b000000000");
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+  });
+
 });
 
 describe("redactKey", () => {
