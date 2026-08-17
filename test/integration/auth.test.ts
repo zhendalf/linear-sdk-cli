@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BIN, LIVE, ensureBuilt } from "./_helpers.js";
@@ -18,14 +18,20 @@ const SLUG = "test-workspace-bla";
 suite("multi-workspace auth (live, isolated config)", () => {
   let configHome: string;
 
-  function runIn(args: string[]): { code: number; stdout: string; stderr: string } {
+  function runIn(
+    args: string[],
+    opts: { keepHome?: boolean } = {},
+  ): { code: number; stdout: string; stderr: string } {
     const env = { ...process.env };
     delete env.LINEAR_API_KEY;
     delete env.LINEAR_API_TOKEN;
     delete env.LINEAR_WORKSPACE;
     // Isolate config + home so resolution can ONLY come from our temp config.
+    // (`keepHome` is for the keyring tests: /usr/bin/security finds the login
+    // keychain through $HOME, so a fake HOME means no keychain — and a GUI
+    // authorization prompt that the headless child can only cancel.)
     env.XDG_CONFIG_HOME = configHome;
-    env.HOME = configHome;
+    if (!opts.keepHome) env.HOME = configHome;
     try {
       // `--no-env-file` stops Bun from auto-loading a stray .env that could
       // re-inject the real key and bypass the temp config we're testing.
@@ -43,28 +49,41 @@ suite("multi-workspace auth (live, isolated config)", () => {
       };
     }
   }
-  const jsonIn = <T = any>(args: string[]): T => {
-    const r = runIn([...args, "--json"]);
+  const jsonIn = <T = any>(args: string[], opts: { keepHome?: boolean } = {}): T => {
+    const r = runIn([...args, "--json"], opts);
     if (r.code !== 0) throw new Error(`CLI failed (${r.code}): ${r.stderr || r.stdout}`);
     return JSON.parse(r.stdout) as T;
   };
 
   // Log in once into the isolated config; the read-only assertions below are then
-  // order-independent. Teardown (logout) is the final test.
+  // order-independent. Teardown (logout) is the final test. `--plaintext` keeps
+  // this suite inside the temp config: without it the key would land in the
+  // machine's real keyring under the real workspace slug.
   beforeAll(() => {
     ensureBuilt();
     configHome = mkdtempSync(join(tmpdir(), "lincli-auth-"));
-    const out = jsonIn<{ success: boolean; workspace: string }>(["auth", "login", "--key", KEY]);
+    const out = jsonIn<{ success: boolean; workspace: string; storage: string }>([
+      "auth",
+      "login",
+      "--key",
+      KEY,
+      "--plaintext",
+    ]);
     expect(out.success).toBe(true);
     expect(out.workspace).toBe(SLUG);
+    expect(out.storage).toBe("file");
   });
   afterAll(() => rmSync(configHome, { recursive: true, force: true }));
 
-  it("list shows the stored workspace as the default", () => {
-    const list = jsonIn<Array<{ slug: string; isDefault: boolean }>>(["auth", "list"]);
+  it("list shows the stored workspace as the default, kept in the file", () => {
+    const list = jsonIn<Array<{ slug: string; isDefault: boolean; storage: string }>>([
+      "auth",
+      "list",
+    ]);
     const entry = list.find((e) => e.slug === SLUG);
     expect(entry).toBeDefined();
     expect(entry!.isDefault).toBe(true);
+    expect(entry!.storage).toBe("file");
   });
 
   it("token prints the stored key for the active workspace", () => {
@@ -103,5 +122,86 @@ suite("multi-workspace auth (live, isolated config)", () => {
     const res = runIn(["auth", "token", "--json"]);
     expect(res.code).not.toBe(0);
     expect(JSON.parse(res.stderr).error).toBeDefined();
+  });
+
+  /**
+   * The keyring path, on the real OS keyring but under a throwaway
+   * `clitest-` slug: `auth login` stores the secret there by default, the file
+   * carries only the marker, `auth status` says so, and `auth logout` takes it
+   * back out. macOS only (that is the keyring this machine has); the whole
+   * suite is already gated on LIVE.
+   */
+  describe.skipIf(process.platform !== "darwin")("keyring storage (macOS Keychain)", () => {
+    const kcSlug = `clitest-auth-${process.pid}`;
+
+    afterAll(() => {
+      // Never leave a test item behind, whatever the assertions did.
+      try {
+        execFileSync("/usr/bin/security", ["delete-generic-password", "-a", kcSlug, "-s", "linear-cli"], {
+          stdio: "ignore",
+        });
+      } catch {
+        // Already gone — that is the point.
+      }
+    });
+
+    it("login stores the key in the Keychain and the file keeps only a marker", () => {
+      const out = jsonIn<{ storage: string; workspace: string; path: string }>([
+        "auth",
+        "login",
+        "--key",
+        KEY,
+        "--workspace",
+        kcSlug,
+      ], { keepHome: true });
+      expect(out.storage).toBe("keychain");
+      expect(out.workspace).toBe(kcSlug);
+      const file = readFileSync(out.path, "utf8");
+      // (hyphenated slugs are valid bare TOML keys, so no quotes here)
+      expect(file).toContain(`[workspaces.${kcSlug}]`);
+      expect(file).toContain("keyring = true");
+      expect(file).not.toContain(KEY);
+      // The item is where the reference CLI would look for it.
+      const probe = execFileSync(
+        "/usr/bin/security",
+        ["find-generic-password", "-a", kcSlug, "-s", "linear-cli", "-w"],
+        { encoding: "utf8" },
+      );
+      expect(probe.trim()).toBe(KEY);
+    });
+
+    it("status resolves it with Source: keychain and it authenticates", () => {
+      const st = jsonIn<{ authenticated: boolean; source: string; workspace: string }>([
+        "auth",
+        "status",
+        "--workspace",
+        kcSlug,
+      ], { keepHome: true });
+      expect(st).toMatchObject({ authenticated: true, source: "keychain", workspace: kcSlug });
+      const me = jsonIn<{ organization: { urlKey: string } }>(["whoami", "--workspace", kcSlug], {
+        keepHome: true,
+      });
+      expect(me.organization.urlKey).toBe(SLUG);
+    });
+
+    it("logout removes the Keychain item", () => {
+      const out = jsonIn<{ removed: boolean }>(["auth", "logout", "--workspace", kcSlug], {
+        keepHome: true,
+      });
+      expect(out.removed).toBe(true);
+      const res = runIn(["auth", "status", "--workspace", kcSlug, "--json"], { keepHome: true });
+      expect(JSON.parse(res.stdout).authenticated).toBe(false);
+      const gone = (() => {
+        try {
+          execFileSync("/usr/bin/security", ["find-generic-password", "-a", kcSlug, "-s", "linear-cli"], {
+            stdio: "ignore",
+          });
+          return false;
+        } catch {
+          return true;
+        }
+      })();
+      expect(gone).toBe(true);
+    });
   });
 });

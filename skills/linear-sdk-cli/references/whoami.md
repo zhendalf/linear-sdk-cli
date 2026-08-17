@@ -13,3 +13,14 @@ Show the authenticated user
 ```
 linear whoami [options]
 ```
+
+**Output (`--json`)**: a bare object
+
+```text
+id: string
+name: string
+displayName: string
+email: string
+admin: boolean
+organization: {id: string, name: string, urlKey: string}
+```

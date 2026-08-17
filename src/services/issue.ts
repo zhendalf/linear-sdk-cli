@@ -5,9 +5,10 @@
  * single `view` and all mutations use the typed SDK models.
  */
 
-import type { LinearClient } from "@linear/sdk";
+import type { LinearClient, Issue } from "@linear/sdk";
 import type { ResolvedConfig } from "../config.js";
 import { withRetry } from "../client.js";
+import { shape } from "../lib/shape.js";
 import { collect, collectRawQuery } from "../lib/pagination.js";
 import { usageError, notFound } from "../lib/errors.js";
 import { assertMutation, unwrapMutation } from "../lib/mutation.js";
@@ -20,6 +21,7 @@ import {
   resolveMilestoneId,
   resolveTeam,
   resolveIssue,
+  resolveTemplateId,
   firstStateOfType,
   isUuid,
   STATE_TYPES,
@@ -37,8 +39,64 @@ export interface IssueRow {
   state: { name: string; type: string } | null;
   assignee: { displayName: string } | null;
   project: { name: string } | null;
+  /**
+   * The same object shapes `IssueDetail` uses, so `.milestone.name` reads the
+   * same on a list row and on `view`. They were missing here (TES-652): a
+   * `--json | jq 'group_by(.milestone.name)'` put every issue in the null bucket.
+   */
+  milestone: { id: string; name: string } | null;
+  cycle: { id: string; number: number; name: string | null } | null;
   labels: string[];
+  /**
+   * Lifecycle. `--include-archived` used to list archived and trashed issues
+   * indistinguishably from live ones, and a deleted issue read back as alive.
+   */
+  archivedAt: string | null;
+  trashed: boolean;
+  startedAt: string | null;
+  completedAt: string | null;
+  canceledAt: string | null;
 }
+
+/**
+ * The row's shape as `linear commands` advertises it (TES-610). `shape<IssueRow>`
+ * is checked against the interface above, so the two cannot disagree.
+ */
+export const ISSUE_ROW_SHAPE = shape<IssueRow>({
+  id: "string",
+  identifier: "string",
+  title: "string",
+  priority: "number",
+  priorityLabel: "string",
+  estimate: "number|null",
+  url: "string",
+  updatedAt: "string",
+  state: { nullable: { name: "string", type: "string" } },
+  assignee: { nullable: { displayName: "string" } },
+  project: { nullable: { name: "string" } },
+  milestone: { nullable: { id: "string", name: "string" } },
+  cycle: { nullable: { id: "string", number: "number", name: "string|null" } },
+  labels: ["string"],
+  archivedAt: "string|null",
+  trashed: "boolean",
+  startedAt: "string|null",
+  completedAt: "string|null",
+  canceledAt: "string|null",
+});
+
+/** The lifecycle fields every issue query selects, so row and detail agree. */
+const LIFECYCLE_FIELDS = "archivedAt trashed startedAt completedAt canceledAt";
+
+/**
+ * The relations a list/search row selects — one string, so `LIST_QUERY` and
+ * `SEARCH_QUERY` cannot drift apart (they did once: search hardcoded `labels: []`).
+ */
+const ROW_RELATIONS = `state { name type }
+      assignee { displayName }
+      project { name }
+      projectMilestone { id name }
+      cycle { id number name }
+      labels(first: 20) { nodes { name } }`;
 
 export interface ListFilters {
   /** One team key, or several (`--team` is repeatable on the issue queries). */
@@ -131,11 +189,8 @@ const LIST_QUERY = `
 query CliIssues($filter: IssueFilter, $first: Int!, $after: String, $sort: [IssueSortInput!], $includeArchived: Boolean) {
   issues(filter: $filter, first: $first, after: $after, sort: $sort, includeArchived: $includeArchived) {
     nodes {
-      id identifier title priority priorityLabel estimate url updatedAt
-      state { name type }
-      assignee { displayName }
-      project { name }
-      labels(first: 20) { nodes { name } }
+      id identifier title priority priorityLabel estimate url updatedAt ${LIFECYCLE_FIELDS}
+      ${ROW_RELATIONS}
     }
     pageInfo { hasNextPage endCursor }
   }
@@ -341,11 +396,8 @@ const SEARCH_QUERY = `
 query CliSearchIssues($term: String!, $filter: IssueFilter, $first: Int!, $after: String, $includeArchived: Boolean, $includeComments: Boolean) {
   searchIssues(term: $term, filter: $filter, first: $first, after: $after, includeArchived: $includeArchived, includeComments: $includeComments) {
     nodes {
-      id identifier title priority priorityLabel estimate url updatedAt
-      state { name type }
-      assignee { displayName }
-      project { name }
-      labels(first: 20) { nodes { name } }
+      id identifier title priority priorityLabel estimate url updatedAt ${LIFECYCLE_FIELDS}
+      ${ROW_RELATIONS}
     }
     pageInfo { hasNextPage endCursor }
   }
@@ -402,10 +454,38 @@ function toIssueRow(n: any): IssueRow {
     state: n.state ?? null,
     assignee: n.assignee ?? null,
     project: n.project ?? null,
+    milestone: n.projectMilestone ?? null,
+    cycle: cycleRef(n.cycle),
     labels: (n.labels?.nodes ?? []).map((l: any) => l.name),
+    ...lifecycle(n),
   };
 }
 
+/** A `cycle { id number name }` selection as the row/detail object; a cycle's name is optional upstream. */
+function cycleRef(c: any): IssueRow["cycle"] {
+  return c ? { id: c.id, number: c.number, name: c.name ?? null } : null;
+}
+
+/** The lifecycle fields off a raw issue node. `trashed` is nullable upstream; null means no. */
+function lifecycle(n: any) {
+  return {
+    archivedAt: n.archivedAt ?? null,
+    trashed: n.trashed === true,
+    startedAt: n.startedAt ?? null,
+    completedAt: n.completedAt ?? null,
+    canceledAt: n.canceledAt ?? null,
+  };
+}
+
+/**
+ * A single issue with every relation a `view` shows.
+ *
+ * Relations are objects, not display strings — the same shape a list row uses
+ * for `state`/`assignee`/`project`, so `.state.name` reads the same on both,
+ * plus the ids a script needs to act on what it sees. (They used to be
+ * flattened to strings here: `team: "TES Test-workspace-bla"` is not even
+ * parseable, since a team name can contain spaces.)
+ */
 export interface IssueDetail {
   id: string;
   identifier: string;
@@ -419,53 +499,122 @@ export interface IssueDetail {
   dueDate: string | null;
   createdAt: string;
   updatedAt: string;
-  state: string | null;
-  assignee: string | null;
-  team: string | null;
-  project: string | null;
-  milestone: string | null;
-  cycle: string | null;
-  parent: string | null;
-  labels: string[];
-  subscribers: string[];
+  archivedAt: string | null;
+  trashed: boolean;
+  startedAt: string | null;
+  completedAt: string | null;
+  canceledAt: string | null;
+  state: { id: string; name: string; type: string } | null;
+  assignee: { id: string; displayName: string; email: string } | null;
+  team: { id: string; key: string; name: string } | null;
+  project: { id: string; name: string } | null;
+  milestone: { id: string; name: string } | null;
+  cycle: { id: string; number: number; name: string | null } | null;
+  parent: { id: string; identifier: string } | null;
+  labels: Array<{ id: string; name: string }>;
+  subscribers: Array<{ id: string; displayName: string }>;
+}
+
+/** The detail's shape as `linear commands` advertises it; checked against `IssueDetail`. */
+export const ISSUE_DETAIL_SHAPE = shape<IssueDetail>({
+  id: "string",
+  identifier: "string",
+  title: "string",
+  description: "string|null",
+  priority: "number",
+  priorityLabel: "string",
+  estimate: "number|null",
+  url: "string",
+  branchName: "string",
+  dueDate: "string|null",
+  createdAt: "string",
+  updatedAt: "string",
+  archivedAt: "string|null",
+  trashed: "boolean",
+  startedAt: "string|null",
+  completedAt: "string|null",
+  canceledAt: "string|null",
+  state: { nullable: { id: "string", name: "string", type: "string" } },
+  assignee: { nullable: { id: "string", displayName: "string", email: "string" } },
+  team: { nullable: { id: "string", key: "string", name: "string" } },
+  project: { nullable: { id: "string", name: "string" } },
+  milestone: { nullable: { id: "string", name: "string" } },
+  cycle: { nullable: { id: "string", number: "number", name: "string|null" } },
+  parent: { nullable: { id: "string", identifier: "string" } },
+  labels: [{ id: "string", name: "string" }],
+  subscribers: [{ id: "string", displayName: "string" }],
+});
+
+/**
+ * Everything `issue view` shows, in one round-trip. Selecting the relations in
+ * the query is what makes it one: the SDK model's `issue.state`, `.assignee`,
+ * `.team`, … are each a lazy request of their own, and the previous version
+ * awaited nine of them (8 requests for TES-601, measured).
+ *
+ * `includeArchived: true` so archived and trashed issues are viewable — they
+ * carry `archivedAt`/`trashed` so the caller can say so — and the identifier
+ * route filters by team key + number, as `resolveIssue` does, so a lookup never
+ * depends on the API accepting human identifiers in `issue(id:)`.
+ */
+const DETAIL_QUERY = `
+query CliIssueDetail($filter: IssueFilter!) {
+  issues(filter: $filter, first: 1, includeArchived: true) {
+    nodes {
+      id identifier title description priority priorityLabel estimate url branchName dueDate
+      createdAt updatedAt ${LIFECYCLE_FIELDS}
+      state { id name type }
+      assignee { id displayName email }
+      team { id key name }
+      project { id name }
+      projectMilestone { id name }
+      cycle { id number name }
+      parent { id identifier }
+      labels(first: 50) { nodes { id name } }
+      subscribers(first: 50) { nodes { id displayName } }
+    }
+  }
+}`;
+
+const IDENTIFIER_RE = /^([a-zA-Z][a-zA-Z0-9]*)-(\d+)$/;
+
+/** The IssueFilter that names exactly one issue, by UUID or by `TES-123`. */
+function detailFilter(input: string): { filter: Record<string, unknown>; label: string } {
+  if (isUuid(input)) return { filter: { id: { eq: input } }, label: input };
+  const match = input.match(IDENTIFIER_RE);
+  if (!match) throw usageError(`'${input}' is not a valid issue id (expected e.g. TES-123 or a UUID).`);
+  const key = match[1]!.toUpperCase();
+  const number = Number.parseInt(match[2]!, 10);
+  return { filter: { team: { key: { eq: key } }, number: { eq: number } }, label: `${key}-${number}` };
 }
 
 export async function getIssueDetail(client: LinearClient, idArg: string): Promise<IssueDetail> {
-  const issue = await resolveIssue(client, idArg);
-  const [state, assignee, team, project, milestone, cycle, parent, labels, subscribers] =
-    await Promise.all([
-      issue.state,
-      issue.assignee,
-      issue.team,
-      issue.project,
-      issue.projectMilestone,
-      issue.cycle,
-      issue.parent,
-      issue.labels(),
-      issue.subscribers(),
-    ]);
+  const { filter, label } = detailFilter(idArg);
+  const data: any = await withRetry(() => (client as any).client.rawRequest(DETAIL_QUERY, { filter }));
+  const n = data.data?.issues?.nodes?.[0];
+  if (!n) throw notFound(`No issue ${label}.`);
   return {
-    id: issue.id,
-    identifier: issue.identifier,
-    title: issue.title,
-    description: issue.description ?? null,
-    priority: issue.priority,
-    priorityLabel: issue.priorityLabel,
-    estimate: issue.estimate ?? null,
-    url: issue.url,
-    branchName: issue.branchName,
-    dueDate: issue.dueDate ?? null,
-    createdAt: issue.createdAt.toISOString(),
-    updatedAt: issue.updatedAt.toISOString(),
-    state: state?.name ?? null,
-    assignee: assignee?.displayName ?? null,
-    team: team ? `${team.key} ${team.name}` : null,
-    project: project?.name ?? null,
-    milestone: milestone?.name ?? null,
-    cycle: cycle ? `#${cycle.number}${cycle.name ? ` ${cycle.name}` : ""}` : null,
-    parent: parent?.identifier ?? null,
-    labels: labels.nodes.map((l) => l.name),
-    subscribers: subscribers.nodes.map((s) => s.displayName),
+    id: n.id,
+    identifier: n.identifier,
+    title: n.title,
+    description: n.description ?? null,
+    priority: n.priority,
+    priorityLabel: n.priorityLabel,
+    estimate: n.estimate ?? null,
+    url: n.url,
+    branchName: n.branchName,
+    dueDate: n.dueDate ?? null,
+    createdAt: n.createdAt,
+    updatedAt: n.updatedAt,
+    ...lifecycle(n),
+    state: n.state ?? null,
+    assignee: n.assignee ?? null,
+    team: n.team ?? null,
+    project: n.project ?? null,
+    milestone: n.projectMilestone ?? null,
+    cycle: cycleRef(n.cycle),
+    parent: n.parent ?? null,
+    labels: n.labels?.nodes ?? [],
+    subscribers: n.subscribers?.nodes ?? [],
   };
 }
 
@@ -483,6 +632,16 @@ export interface CreateOptions {
   estimate?: number;
   parent?: string;
   dueDate?: string;
+  /** An issue template, by name or id (`templateId`). Wins over the team default. */
+  template?: string;
+  /**
+   * Apply the team's default issue template (`useDefaultTemplate`). On by
+   * default: the API applies a team's default template ONLY when asked —
+   * verified live, a plain `issueCreate` on a team with a default template
+   * comes back with no description — and both Linear's own new-issue form and
+   * the reference CLI ask. `false` is `--no-default-template`.
+   */
+  useDefaultTemplate?: boolean;
 }
 
 /** Build an IssueCreateInput, resolving every human reference to an id. */
@@ -501,13 +660,27 @@ export async function createIssue(
   if (opts.state) input.stateId = await resolveStateId(client, team.id, opts.state);
   if (opts.label?.length) input.labelIds = await resolveLabelIds(client, opts.label, team.id);
   if (opts.project) input.projectId = await resolveProjectId(client, opts.project);
+  if (opts.parent) {
+    const parent = await resolveIssue(client, opts.parent);
+    input.parentId = parent.id;
+    // A sub-issue lands in its parent's project unless told otherwise — what
+    // Linear's UI does, and what the reference CLI does. Without this, every
+    // `--parent` child sat outside the project its parent belongs to.
+    if (!input.projectId) {
+      const parentProject = await parent.project;
+      if (parentProject) input.projectId = parentProject.id;
+    }
+  }
   if (opts.milestone) {
-    const projectId = input.projectId ?? (opts.project ? await resolveProjectId(client, opts.project) : undefined);
-    if (!projectId) throw usageError("A milestone requires --project.");
-    input.projectMilestoneId = await resolveMilestoneId(client, projectId, opts.milestone);
+    // Resolved after the parent so a milestone can name one in the inherited project.
+    if (!input.projectId) throw usageError("A milestone requires --project (or a --parent in a project).");
+    input.projectMilestoneId = await resolveMilestoneId(client, input.projectId, opts.milestone);
   }
   if (opts.cycle) input.cycleId = await resolveCycleId(client, team.id, opts.cycle);
-  if (opts.parent) input.parentId = (await resolveIssue(client, opts.parent)).id;
+  // An explicit template overrides the default one, so the two are never sent
+  // together. Every other value in the input overrides what the template fills.
+  if (opts.template) input.templateId = await resolveTemplateId(client, team.id, opts.template);
+  else if (opts.useDefaultTemplate !== false) input.useDefaultTemplate = true;
 
   return unwrapMutation(
     withRetry(() => client.createIssue(input as any)),
@@ -617,54 +790,33 @@ export async function setSubscription(client: LinearClient, idArg: string, subsc
   return issue;
 }
 
-export async function commentOnIssue(client: LinearClient, idArg: string, body: string) {
-  const issue = await resolveIssue(client, idArg);
-  const comment = await unwrapMutation(
-    withRetry(() => client.createComment({ issueId: issue.id, body })),
-    "comment",
-    "Comment creation",
-  );
-  return { issue, comment };
-}
-
-export async function listComments(client: LinearClient, idArg: string, limit: number) {
-  const issue = await resolveIssue(client, idArg);
-  const conn = await withRetry(() => issue.comments({ first: limit === Infinity ? 100 : limit }));
-  const nodes = await collect(conn as any, limit);
-  return Promise.all(
-    nodes.map(async (c: any) => {
-      const user = await c.user;
-      return {
-        id: c.id,
-        body: c.body,
-        user: user?.displayName ?? "unknown",
-        createdAt: c.createdAt?.toISOString?.() ?? String(c.createdAt),
-      };
-    }),
-  );
+/** The state change `issue start` makes; see `moveIssueState`. */
+export interface StartMove {
+  /** Move to this state (name or type) instead of the first `started` one. */
+  stateInput?: string;
+  /** Move to the team's first `started`-type state. */
+  move?: boolean;
 }
 
 /**
- * Move an issue's state for `start`. `move` (--move) selects the team's first
- * `started`-type state; an explicit `stateInput` is resolved by name/type.
+ * Move an issue's state for `start` (and `create --start`). `move` selects the
+ * team's first `started`-type state; an explicit `stateInput` is resolved by
+ * name/type. Neither → no request. Takes an already-resolved issue so a freshly
+ * created one is not looked up a second time.
  */
-export async function startIssue(
-  client: LinearClient,
-  idArg: string,
-  opts: { stateInput?: string; move?: boolean },
-) {
+export async function moveIssueState(client: LinearClient, issue: Issue, opts: StartMove) {
+  if (!opts.stateInput && !opts.move) return;
+  const teamId = (await issue.team)?.id;
+  if (!teamId) throw usageError("Cannot resolve team for state change.");
+  const stateId = opts.stateInput
+    ? await resolveStateId(client, teamId, opts.stateInput)
+    : await firstStateOfType(client, teamId, "started");
+  await assertMutation(withRetry(() => client.updateIssue(issue.id, { stateId })), "Issue update");
+}
+
+export async function startIssue(client: LinearClient, idArg: string, opts: StartMove) {
   const issue = await resolveIssue(client, idArg);
-  if (opts.stateInput || opts.move) {
-    const teamId = (await issue.team)?.id;
-    if (!teamId) throw usageError("Cannot resolve team for state change.");
-    const stateId = opts.stateInput
-      ? await resolveStateId(client, teamId, opts.stateInput)
-      : await firstStateOfType(client, teamId, "started");
-    await assertMutation(
-      withRetry(() => client.updateIssue(issue.id, { stateId })),
-      "Issue update",
-    );
-  }
+  await moveIssueState(client, issue, opts);
   return issue;
 }
 

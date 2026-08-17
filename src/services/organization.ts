@@ -10,6 +10,7 @@
 
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
+import { shape } from "../lib/shape.js";
 import { collect } from "../lib/pagination.js";
 import { pageSize } from "../lib/pagination.js";
 
@@ -26,6 +27,21 @@ export interface OrganizationDetail {
   createdAt: string;
   updatedAt: string;
 }
+
+/** The detail's shape as `linear commands` advertises it (TES-610); checked against the interface. */
+export const ORGANIZATION_DETAIL_SHAPE = shape<OrganizationDetail>({
+  id: "string",
+  name: "string",
+  urlKey: "string",
+  userCount: "number",
+  createdIssueCount: "number",
+  samlEnabled: "boolean",
+  scimEnabled: "boolean",
+  roadmapEnabled: "boolean",
+  logoUrl: "string|null",
+  createdAt: "string",
+  updatedAt: "string",
+});
 
 export async function getOrganizationDetail(client: LinearClient): Promise<OrganizationDetail> {
   // `client.organization` is a getter that returns a LinearFetch<Organization>.
@@ -54,6 +70,15 @@ export interface MemberRow {
   active: boolean;
 }
 
+export const ORGANIZATION_MEMBER_ROW_SHAPE = shape<MemberRow>({
+  id: "string",
+  displayName: "string",
+  name: "string",
+  email: "string",
+  admin: "boolean",
+  active: "boolean",
+});
+
 /** List workspace users (members). Paginates to the requested limit. */
 export async function listMembers(client: LinearClient, limit: number): Promise<MemberRow[]> {
   const conn = await withRetry(() => client.users({ first: pageSize(limit) }));
@@ -76,6 +101,15 @@ export interface InviteRow {
   external: boolean;
   createdAt: string;
 }
+
+export const INVITE_ROW_SHAPE = shape<InviteRow>({
+  id: "string",
+  email: "string",
+  status: "string",
+  role: "string",
+  external: "boolean",
+  createdAt: "string",
+});
 
 /**
  * Derive a human status for an invite. The `OrganizationInvite` model exposes

@@ -106,6 +106,9 @@ export async function resolveTeam(
   return { id: team.id, key: team.key, name: team.name };
 }
 
+/** The spellings that mean "the authenticated user": ours (`me`, `@me`) and the reference CLI's (`self`). */
+export const isSelf = (input: string): boolean => input === "me" || input === "@me" || input === "self";
+
 /**
  * Resolve an assignee reference (`me`, email, name, or id) to a user id.
  *
@@ -114,7 +117,7 @@ export async function resolveTeam(
  * failing to find a user literally named "self".
  */
 export async function resolveUserId(client: LinearClient, input: string): Promise<string> {
-  if (input === "me" || input === "@me" || input === "self") {
+  if (isSelf(input)) {
     const me = await withRetry(() => client.viewer);
     return me.id;
   }
@@ -335,12 +338,34 @@ export async function resolveProjectId(client: LinearClient, input: string): Pro
   return nodes[0]!.id;
 }
 
+/** The reserved cycle words, so help text and tests share one list. */
+export const CYCLE_SENTINELS = ["current", "active", "now", "next", "previous"] as const;
+
+/** A whole-token integer: the only shape that means "cycle number". */
+const CYCLE_NUMBER_RE = /^\d+$/;
+/** A signed offset from the active cycle: `+1`, `-2`. */
+const CYCLE_OFFSET_RE = /^[+-]\d+$/;
+
 /**
- * Resolve a cycle within a team by number, name, id, or `current`/`active`.
+ * Resolve a cycle within a team by number, name, id, a sentinel, or an offset.
  *
- * The union of both CLIs' vocabularies: we took number/UUID/`current`, the
- * reference takes name/number/`active`. A non-numeric input that isn't a
- * sentinel is now looked up as a cycle *name* rather than rejected outright.
+ * The union of both CLIs' vocabularies, plus the reference's 2.2 relative
+ * references:
+ *
+ *  - `current` / `active` / `now` — the team's active cycle
+ *  - `next` / `previous` — the cycle Linear flags `isNext` / `isPrevious`
+ *  - `+N` / `-N` — N cycles after / before the active one, by cycle number
+ *  - a whole-token integer — that cycle number
+ *  - anything else — a cycle *name*, matched case-insensitively
+ *
+ * Reserved words win over coincidental cycle names; a cycle literally named
+ * "next" is reachable by number or id.
+ *
+ * Only a *complete* integer token is a number. `Number.parseInt` used to decide
+ * this, so `--cycle 3.9` and `--cycle 3abc` quietly resolved to cycle #3 (and
+ * `issue update` moved the issue there), while a cycle *named* with a leading
+ * digit — `2024 Q1`, `24W03` — could never be reached by name at all, because it
+ * parsed as #2024 first.
  */
 export async function resolveCycleId(
   client: LinearClient,
@@ -349,33 +374,76 @@ export async function resolveCycleId(
 ): Promise<string> {
   if (isUuid(input)) return input;
   const team = await withRetry(() => client.team(teamId));
-  if (input === "current" || input === "active") {
+  // Only an explicit `false` — the fakes in unit tests (and any partial model)
+  // leave the field undefined, and the API rejects nothing on `undefined`.
+  if ((team as any).cyclesEnabled === false) {
+    throw usageError(
+      `Cycles are not enabled for team ${team.key ?? teamId}. Enable them in Linear's team settings before assigning or filtering by cycle.`,
+    );
+  }
+  const keyword = input.toLowerCase();
+
+  if (keyword === "current" || keyword === "active" || keyword === "now") {
     const cycle = await team.activeCycle;
-    if (!cycle) throw notFound("No active cycle for this team.");
+    if (!cycle)
+      throw notFound("No active cycle for this team. Try 'next', a cycle number, or a cycle name.");
     return cycle.id;
   }
-  const num = Number.parseInt(input, 10);
-  if (!Number.isFinite(num)) {
-    // Not a number and not a sentinel → a cycle name. Names are optional in
-    // Linear, so the candidate set is filtered client-side over the team's
-    // cycles rather than through a server-side name filter.
-    const conn = await withRetry(() => team.cycles({ first: RESOLVE_PAGE }));
-    const nodes = await scanAll<any>(conn as any, "cycles", "linear cycle list");
-    const lower = input.toLowerCase();
-    const matches = nodes.filter((c: any) => c.name?.toLowerCase() === lower);
-    if (matches.length === 0)
-      throw notFound(
-        `No cycle named '${input}' in this team (try a number, id, or 'current').${available(
-          nodes.map((c: any) => c.name),
-          "linear cycle list",
-        )}`,
-      );
-    if (matches.length > 1)
-      throw ambiguous(`Multiple cycles named '${input}'; pass the cycle number or id instead.`);
-    return matches[0]!.id;
+
+  if (keyword === "next" || keyword === "previous") {
+    // Linear computes these flags server-side relative to the active cycle, so
+    // the lookup is one filtered request rather than a scan and a guess.
+    const flag = keyword === "next" ? "isNext" : "isPrevious";
+    const cycles = await withRetry(() =>
+      team.cycles({ filter: { [flag]: { eq: true } } as any, first: 1 }),
+    );
+    if (cycles.nodes.length === 0)
+      throw notFound(`No ${keyword} cycle for this team. Use a cycle number or name instead.`);
+    return cycles.nodes[0]!.id;
   }
-  const cycles = await withRetry(() => team.cycles({ filter: { number: { eq: num } } as any, first: 1 }));
-  if (cycles.nodes.length === 0) throw notFound(`No cycle #${num} in this team.`);
+
+  if (CYCLE_OFFSET_RE.test(input)) {
+    const offset = Number(input);
+    if (!Number.isSafeInteger(offset)) throw usageError(`Cycle offset '${input}' is out of range.`);
+    const active = await team.activeCycle;
+    if (!active)
+      throw notFound(
+        `Cannot resolve relative cycle '${input}': the team has no active cycle. Use 'next', a cycle number, or a cycle name instead.`,
+      );
+    const target = active.number + offset;
+    if (target < 1)
+      throw notFound(`No cycle ${input} from the active cycle (#${active.number}) in this team.`);
+    return cycleByNumber(team, target, `${input} (cycle #${target})`);
+  }
+
+  if (CYCLE_NUMBER_RE.test(input)) {
+    return cycleByNumber(team, Number.parseInt(input, 10), `#${input}`);
+  }
+
+  // Not a number, offset, or sentinel → a cycle name. Names are optional in
+  // Linear, so the candidate set is filtered client-side over the team's
+  // cycles rather than through a server-side name filter.
+  const conn = await withRetry(() => team.cycles({ first: RESOLVE_PAGE }));
+  const nodes = await scanAll<any>(conn as any, "cycles", "linear cycle list");
+  const matches = nodes.filter((c: any) => c.name?.toLowerCase() === keyword);
+  if (matches.length === 0)
+    throw notFound(
+      `No cycle named '${input}' in this team (try a number, id, or one of ${CYCLE_SENTINELS.join("/")}).${available(
+        nodes.map((c: any) => c.name),
+        "linear cycle list",
+      )}`,
+    );
+  if (matches.length > 1)
+    throw ambiguous(`Multiple cycles named '${input}'; pass the cycle number or id instead.`);
+  return matches[0]!.id;
+}
+
+/** One filtered request for a cycle number; `label` names it in the error. */
+async function cycleByNumber(team: any, number: number, label: string): Promise<string> {
+  const cycles: any = await withRetry(() =>
+    team.cycles({ filter: { number: { eq: number } }, first: 1 }),
+  );
+  if (cycles.nodes.length === 0) throw notFound(`No cycle ${label} in this team.`);
   return cycles.nodes[0]!.id;
 }
 
@@ -400,6 +468,75 @@ export async function resolveMilestoneId(
     );
   if (matches.length > 1) throw ambiguous(`Multiple milestones match '${input}'.`);
   return matches[0]!.id;
+}
+
+/**
+ * Resolve a release by name, version, or id. Releases are workspace-scoped
+ * (under release pipelines) and matched server-side by exact name (case-
+ * insensitive) or exact version, both in one filtered request; ambiguity —
+ * the same name on two pipelines, or a name that is also another release's
+ * version — is an error rather than a guess.
+ */
+export async function resolveReleaseId(client: LinearClient, input: string): Promise<string> {
+  if (isUuid(input)) return input;
+  const conn = await withRetry(() =>
+    client.releases({
+      filter: { or: [{ name: { eqIgnoreCase: input } }, { version: { eq: input } }] } as any,
+      first: RESOLVE_PAGE,
+    }),
+  );
+  const nodes = await scanAll<any>(conn as any, "releases", "linear api '{ releases { nodes { id name version } } }'");
+  if (nodes.length === 0) throw notFound(`No release named or versioned '${input}'.`);
+  if (nodes.length > 1)
+    throw ambiguous(
+      `Multiple releases match '${input}': ${nodes
+        .map((r) => (r.version ? `${r.name} (${r.version})` : r.name))
+        .join(", ")}; pass the release id instead.`,
+    );
+  return nodes[0]!.id;
+}
+
+/**
+ * `templates` is a plain list in the schema (no arguments, no pages), so one
+ * request is the whole workspace: team-scoped and shared templates alike.
+ */
+const TEMPLATES_QUERY = `
+query CliTemplates {
+  templates { id name type team { id } }
+}`;
+
+/**
+ * Resolve an issue template by name or id, within a team's scope: the team's
+ * own templates plus the workspace-shared ones (`team: null`), `type: "issue"`
+ * only. A team template outranks a shared one of the same name — it is the more
+ * specific of the two, and it is what Linear's own picker offers first.
+ */
+export async function resolveTemplateId(
+  client: LinearClient,
+  teamId: string,
+  input: string,
+): Promise<string> {
+  if (isUuid(input)) return input;
+  const data: any = await withRetry(() => (client as any).client.rawRequest(TEMPLATES_QUERY, {}));
+  const all: any[] = data?.data?.templates ?? [];
+  const inScope = all.filter((t) => t.type === "issue" && (!t.team || t.team.id === teamId));
+  const lower = input.toLowerCase();
+  const byName = inScope.filter((t) => t.name.toLowerCase() === lower);
+  // Exact case first, then the team's own before the workspace's.
+  const exact = byName.filter((t) => t.name === input);
+  const candidates = exact.length ? exact : byName;
+  const teamOwned = candidates.filter((t) => t.team);
+  const finalists = teamOwned.length ? teamOwned : candidates;
+  if (finalists.length === 0)
+    throw notFound(
+      `No issue template '${input}' for this team.${available(
+        inScope.map((t) => t.name),
+        `linear api '{ templates { id name type team { key } } }'`,
+      )}`,
+    );
+  if (finalists.length > 1)
+    throw ambiguous(`Multiple issue templates named '${input}'; pass the template id instead.`);
+  return finalists[0]!.id;
 }
 
 /**

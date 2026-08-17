@@ -35,15 +35,20 @@ const CURATED: Record<string, string[]> = {
     "issueRelation",
     "issueRelations",
     "createComment",
+    // `issue agent-session list/view` — the sessions agents open on issues.
+    "agentSessions",
+    "agentSession",
   ],
   // phase 2 — teams, projects, milestones, cycles
-  team: ["teams", "team", "createTeam", "updateTeam"],
+  // (`updateIssueBatch` is what `team delete --move-issues` moves the issues with)
+  team: ["teams", "team", "createTeam", "updateTeam", "deleteTeam", "updateIssueBatch"],
   project: [
     "projects",
     "project",
     "createProject",
     "updateProject",
     "archiveProject",
+    "deleteProject",
     "projectStatuses",
   ],
   // phase 3 (parity) — project & initiative status updates
@@ -69,7 +74,8 @@ const CURATED: Record<string, string[]> = {
   state: ["workflowStates", "workflowState"],
   comment: ["comments", "comment", "updateComment", "deleteComment", "commentResolve", "commentUnresolve"],
   document: ["documents", "document", "createDocument", "updateDocument", "deleteDocument"],
-  attachment: ["attachments", "attachment", "createAttachment", "deleteAttachment"],
+  // `fileUpload` is the signed-URL step behind `issue attach` and `comment add --attach` (TES-602).
+  attachment: ["attachments", "attachment", "createAttachment", "deleteAttachment", "fileUpload"],
   favorite: ["favorites", "favorite", "createFavorite", "deleteFavorite"],
   // phase 4 — initiatives, roadmaps, notifications, organization invites, webhooks
   // (`organization` member is already curated under `meta` — not duplicated here)
@@ -81,6 +87,9 @@ const CURATED: Record<string, string[]> = {
     "deleteInitiative",
     "archiveInitiative",
     "unarchiveInitiative",
+    // `initiative add-project` / `remove-project` — the InitiativeToProject link.
+    "createInitiativeToProject",
+    "deleteInitiativeToProject",
     // Initiative labels went public in @linear/sdk 88.2 (previously [Internal]);
     // `initiative create/update --label` reads them to resolve names to ids.
     "initiativeLabels",

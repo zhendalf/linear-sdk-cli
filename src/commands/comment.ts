@@ -18,13 +18,14 @@ import { action } from "../lib/action.js";
 import { resolveBody } from "../lib/body.js";
 import { confirmDestructive } from "../lib/prompt.js";
 import { usageError } from "../lib/errors.js";
+import { collectArray } from "../lib/options.js";
 import type { Context } from "../context.js";
 import * as svc from "../services/comment.js";
 import type { Column } from "../output/table.js";
 
 const ROW_COLUMNS: Column<svc.CommentRow>[] = [
   { key: "createdAt", header: "Date", value: (r) => r.createdAt.slice(0, 10) },
-  { key: "author", header: "Author", value: (r) => r.author, max: 18 },
+  { key: "author", header: "Author", value: (r) => r.user?.displayName ?? "—", max: 18 },
   { key: "body", header: "Body", value: (r) => r.body.replace(/\n/g, " "), max: 70 },
 ];
 
@@ -49,15 +50,56 @@ function buildAdd(_o: MountOptions): Command {
   return new Command("add")
     .argument("<issue>")
     .argument("[body]")
-    .description("Add a comment to an issue")
+    .description("Add a comment to an issue (images uploaded with --attach render inline)")
     .option("--body-file <path>", "read comment body from a file ('-' = stdin)")
+    .option(
+      "--attach <file>",
+      "upload a file and embed it in the comment (images inline; repeatable; private by default)",
+      collectArray,
+    )
+    .option("--public", "upload the attachments to public, world-readable URLs (raster images only)")
     .action(
       action(async (ctx: Context, opts, issueArg: string, bodyArg?: string) => {
-        const body = resolveBody({ arg: bodyArg, file: opts.bodyFile, interactive: ctx.isTTY });
-        if (!body) throw usageError("No comment body provided.");
-        const { issue, comment: created } = await svc.addComment(ctx.client, issueArg, body);
-        ctx.output.emit({ id: created.id, issue: issue.identifier, url: created.url }, () =>
-          ctx.output.success(`Commented on ${issue.identifier}`),
+        const attachments: string[] = opts.attach ?? [];
+        if (opts.public && attachments.length === 0) {
+          throw usageError("--public applies to uploads; add --attach <file>, or drop --public.");
+        }
+        // With attachments the body is optional (the embeds are the comment),
+        // so the editor is not opened for one — the reference CLI's rule too.
+        const body = resolveBody({
+          arg: bodyArg,
+          file: opts.bodyFile,
+          interactive: ctx.isTTY && attachments.length === 0,
+        });
+        if (!body && attachments.length === 0) throw usageError("No comment body provided.");
+        const {
+          issue,
+          comment: created,
+          uploads,
+        } = await svc.addComment(ctx.client, issueArg, body ?? "", {
+          attachments,
+          public: opts.public === true,
+        });
+        for (const u of uploads) {
+          if (u.public) ctx.output.warn(`${u.filename} is on a public URL, readable by anyone: ${u.assetUrl}`);
+        }
+        ctx.output.emit(
+          {
+            id: created.id,
+            issue: issue.identifier,
+            url: created.url,
+            ...(uploads.length
+              ? {
+                  attachments: uploads.map((u) => ({
+                    filename: u.filename,
+                    assetUrl: u.assetUrl,
+                    contentType: u.contentType,
+                    size: u.size,
+                  })),
+                }
+              : {}),
+          },
+          () => ctx.output.success(`Commented on ${issue.identifier}`),
         );
       }),
     );
@@ -72,9 +114,20 @@ function buildUpdate(o: MountOptions): Command {
   if (o.aliases !== false) cmd.alias("edit");
   return cmd.action(
     action(async (ctx: Context, opts, commentId: string, bodyArg?: string) => {
-      const body = resolveBody({ arg: bodyArg, file: opts.bodyFile, interactive: ctx.isTTY });
+      // Fetch the comment first: the editor opens ON the current body (so
+      // quitting without typing cannot blank it), a missing id fails before
+      // anyone writes anything, and the service can refuse a no-op update.
+      const current = await svc.getComment(ctx.client, commentId);
+      const body = resolveBody({
+        arg: bodyArg,
+        file: opts.bodyFile,
+        interactive: ctx.isTTY,
+        template: current.body,
+      });
       if (body === undefined) throw usageError("No comment body provided.");
-      const updated = await svc.updateComment(ctx.client, commentId, body);
+      // The editor path hands back a trimmed body, so compare against the
+      // trimmed original: an untouched session must read as "unchanged".
+      const updated = await svc.updateComment(ctx.client, commentId, body, current.body.trim());
       ctx.output.emit({ id: updated.id, url: updated.url }, () =>
         ctx.output.success(`Updated comment ${updated.id}`),
       );

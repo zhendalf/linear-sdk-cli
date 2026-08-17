@@ -65,8 +65,14 @@ export function addUpdateFlags(cmd: Command): Command {
 }
 
 /**
- * Resolve the body for a status update from the shared flags. A status update must
- * have content, so an empty/absent body is a usage error.
+ * Resolve the body for a status update from the shared flags.
+ *
+ * A status update must say *something*: a body, or a health. Linear accepts a
+ * health-only update — the UI's "mark on track" with no text — but the API
+ * still insists on a body field ("Exactly one of body or bodyData must be
+ * defined", verified live) and stores the empty string for it, so `--health`
+ * alone is a complete update with `""` as its body. With neither, there is
+ * nothing to post, and that is a usage error.
  */
 export function resolveUpdateBody(ctx: Context, opts: Record<string, any>): string {
   const body = resolveBody({
@@ -76,7 +82,10 @@ export function resolveUpdateBody(ctx: Context, opts: Record<string, any>): stri
     editorRequested: !!opts.editor,
   });
   if (body === undefined || body.trim() === "") {
-    throw usageError("An update needs a body. Pass --body, --body-file, or --editor.");
+    if (opts.health) return "";
+    throw usageError(
+      "An update needs a body or a health. Pass --body, --body-file, --editor, or --health.",
+    );
   }
   return body;
 }

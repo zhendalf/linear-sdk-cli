@@ -11,14 +11,22 @@
 
 import pc from "picocolors";
 import type { CliError } from "../lib/errors.js";
-import { renderTable, renderDetail, selectColumns, type Column } from "./table.js";
+import {
+  renderTable,
+  renderDetail,
+  selectColumns,
+  selectPairs,
+  projectFields,
+  type Column,
+} from "./table.js";
+import { sanitizeForTerminal } from "./sanitize.js";
 
 export interface OutputOptions {
   json: boolean;
   color: boolean;
   quiet: boolean;
   debug: boolean;
-  /** --fields selection applied to table/detail output. */
+  /** `--fields`: table columns / detail lines (human), top-level keys (json). */
   fields?: string[];
 }
 
@@ -42,41 +50,54 @@ export class Output {
     }
   }
 
-  /** Emit a list as a table (human) or bare array (json). */
+  /**
+   * Emit a list as a table (human) or bare array (json). `--fields` narrows
+   * both: the table's columns (or any row key), and the JSON objects' keys.
+   */
   list<T>(rows: T[], columns: Column<T>[], jsonRows?: unknown[]): void {
     if (this.opts.json) {
-      this.writeJson(jsonRows ?? rows);
+      this.writeJson(projectFields(jsonRows ?? rows, this.opts.fields));
       return;
     }
-    const cols = selectColumns(columns, this.opts.fields);
+    const cols = selectColumns(columns, this.opts.fields, rows[0]);
     process.stdout.write(renderTable(rows, cols, { color: this.opts.color }) + "\n");
   }
 
-  /** Emit a single record as a detail block (human) or bare object (json). */
+  /**
+   * Emit a single record as a detail block (human) or bare object (json).
+   * `--fields` narrows both: the block's labelled lines, and the JSON keys.
+   */
   detail(jsonValue: unknown, pairs: Array<[string, unknown]>): void {
     if (this.opts.json) {
-      this.writeJson(jsonValue);
+      this.writeJson(projectFields(jsonValue, this.opts.fields));
       return;
     }
-    process.stdout.write(renderDetail(pairs, { color: this.opts.color }) + "\n");
+    const shown = selectPairs(pairs, this.opts.fields);
+    process.stdout.write(renderDetail(shown, { color: this.opts.color }) + "\n");
   }
 
-  /** Raw stdout line (human mode only); in json mode this is suppressed. */
+  /**
+   * Stdout line (human mode only); in json mode this is suppressed. Sanitized:
+   * `issue title` prints API data bare, and a title can carry escapes.
+   */
   line(text = ""): void {
-    if (!this.opts.json) process.stdout.write(text + "\n");
+    if (!this.opts.json) process.stdout.write(sanitizeForTerminal(text) + "\n");
   }
 
   /** Status/progress to stderr. Suppressed by --quiet. */
   info(text: string): void {
-    if (!this.opts.quiet) process.stderr.write(text + "\n");
+    if (!this.opts.quiet) process.stderr.write(sanitizeForTerminal(text) + "\n");
   }
 
   success(text: string): void {
-    if (!this.opts.quiet) process.stderr.write((this.opts.color ? pc.green("✓ ") : "✓ ") + text + "\n");
+    if (!this.opts.quiet)
+      process.stderr.write(
+        (this.opts.color ? pc.green("✓ ") : "✓ ") + sanitizeForTerminal(text) + "\n",
+      );
   }
 
   warn(text: string): void {
-    process.stderr.write((this.opts.color ? pc.yellow("! ") : "! ") + text + "\n");
+    process.stderr.write((this.opts.color ? pc.yellow("! ") : "! ") + sanitizeForTerminal(text) + "\n");
   }
 
   /**
@@ -95,7 +116,9 @@ export class Output {
       return;
     }
     if (!this.opts.quiet) {
-      process.stderr.write((this.opts.color ? pc.yellow("! ") : "! ") + `Cancelled: ${action}\n`);
+      process.stderr.write(
+        (this.opts.color ? pc.yellow("! ") : "! ") + `Cancelled: ${sanitizeForTerminal(action)}\n`,
+      );
     }
   }
 
@@ -118,7 +141,10 @@ export class Output {
       process.stderr.write(JSON.stringify({ error }) + "\n");
       return;
     }
-    process.stderr.write((this.opts.color ? pc.red("error: ") : "error: ") + err.message + "\n");
+    // An error message can quote API data (a name that matched several, …).
+    process.stderr.write(
+      (this.opts.color ? pc.red("error: ") : "error: ") + sanitizeForTerminal(err.message) + "\n",
+    );
     if (showDetail) {
       process.stderr.write(
         (this.opts.color ? pc.dim("detail: ") : "detail: ") +

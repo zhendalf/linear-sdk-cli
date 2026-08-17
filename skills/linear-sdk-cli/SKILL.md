@@ -17,8 +17,21 @@ exception — it always prints a shell script.)
 Check the CLI is installed:
 
 ```bash
-linear --version   # or: lin --version
+linear --version   # or: lin --version — prints 0.x for this CLI
 ```
+
+If that fails, or prints `2.x` (that is `schpet/linear-cli`, a different tool that shares the
+`linear` name), install this one — it needs Bun ≥ 1.1:
+
+```bash
+bun add -g linear-sdk-cli          # installs `linear` and `lin`
+lin --version                      # `lin` never collides with the other CLI
+```
+
+`lin` is the safe spelling when both might be present. If the user is coming from
+`schpet/linear-cli`, their credentials and `.linear.toml` are picked up automatically — see
+`MIGRATING.md` in the package; do not ask them to re-enter an API key before running
+`linear auth status`.
 
 ### Authentication
 
@@ -70,11 +83,45 @@ stderr), so it is always safe to pipe into `jq`. The envelope is a stable contra
   `--debug` the extra detail rides _inside_ that object as `error.detail`, so `--json --debug`
   stays parseable.
 
+Relations are **objects with ids**, on list rows and on `view` alike — `state: {id,name,type}`,
+`team: {id,key,name}`, `assignee: {id,displayName,email}`, `project`/`milestone: {id,name}`,
+`cycle: {id,number,name}`, `parent: {id,identifier}`, `labels: [{id,name}]` — so `.state.name`
+reads the same everywhere and the id you need to act on is already in hand. Issues also carry
+`archivedAt` and `trashed`; a deleted issue still views, and says so.
+
 ```bash
 linear issue list --json | jq -r '.[].identifier'
 linear issue view TES-42 --json | jq -r '.url'
+linear issue view TES-42 --json | jq -r '.state.type, .team.key, .assignee.id'
 ID=$(linear issue create --title "Fix" --team TES --json | jq -r '.id')
 ```
+
+### Know the keys before you run anything
+
+**Do not guess field names** (`comment list` rows carry `author`? No — `user`; `comment reply`
+returns `parentId`? No — `parent`). Every command's `--json` shape is declared and testable, and
+`linear commands <path>` prints it — the same text the per-command reference files carry:
+
+```bash
+linear commands issue list                          # options, then "Output (--json): array of objects:" + one `key: type` per line
+linear commands comment reply --json | jq '.output' # {"kind":"receipt","fields":{"id":"string","parent":"string","issue":"string|null","url":"string"}}
+linear commands --json | jq -r '.[] | select(.output.kind=="list") | .path'   # every command that prints an array
+```
+
+`output` reads as:
+
+- `kind` — `list` (bare array of `fields`-shaped rows), `object` (a `view`, `whoami`, …), `receipt`
+  (a mutation: ids plus what happened), `raw` (`api`, `schema`: keys depend on the request), `none`
+  (`completion` never prints JSON). A group that only holds subcommands has no `output`.
+- `fields` — key → type. Scalars are `"string"`, `"number"`, `"boolean"` (`"string|null"` when the
+  value may be null); an object is nested `{…}`; an array is `[<type>]`; a relation that may be
+  null is `{"nullable": {…}}`; a key spelled `"comments?"` is present only sometimes (its `note`
+  or `variants` say when).
+- `variants` — a different output under a flag or argument (`"--web"`, `"--start"`, `"op=list"`),
+  each a whole shape of its own.
+
+The shapes cannot lie: each is checked against the TypeScript type the service returns at
+compile time, and a test runs every command and compares what it printed to what it declared.
 
 ### Fail fast, never prompt
 
@@ -155,11 +202,14 @@ the positional `[body]` arg (comments: `linear comment add TES-42 "lgtm"`), or
 Lead with these two machine-readable commands:
 
 - **`linear commands --json`** — the full command tree as a bare array of
-  `{ path, description, aliases, arguments, options }`. Enumerate everything callable:
+  `{ path, description, aliases, arguments, options, output }`; `linear commands <path> --json`
+  is one command as a bare object. `output` is what that command prints under `--json` (see
+  "Know the keys before you run anything" above). Enumerate everything callable:
 
   ```bash
   linear commands --json | jq -r '.[].path'                      # every command path
-  linear commands --json | jq '.[] | select(.path=="issue create").options'
+  linear commands issue create --json | jq '.options'            # one command's flags
+  linear commands issue create --json | jq '.output.fields'      # …and its --json keys
   ```
 
 - **`linear schema -o <file>`** — dump the Linear GraphQL schema as SDL to a file, then
@@ -189,6 +239,7 @@ linear auth default
 linear auth list
 linear auth login
 linear auth logout
+linear auth migrate
 linear auth status
 linear auth token
 linear auth whoami
@@ -207,6 +258,9 @@ linear comment update
 linear completion
 
 linear config
+linear config init
+linear config set
+linear config show
 
 linear cycle
 linear cycle create
@@ -228,10 +282,13 @@ linear favorite list
 linear favorite remove
 
 linear initiative
+linear initiative add-project
 linear initiative archive
 linear initiative create
 linear initiative delete
 linear initiative list
+linear initiative remove-project
+linear initiative unarchive
 linear initiative update
 linear initiative view
 
@@ -240,8 +297,12 @@ linear initiative-update create
 linear initiative-update list
 
 linear issue
+linear issue agent-session
+linear issue agent-session list
+linear issue agent-session view
 linear issue archive
 linear issue assign
+linear issue attach
 linear issue branch
 linear issue comment
 linear issue comment add
@@ -298,6 +359,7 @@ linear organization view
 linear project
 linear project archive
 linear project create
+linear project delete
 linear project list
 linear project milestones
 linear project update
@@ -323,6 +385,7 @@ linear state view
 linear team
 linear team create
 linear team cycles
+linear team delete
 linear team labels
 linear team list
 linear team members
@@ -349,8 +412,9 @@ linear whoami
 
 ## Reference documentation
 
-One file per command group, generated from `linear commands --json`. These are
-supplementary — `--help` on any command is authoritative.
+One file per command group, generated from `linear commands --json`: every command's options
+and, under **Output (`--json`)**, the exact keys and types it prints (`linear commands <path>`
+prints the same). These are supplementary — `--help` on any command is authoritative.
 
 - [api](references/api.md) — Run a raw GraphQL query or mutation against the Linear API
 - [attachment](references/attachment.md) — Work with issue attachments
@@ -393,9 +457,12 @@ linear commands --json | jq '.[] | select(.path=="issue list")'
 
 Useful surface notes (all verified against the current CLI):
 
-- `issue describe [id]` prints the issue title plus a git-trailer line; `issue pull-request`
-  (alias `pr`) creates a GitHub PR from the issue. `issue start`/`issue branch` help with
-  branch workflows.
+- `issue describe [id]` prints a commit message (`ID Title`, then `Linear-issue: Fixes ID` /
+  `Linear-issue-url:` trailers); `issue pull-request` (alias `pr`) creates a GitHub PR titled
+  `ID Title` with those trailers as the body. `issue start` checks the branch out AND moves the
+  issue to the first `started` state (`--no-move` for branch only); `issue branch` prints the name.
+- `--fields`, `--limit`, `--all` are refused (usage error) on commands that print only a receipt
+  — every mutation, `issue id`, `commands`, … — so `-f <file>` cannot be swallowed silently.
 - `cycle create`/`cycle update` use `--start <date>` and `--end <date>` (ISO); `cycle current`
   resolves the active cycle. Issue commands take `--cycle <n|id|current>`.
 - `initiative create`/`update` use `--target <date>` for the estimated completion date,

@@ -9,6 +9,7 @@
 
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
+import { shape } from "../lib/shape.js";
 import { collectRawQuery } from "../lib/pagination.js";
 import { usageError, notFound, ambiguous } from "../lib/errors.js";
 import { assertMutation, unwrapMutation } from "../lib/mutation.js";
@@ -23,6 +24,16 @@ export interface LabelRow {
   parent: { name: string } | null;
 }
 
+/** The row's shape as `linear commands` advertises it (TES-610); checked against the interface. */
+export const LABEL_ROW_SHAPE = shape<LabelRow>({
+  id: "string",
+  name: "string",
+  color: "string",
+  isGroup: "boolean",
+  team: { nullable: { key: "string", name: "string" } },
+  parent: { nullable: { name: "string" } },
+});
+
 const LIST_QUERY = `
 query CliIssueLabels($filter: IssueLabelFilter, $first: Int!, $after: String) {
   issueLabels(filter: $filter, first: $first, after: $after) {
@@ -35,39 +46,51 @@ query CliIssueLabels($filter: IssueLabelFilter, $first: Int!, $after: String) {
   }
 }`;
 
+export interface ListOptions {
+  /** Ignore the team argument and the configured default; list the whole workspace. */
+  allTeams?: boolean;
+}
+
 /**
- * List labels, optionally scoped to a single team. When `teamInput` (or the
- * default team) resolves to a team, the filter narrows to that team's labels;
- * otherwise every label in the workspace is returned.
+ * List labels, scoped to the labels an issue in one team can carry.
+ *
+ * When `teamInput` (or the default team) resolves to a team, the result is that
+ * team's labels **plus the workspace-level (team-less) ones** — the same set
+ * `resolveLabelIds` accepts for that team, and the set Linear offers in the
+ * label picker. It used to filter on `team.key` alone, which silently dropped
+ * every workspace label whenever a default team was configured: `label list`
+ * showed 5 of the 8 labels valid on the team's issues, and every "no label
+ * matching X — run 'linear label list'" error pointed at that incomplete list.
+ *
+ * `allTeams` (or no team in scope at all) lists every label in the workspace.
  */
 export async function listLabels(
   client: LinearClient,
   teamInput: string | undefined,
   limit: number,
   defaultTeamKey: string | undefined,
+  opts: ListOptions = {},
 ): Promise<LabelRow[]> {
-  const teamKey = teamInput ?? defaultTeamKey;
-  const filter: Record<string, any> = {};
+  const teamKey = opts.allTeams ? undefined : (teamInput ?? defaultTeamKey);
+  let filter: Record<string, any> | undefined;
   if (teamKey) {
     const team = await resolveTeam(client, teamKey, undefined);
-    filter.team = { key: { eq: team.key } };
+    filter = { or: [{ team: { key: { eq: team.key } } }, { team: { null: true } }] };
   }
 
-  return collectRawQuery<LabelRow>(
-    client as any,
-    LIST_QUERY,
-    { filter: Object.keys(filter).length ? filter : undefined },
-    "issueLabels",
-    limit,
-    (n) => ({
-      id: n.id,
-      name: n.name,
-      color: n.color,
-      isGroup: !!n.isGroup,
-      team: n.team ?? null,
-      parent: n.parent ?? null,
-    }),
-  );
+  return collectRawQuery<LabelRow>(client as any, LIST_QUERY, { filter }, "issueLabels", limit, toLabelRow);
+}
+
+/** Map a tailored-query label node to a display row. */
+function toLabelRow(n: any): LabelRow {
+  return {
+    id: n.id,
+    name: n.name,
+    color: n.color,
+    isGroup: !!n.isGroup,
+    team: n.team ?? null,
+    parent: n.parent ?? null,
+  };
 }
 
 export interface CreateOptions {

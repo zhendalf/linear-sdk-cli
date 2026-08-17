@@ -32,6 +32,17 @@ describe("status-update shared helper", () => {
     }
   });
 
+  // TES-642: the UI's "mark on track" with no text. The API insists on a body
+  // field and stores "" for it (verified live), so that is what --health alone
+  // resolves to — and a whitespace-only --body with --health is the same thing.
+  it("resolves --health alone to an empty body (a health-only update)", () => {
+    const ctx = { isTTY: false } as any;
+    expect(resolveUpdateBody(ctx, { health: "onTrack" })).toBe("");
+    expect(resolveUpdateBody(ctx, { body: "  ", health: "atRisk" })).toBe("");
+    // A body alongside health is still the body.
+    expect(resolveUpdateBody(ctx, { body: "all good", health: "onTrack" })).toBe("all good");
+  });
+
   it("throws a usage error for a whitespace-only body", () => {
     const ctx = { isTTY: false } as any;
     expect(() => resolveUpdateBody(ctx, { body: "   \n  " })).toThrowError(/needs a body/);

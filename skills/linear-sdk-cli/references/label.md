@@ -36,6 +36,14 @@ linear label create [options]
 | `--shared`                 | create a workspace-level (shared) label even when a default team is set |
 | `--parent <name>`          | parent label (creates a sub-label)                                      |
 
+**Output (`--json`)**: a receipt object
+
+```text
+id: string
+name: string
+color: string
+```
+
 ### `linear label delete`
 
 Delete a label (by name or id)
@@ -46,14 +54,37 @@ Aliases: `rm`
 linear label delete [options] <id>
 ```
 
+**Output (`--json`)**: a receipt object
+
+```text
+id: string
+name: string
+deleted: boolean
+```
+
 ### `linear label list`
 
-List labels (optionally scoped to a team)
+List the labels usable in a team (its own plus workspace-level ones)
 
 Aliases: `ls`
 
 ```
 linear label list [options] [team]
+```
+
+| Option        | Description                                                |
+| ------------- | ---------------------------------------------------------- |
+| `--all-teams` | list every label in the workspace, ignoring the team scope |
+
+**Output (`--json`)**: a bare array of objects
+
+```text
+id: string
+name: string
+color: string
+isGroup: boolean
+team: {key: string, name: string} | null
+parent: {name: string} | null
 ```
 
 ### `linear label update`
@@ -71,3 +102,11 @@ linear label update [options] <id>
 | `--name <name>`            | new label name                 |
 | `--color <hex>`            | new label color (e.g. #EB5757) |
 | `-d, --description <text>` | new label description          |
+
+**Output (`--json`)**: a receipt object
+
+```text
+id: string
+name: string
+color: string
+```

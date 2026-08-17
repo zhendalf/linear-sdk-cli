@@ -3,7 +3,9 @@ import { CommanderError, type Command } from "commander";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createProgram } from "../../src/cli.js";
+import { createProgram, parsedGlobalOptions, usageHint, suppressedHelp } from "../../src/cli.js";
+import { suggestSubcommand, commandPath } from "../../src/lib/options.js";
+import { CliError } from "../../src/lib/errors.js";
 import { userConfigPath } from "../../src/config.js";
 
 // Commander writes help/version to stdout; silence it during these tests.
@@ -43,6 +45,53 @@ describe("commander error boundary", () => {
     const program = createProgram();
     const help = program.commands.find((c) => c.name() === "config")?.helpInformation() ?? "";
     expect(help).toContain("--json");
+  });
+});
+
+/**
+ * The boundary decides the error format from what commander parsed, wherever
+ * on the command path the flag sat and under any spelling commander accepts.
+ * `argv.includes("--json")` knew one spelling; `-j` got plaintext.
+ */
+describe("parsedGlobalOptions (what the error boundary reads)", () => {
+  async function failedParse(argv: string[]) {
+    silenceStdout();
+    const program = createProgram();
+    await program.parseAsync(["node", "linear", ...argv]).catch(() => {});
+    return parsedGlobalOptions(program);
+  }
+
+  it("nothing parsed → no globals", async () => {
+    expect(await failedParse(["whoami", "--nope"])).toEqual({});
+  });
+
+  it("reads --json off the leaf after a parse-time failure", async () => {
+    expect((await failedParse(["whoami", "--nope", "--json"])).json).toBe(true);
+  });
+
+  it("reads the -j alias, and bundled short flags (-jq)", async () => {
+    expect((await failedParse(["whoami", "--nope", "-j"])).json).toBe(true);
+    const bundled = await failedParse(["whoami", "--nope", "-jq"]);
+    expect(bundled.json).toBe(true);
+    expect(bundled.quiet).toBe(true);
+  });
+
+  it("finds the flag wherever on the path it was given", async () => {
+    expect((await failedParse(["-j", "issue", "view", "--nope"])).json).toBe(true);
+    expect((await failedParse(["issue", "-j", "view", "--nope"])).json).toBe(true);
+  });
+
+  it("reads --debug and --no-ansi / --no-color the same way", async () => {
+    const g = await failedParse(["whoami", "--nope", "--debug", "--no-color"]);
+    expect(g.debug).toBe(true);
+    expect(g.noAnsi).toBe(true);
+  });
+
+  it("does not report a flag the user did not pass (no defaults leak in)", async () => {
+    const g = await failedParse(["issue", "view", "--nope"]);
+    expect(g.json).toBeUndefined();
+    expect(g.noAnsi).toBeUndefined();
+    expect(g.debug).toBeUndefined();
   });
 });
 
@@ -305,7 +354,9 @@ describe("linear-cli capability gaps (phase 3)", () => {
   });
 
   it("leaves --team single-valued everywhere else", () => {
-    for (const path of [["issue", "create"], ["issue", "update"], ["project", "create"]]) {
+    // `project create` is the other exception: a project belongs to several
+    // teams, so its `--team` collects like `--teams` (TES-637 item 3).
+    for (const path of [["issue", "create"], ["issue", "update"], ["cycle", "create"], ["label", "create"]]) {
       const teamOptions = option(find(path), "--team");
       expect(teamOptions).toHaveLength(1);
       expect(teamOptions[0]!.parseArg).toBeUndefined();
@@ -403,5 +454,235 @@ describe("auth commands operate in the ambiguous (multi-workspace, no default) s
     }
     expect(JSON.parse(cap.text())).toMatchObject({ success: true, default_workspace: "org-b" });
     expect(readFileSync(userConfigPath(), "utf8")).toContain('default_workspace = "org-b"');
+  });
+});
+
+/**
+ * TES-633: the root has an action (bare `linear` shows the branch's issue) and
+ * `issue` has a default subcommand (`view`), so commander's own "unknown
+ * command" never fired for either — a stray word was "too many arguments.
+ * Expected 0 arguments but got 2: issues, list." at the root and "'lst' is not
+ * a valid issue id" under `issue`. Both now say what the word probably was.
+ */
+describe("unknown commands (TES-633)", () => {
+  const parse = async (argv: string[]) => {
+    silenceStdout();
+    try {
+      await createProgram().parseAsync(["node", "linear", ...argv]);
+      throw new Error("expected a throw");
+    } catch (err) {
+      return err as any;
+    }
+  };
+
+  it("a stray word at the root is an unknown command, with a guess", async () => {
+    const err = await parse(["issues", "list"]);
+    expect(err).toBeInstanceOf(CliError);
+    expect(err.code).toBe("usage");
+    expect(err.message).toBe(
+      "Unknown command 'issues'. Did you mean 'issue'? Run 'linear --help' to see the commands.",
+    );
+  });
+
+  it("no guess when nothing is close", async () => {
+    const err = await parse(["xyzzy"]);
+    expect(err.message).toBe("Unknown command 'xyzzy'. Run 'linear --help' to see the commands.");
+  });
+
+  it("`issue <word>` that is neither an id nor a subcommand names the likely subcommand", async () => {
+    const err = await parse(["issue", "lst"]);
+    expect(err).toBeInstanceOf(CliError);
+    expect(err.code).toBe("usage");
+    expect(err.message).toContain("'lst' is not a valid issue id");
+    expect(err.message).toContain("Did you mean 'linear issue list'?");
+  });
+
+  it("suggestSubcommand: prefixes, one-edit typos, aliases — but not two-letter aliases", () => {
+    const program = createProgram();
+    expect(suggestSubcommand(program, "proj")).toBe("project");
+    expect(suggestSubcommand(program, "lable")).toBe("label");
+    expect(suggestSubcommand(program, "issues")).toBe("issue");
+    expect(suggestSubcommand(program, "docs")).toBe("document");
+    expect(suggestSubcommand(program, "notif")).toBe("notification");
+    // `ab` is one edit from the alias `lb`; that is noise, not a guess.
+    expect(suggestSubcommand(program, "ab")).toBeUndefined();
+    expect(suggestSubcommand(program, "xyzzy")).toBeUndefined();
+  });
+
+  it("commandPath spells the command the way a user types it", () => {
+    const program = createProgram();
+    const issue = program.commands.find((c) => c.name() === "issue")!;
+    const create = issue.commands.find((c) => c.name() === "create")!;
+    expect(commandPath(program)).toBe("linear");
+    expect(commandPath(create)).toBe("linear issue create");
+  });
+
+  it("usageHint names the command whose parse failed, and nothing when none did", async () => {
+    silenceStdout();
+    const program = createProgram();
+    expect(usageHint(program)).toBeUndefined();
+    await program.parseAsync(["node", "linear", "issue", "create", "--nope"]).catch(() => {});
+    expect(usageHint(program)).toBe("Run 'linear issue create --help' for usage.");
+  });
+
+  it("a bare group buffers commander's help for the boundary instead of losing it", async () => {
+    silenceStdout();
+    const program = createProgram();
+    const err = await program.parseAsync(["node", "linear", "notification"]).catch((e) => e);
+    expect(err).toBeInstanceOf(CommanderError);
+    expect(err.code).toBe("commander.help");
+    const help = suppressedHelp(program);
+    expect(help?.command.name()).toBe("notification");
+    expect(help?.text).toContain("Usage: linear notification|notif");
+  });
+});
+
+/**
+ * TES-644: the lifecycle commands the reference CLI has and this one lacked.
+ * These pin the surface; the services are covered in project/team/agent-session
+ * tests.
+ */
+describe("lifecycle commands (TES-644)", () => {
+  const program = createProgram();
+  const find = (path: string[]): Command | undefined =>
+    path.reduce<Command | undefined>(
+      (cmd, name) => cmd?.commands.find((c) => c.name() === name || c.aliases().includes(name)),
+      program,
+    );
+  const visibleLongs = (cmd: Command) => cmd.options.filter((o: any) => !o.hidden).map((o) => o.long);
+
+  it("`project delete` exists beside `archive`, and is not an alias of it", () => {
+    const del = find(["project", "delete"])!;
+    expect(del).toBeDefined();
+    expect(del.aliases()).toContain("rm");
+    expect(del).not.toBe(find(["project", "archive"]));
+    expect(del.description()).toMatch(/trash/i);
+  });
+
+  it("`team delete <key>` requires the key and offers --move-issues", () => {
+    const del = find(["team", "delete"])!;
+    expect(del).toBeDefined();
+    const args = (del as any).registeredArguments.map((a: any) => ({ name: a.name(), required: a.required }));
+    expect(args).toEqual([{ name: "key", required: true }]);
+    expect(visibleLongs(del)).toContain("--move-issues");
+    // Deletes take the shared confirmation gate, so `-y` is there for scripts.
+    expect(visibleLongs(del)).toContain("--yes");
+  });
+
+  it("mounts `agent-session list/view` under `issue`, with the status enum on list", () => {
+    const group = find(["issue", "agent-session"])!;
+    expect(group).toBeDefined();
+    expect(group.commands.map((c) => c.name()).sort()).toEqual(["list", "view"]);
+    const list = find(["issue", "agent-session", "list"])!;
+    expect(visibleLongs(list)).toEqual(expect.arrayContaining(["--status", "--all-issues"]));
+    const status = list.options.find((o) => o.long === "--status") as any;
+    expect(status.argChoices).toEqual(["pending", "active", "awaitingInput", "complete", "error", "stale"]);
+    const view = find(["issue", "agent-session", "view"])!;
+    expect((view as any).registeredArguments.map((a: any) => a.name())).toEqual(["id"]);
+  });
+
+  it("mounts `attach <issue> <file...>` under `issue`, and `--attach`/`--public` on both `comment add`s (TES-602)", () => {
+    const attach = find(["issue", "attach"])!;
+    expect(attach).toBeDefined();
+    const args = (attach as any).registeredArguments.map((a: any) => ({
+      name: a.name(),
+      required: a.required,
+      variadic: a.variadic,
+    }));
+    expect(args).toEqual([
+      { name: "issue", required: true, variadic: false },
+      { name: "file", required: true, variadic: true },
+    ]);
+    expect(visibleLongs(attach)).toEqual(expect.arrayContaining(["--title", "--comment", "--public"]));
+    for (const path of [
+      ["comment", "add"],
+      ["issue", "comment", "add"],
+    ]) {
+      expect(visibleLongs(find(path)!)).toEqual(expect.arrayContaining(["--attach", "--public"]));
+    }
+  });
+
+  it("`commands --json` lists all of them", async () => {
+    let out = "";
+    const spy = vi.spyOn(process.stdout, "write").mockImplementation((c: any) => ((out += c), true));
+    try {
+      await createProgram().parseAsync(["node", "linear", "commands", "--json"]);
+    } finally {
+      spy.mockRestore();
+    }
+    const paths = JSON.parse(out).map((n: any) => n.path);
+    expect(paths).toEqual(
+      expect.arrayContaining([
+        "project delete",
+        "team delete",
+        "issue agent-session list",
+        "issue agent-session view",
+        "issue attach",
+      ]),
+    );
+  });
+});
+
+describe("flag gaps closed (TES-642)", () => {
+  const program = createProgram();
+  const find = (path: string[]): Command | undefined =>
+    path.reduce<Command | undefined>(
+      (cmd, name) => cmd?.commands.find((c) => c.name() === name || c.aliases().includes(name)),
+      program,
+    );
+  const visibleLongs = (cmd: Command) => cmd.options.filter((o: any) => !o.hidden).map((o) => o.long);
+
+  it("`project list --all-teams`, `team create --private`, `initiative list` filters", () => {
+    expect(visibleLongs(find(["project", "list"])!)).toContain("--all-teams");
+    expect(visibleLongs(find(["team", "create"])!)).toContain("--private");
+    expect(visibleLongs(find(["initiative", "list"])!)).toEqual(
+      expect.arrayContaining(["--status", "--owner", "--archived"]),
+    );
+    // The reference CLI's `--all-statuses` is accepted (hidden) as a no-op.
+    const allStatuses = find(["initiative", "list"])!.options.find((o) => o.long === "--all-statuses") as any;
+    expect(allStatuses?.hidden).toBe(true);
+    for (const verb of ["create", "update"]) {
+      expect(visibleLongs(find(["initiative", verb])!)).toEqual(expect.arrayContaining(["--icon", "--color"]));
+    }
+  });
+
+  it("initiative add-project/remove-project/unarchive are registered", () => {
+    expect(find(["initiative", "add-project"])).toBeDefined();
+    expect(visibleLongs(find(["initiative", "add-project"])!)).toContain("--sort-order");
+    expect(find(["initiative", "remove-project"])).toBeDefined();
+    expect(find(["initiative", "unarchive"])).toBeDefined();
+  });
+});
+
+// A schpet/linear-cli user typing one of its issue subcommands that lives
+// elsewhere here (or nowhere) lands in `view` — the default subcommand — with
+// the word as the id. The error must point at the equivalent, not just say it
+// is not an id. Kept in step with MIGRATING.md §4/§7.
+describe("schpet issue subcommands land in view with a pointer", () => {
+  async function errorFor(word: string): Promise<string> {
+    const program = createProgram();
+    program.exitOverride();
+    try {
+      await program.parseAsync(["node", "linear", "issue", word, "x"]);
+    } catch (err: any) {
+      return String(err?.message ?? err);
+    }
+    return "";
+  }
+  it("attach is a real subcommand now (TES-602): it never lands in view", async () => {
+    // `issue attach x` parses as the subcommand short one operand — not as
+    // `view` with "attach" as the id, and no "not available" pointer.
+    const m = await errorFor("attach");
+    expect(m).toMatch(/missing required argument 'file'/i);
+    expect(m).not.toContain("not available");
+  });
+  it("link → attachment create --url", async () => {
+    expect(await errorFor("link")).toContain("attachment create <issue> --url");
+  });
+  it("commits → says so and offers git log", async () => {
+    expect(await errorFor("commits")).toContain("git log");
+  });
+  it("still guesses a misspelled real subcommand", async () => {
+    expect(await errorFor("lst")).toContain("Did you mean 'linear issue list'");
   });
 });

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, vi, afterEach } from "bun:test";
 import { Command } from "commander";
 import {
   collectKeyVal,
@@ -9,10 +9,16 @@ import {
   parsePriority,
   addAliasOption,
   readAlias,
+  assertGlobalsApply,
+  subcommandPath,
+  FIELDS_COMMANDS,
+  LIMIT_COMMANDS,
 } from "../../src/lib/options.js";
 import { CliError } from "../../src/lib/errors.js";
 import { Context } from "../../src/context.js";
 import { createProgram } from "../../src/cli.js";
+import { walkCommands } from "../../src/lib/introspect.js";
+import { withRetry, setRetryReporter } from "../../src/client.js";
 
 /**
  * Parse `argv` with the REAL program and hand back both the leaf command's own
@@ -326,6 +332,132 @@ describe("project update --team (AUDIT #8)", () => {
   });
 });
 
+/**
+ * TES-637 (2) / TES-596. `--fields`, `--limit` and `--all` are registered on
+ * every command but read only by the ones that render a table or detail block
+ * (fields) or page through a query (limit/all). Everywhere else they vanished
+ * without a word — and schpet's `-f` is `--description-file` on `project
+ * create`, so `linear project create --name X -f desc.md` created the project
+ * with NO description and exited 0. The guard runs before the action, so a
+ * misread flag costs an error message, never a mutation.
+ */
+describe("--fields / --limit / --all are refused where nothing reads them (TES-637 #2, TES-596)", () => {
+  /** Whether the leaf's (replaced) action ran during the last `run`. */
+  let ran = false;
+  /** Parse with the real program; the leaf's action is replaced so nothing touches the network. */
+  async function run(path: string[], argv: string[]): Promise<{ ran: boolean }> {
+    const program = createProgram();
+    let cmd: Command = program;
+    for (const name of path) cmd = cmd.commands.find((c) => c.name() === name)!;
+    ran = false;
+    (cmd as any)._actionHandler = null;
+    cmd.action(() => {
+      ran = true;
+    });
+    await program.parseAsync(["node", "linear", ...argv]);
+    return { ran };
+  }
+  const leaf = (path: string[]): Command => {
+    let cmd: Command = createProgram();
+    for (const name of path) cmd = cmd.commands.find((c) => c.name() === name)!;
+    return cmd;
+  };
+
+  it("`project create -f desc.md` is a usage error that names --description-file, before the action runs", async () => {
+    await expect(
+      run(["project", "create"], ["project", "create", "--name", "X", "-f", "desc.md"]),
+    ).rejects.toThrow(
+      /--fields does not apply to `linear project create`.*--description-file <path> or --content-file <path>.*-f is --fields here/,
+    );
+    expect(ran).toBe(false);
+  });
+
+  it("names --content-file on `document create` / `document update`, and only that (no --description-file there)", async () => {
+    await expect(
+      run(["document", "create"], ["document", "create", "--title", "T", "-f", "body.md"]),
+    ).rejects.toThrow(/use --content-file <path> \(-f is --fields here/);
+    await expect(
+      run(["document", "update"], ["document", "update", "some-id", "--fields", "body.md"]),
+    ).rejects.toThrow(/does not apply to `linear document update`.*--content-file/);
+  });
+
+  it("is refused on a plain mutation with no file option, without the file hint", async () => {
+    await expect(run(["label", "delete"], ["label", "delete", "bug", "--fields", "name"])).rejects.toThrow(
+      /--fields does not apply to `linear label delete`: it prints a receipt/,
+    );
+    await expect(run(["label", "delete"], ["label", "delete", "bug", "--fields", "name"])).rejects.not.toThrow(
+      /--content-file/,
+    );
+  });
+
+  it("is refused wherever on the command line the flag sat (root position too)", async () => {
+    await expect(run(["issue", "archive"], ["-f", "id", "issue", "archive", "TES-1"])).rejects.toThrow(
+      /--fields does not apply to `linear issue archive`/,
+    );
+  });
+
+  it("the error is a usage error (exit 2), and the action never runs", async () => {
+    let err: any;
+    try {
+      await run(["project", "archive"], ["project", "archive", "P", "--fields", "id"]);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(CliError);
+    expect(err.code).toBe("usage");
+  });
+
+  it("--limit / --all are refused on a command that pages nothing; -n gets the --name hint where there is one", async () => {
+    await expect(
+      run(["project", "create"], ["project", "create", "-n", "5"]),
+    ).rejects.toThrow(/--limit does not apply to `linear project create`.*-n is --limit here; the name is --name <name>/);
+    await expect(run(["issue", "view"], ["issue", "view", "TES-1", "--limit", "5"])).rejects.toThrow(
+      /--limit does not apply to `linear issue view`: it is not a paged query\./,
+    );
+    await expect(run(["issue", "view"], ["issue", "view", "TES-1", "--limit", "5"])).rejects.not.toThrow(
+      /--name/,
+    );
+    await expect(run(["issue", "create"], ["issue", "create", "--title", "x", "--all"])).rejects.toThrow(
+      /--all does not apply to `linear issue create`/,
+    );
+  });
+
+  it("still lets every renderer take --fields, and every paged query take --limit/--all", async () => {
+    expect((await run(["project", "list"], ["project", "list", "--fields", "name", "--limit", "5"])).ran).toBe(true);
+    expect((await run(["project", "view"], ["project", "view", "P", "-f", "name"])).ran).toBe(true);
+    expect((await run(["issue", "mine"], ["issue", "mine", "--all", "-f", "id,title"])).ran).toBe(true);
+    expect((await run(["whoami"], ["whoami", "--fields", "email"])).ran).toBe(true);
+    expect((await run(["milestone", "view"], ["milestone", "view", "M", "--limit", "3"])).ran).toBe(true);
+    expect((await run(["team", "members"], ["team", "members", "--all"])).ran).toBe(true);
+    // The mounted copy of `comment list` under `issue` is its own Command instance.
+    expect((await run(["issue", "comment", "list"], ["issue", "comment", "list", "TES-1", "-f", "body", "-n", "2"])).ran).toBe(true);
+    // Root position works for a renderer, exactly as before.
+    expect((await run(["user", "list"], ["-f", "email", "--all", "user", "list"])).ran).toBe(true);
+  });
+
+  it("the applicability tables name only commands that exist (a rename or removal shows up here)", () => {
+    const paths = new Set(walkCommands(createProgram()).map((n) => n.path));
+    for (const p of FIELDS_COMMANDS) expect(paths.has(p), `FIELDS_COMMANDS: '${p}'`).toBe(true);
+    for (const p of LIMIT_COMMANDS) expect(paths.has(p), `LIMIT_COMMANDS: '${p}'`).toBe(true);
+    // Paging without rendering makes no sense: every paged query renders.
+    for (const p of LIMIT_COMMANDS) expect(FIELDS_COMMANDS.has(p), `'${p}' pages but does not render`).toBe(true);
+  });
+
+  it("subcommandPath spells the path the way `linear commands --json` does, and is empty for the root", () => {
+    expect(subcommandPath(leaf(["issue", "comment", "list"]))).toBe("issue comment list");
+    expect(subcommandPath(leaf(["whoami"]))).toBe("whoami");
+    expect(subcommandPath(createProgram())).toBe("");
+  });
+
+  it("does not fire for the bare `linear` root action, which renders the branch's issue", () => {
+    // assertGlobalsApply on the root is a no-op whatever the flags say.
+    const program = createProgram();
+    program.setOptionValue("fields", ["id"]);
+    program.setOptionValue("limit", 3);
+    expect(() => assertGlobalsApply(program)).not.toThrow();
+  });
+});
+
 describe("readAlias (long-flag aliases)", () => {
   it("reads either spelling, camel-casing the option key like commander", () => {
     expect(readAlias<string>({ due: "2026-01-01" }, "--due", "--due-date")).toBe("2026-01-01");
@@ -363,5 +495,57 @@ describe("addAliasOption", () => {
     addAliasOption(cmd, "--due-date <date>", "--due");
     cmd.parse(["node", "demo", "--due-date", "2026-03-04"]);
     expect(readAlias<string>(cmd.opts(), "--due", "--due-date")).toBe("2026-03-04");
+  });
+});
+
+/**
+ * Rate-limit waits are announced through the Context's Output, so they obey
+ * `--quiet` and land on stderr like every other status line — never on the
+ * JSON stdout a script is parsing.
+ */
+describe("Context wires the retry reporter to Output.info", () => {
+  class Ratelimited extends Error {
+    type = "Ratelimited";
+    status = 429;
+    retryAfter = 1;
+  }
+  const flakyOnce = () => {
+    let calls = 0;
+    return async () => {
+      if (calls++ === 0) throw new Ratelimited("Ratelimited");
+      return "ok";
+    };
+  };
+  const captureStderr = () => {
+    let err = "";
+    const spy = vi.spyOn(process.stderr, "write").mockImplementation((c: any) => {
+      err += c;
+      return true;
+    });
+    return { text: () => err, restore: () => spy.mockRestore() };
+  };
+  const noSleep = { sleep: async () => {} };
+  afterEach(() => setRetryReporter(null));
+
+  it("announces the wait on stderr", async () => {
+    new Context({});
+    const cap = captureStderr();
+    try {
+      expect(await withRetry(flakyOnce(), noSleep)).toBe("ok");
+    } finally {
+      cap.restore();
+    }
+    expect(cap.text()).toMatch(/rate limited; retrying in 1s/);
+  });
+
+  it("--quiet silences it", async () => {
+    new Context({ quiet: true });
+    const cap = captureStderr();
+    try {
+      expect(await withRetry(flakyOnce(), noSleep)).toBe("ok");
+    } finally {
+      cap.restore();
+    }
+    expect(cap.text()).toBe("");
   });
 });

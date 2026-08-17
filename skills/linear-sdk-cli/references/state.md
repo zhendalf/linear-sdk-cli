@@ -28,10 +28,34 @@ Aliases: `ls`
 linear state list [options] [team]
 ```
 
+**Output (`--json`)**: a bare array of objects
+
+```text
+id: string
+name: string
+type: string
+position: number
+color: string
+```
+
 ### `linear state view`
 
-Show a workflow state (by id)
+Show a workflow state (by id, or by name/type within --team / the default team)
 
 ```
 linear state view [options] <id>
+```
+
+**Output (`--json`)**: a bare object
+
+```text
+id: string
+name: string
+type: string
+position: number
+color: string
+description: string | null
+team: string | null
+createdAt: string
+updatedAt: string
 ```

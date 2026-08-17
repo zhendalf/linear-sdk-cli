@@ -6,7 +6,7 @@
  * description, target date, owner, and status.
  */
 
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import { action } from "../lib/action.js";
 import { resolveBody } from "../lib/body.js";
 import { confirmDestructive, promptInput } from "../lib/prompt.js";
@@ -33,10 +33,23 @@ export function registerInitiative(program: Command): void {
   initiative
     .command("list")
     .alias("ls")
-    .description("List workspace initiatives")
+    .description("List workspace initiatives (every status unless --status narrows)")
+    // No `-s`/`-o` shorts: `-s` is `--state` and `-o` is `--output` elsewhere
+    // in the tree, and a short flag means one thing everywhere here.
+    .option("--status <name>", "filter by status (Planned, Active, Completed, Canceled, Proposed)")
+    .option("--owner <who>", "filter by owner (me|email|name|id)")
+    .option("--archived", "include archived initiatives")
+    // The reference CLI lists Active only and needs `--all-statuses` to widen;
+    // this list is every status already, so the flag is accepted as the no-op
+    // it is here rather than failing a transplanted script.
+    .addOption(new Option("--all-statuses", "no-op: the list is all statuses").hideHelp())
     .action(
-      action(async (ctx: Context) => {
-        const rows = await svc.listInitiatives(ctx.client, ctx.limit);
+      action(async (ctx: Context, opts) => {
+        const rows = await svc.listInitiatives(ctx.client, ctx.limit, {
+          status: opts.status,
+          owner: opts.owner,
+          archived: !!opts.archived,
+        });
         ctx.output.list(rows, ROW_COLUMNS, rows);
       }),
     );
@@ -51,6 +64,7 @@ export function registerInitiative(program: Command): void {
         const detail = await svc.getInitiativeDetail(ctx.client, idArg);
         ctx.output.detail(detail, [
           ["Initiative", detail.name],
+          ["Archived", detail.archivedAt ? `YES (${detail.archivedAt})` : null],
           ["Status", detail.status],
           ["Priority", detail.priority ? detail.priorityLabel : null],
           ["Labels", detail.labels.length ? detail.labels.join(", ") : null],
@@ -58,6 +72,16 @@ export function registerInitiative(program: Command): void {
           ["Owner", detail.owner],
           ["Creator", detail.creator],
           ["Target", detail.targetDate],
+          ["Icon", detail.icon],
+          ["Color", detail.color],
+          [
+            "Projects",
+            detail.projects.length
+              ? detail.projects
+                  .map((p) => `${p.name}${p.status ? ` (${p.status.name})` : ""}`)
+                  .join(", ")
+              : null,
+          ],
           ["URL", detail.url],
           ["Updated", detail.updatedAt],
           ["Description", detail.description ? `\n${detail.description}` : null],
@@ -78,6 +102,8 @@ export function registerInitiative(program: Command): void {
     .option("--status <name>", "status (Planned, Active, Completed, Canceled, Proposed)")
     .option("-P, --priority <0-4>", "priority (0 none, 1 urgent … 4 low)", parseIntOption)
     .option("-l, --label <name>", "initiative label (repeatable / comma-separated)", parseList)
+    .option("--icon <name>", "Linear icon name, capitalized (e.g. Rocket)")
+    .option("--color <hex>", "initiative color (e.g. #5E6AD2)")
     .action(
       action(async (ctx: Context, opts) => {
         let name: string | undefined = opts.name;
@@ -95,6 +121,8 @@ export function registerInitiative(program: Command): void {
           status: opts.status,
           priority: opts.priority,
           label: opts.label,
+          icon: opts.icon,
+          color: opts.color,
         });
         ctx.output.emit({ id: created.id, name: created.name, url: created.url }, () =>
           ctx.output.success(`Created ${created.name}: ${created.url}`),
@@ -116,6 +144,8 @@ export function registerInitiative(program: Command): void {
     .option("--status <name>", "status (Planned, Active, Completed, Canceled, Proposed)")
     .option("-P, --priority <0-4>", "priority (0 none, 1 urgent … 4 low)", parseIntOption)
     .option("-l, --label <name>", "replace the labels (repeatable / comma-separated)", parseList)
+    .option("--icon <name>", "Linear icon name, capitalized (e.g. Rocket)")
+    .option("--color <hex>", "initiative color (e.g. #5E6AD2)")
     .action(
       action(async (ctx: Context, opts, idArg: string) => {
         const description = resolveBody({
@@ -131,6 +161,8 @@ export function registerInitiative(program: Command): void {
           status: opts.status,
           priority: opts.priority,
           label: opts.label,
+          icon: opts.icon,
+          color: opts.color,
         });
         ctx.output.emit({ id: updated.id, name: updated.name, url: updated.url }, () =>
           ctx.output.success(`Updated ${updated.name}`),
@@ -150,6 +182,59 @@ export function registerInitiative(program: Command): void {
         const archived = await svc.archiveInitiative(ctx.client, init.id);
         ctx.output.emit({ id: archived.id, name: archived.name, archived: true }, () =>
           ctx.output.success(`Archived ${archived.name}`),
+        );
+      }),
+    );
+
+  // unarchive ---------------------------------------------------------------
+  initiative
+    .command("unarchive <id>")
+    .description("Unarchive an initiative")
+    .action(
+      action(async (ctx: Context, _opts, idArg: string) => {
+        const restored = await svc.unarchiveInitiative(ctx.client, idArg);
+        ctx.output.emit({ id: restored.id, name: restored.name, archived: false }, () =>
+          ctx.output.success(`Unarchived ${restored.name}`),
+        );
+      }),
+    );
+
+  // add-project / remove-project --------------------------------------------
+  initiative
+    .command("add-project <initiative> <project>")
+    .description("Link a project to an initiative")
+    .option("--sort-order <n>", "position among the initiative's projects", parseIntOption)
+    .addHelpText(
+      "after",
+      ["", "Examples:", "  linear initiative add-project 'Q3 Bets' 'API v2'"].join("\n"),
+    )
+    .action(
+      action(async (ctx: Context, opts, initiativeArg: string, projectArg: string) => {
+        const link = await svc.addProject(ctx.client, initiativeArg, projectArg, {
+          sortOrder: opts.sortOrder,
+        });
+        ctx.output.emit(link, () =>
+          ctx.output.success(`Linked ${link.project.name} to ${link.initiative.name}`),
+        );
+      }),
+    );
+
+  initiative
+    .command("remove-project <initiative> <project>")
+    .description("Unlink a project from an initiative")
+    .action(
+      action(async (ctx: Context, _opts, initiativeArg: string, projectArg: string) => {
+        const link = await svc.findProjectLink(ctx.client, initiativeArg, projectArg);
+        if (
+          !(await confirmDestructive(
+            ctx,
+            `Remove ${link.project.name} from initiative ${link.initiative.name}?`,
+          ))
+        )
+          return;
+        await svc.removeProjectLink(ctx.client, link);
+        ctx.output.emit({ ...link, removed: true }, () =>
+          ctx.output.success(`Removed ${link.project.name} from ${link.initiative.name}`),
         );
       }),
     );

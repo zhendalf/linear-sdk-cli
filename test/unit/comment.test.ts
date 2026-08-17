@@ -1,4 +1,7 @@
-import { describe, it, expect, vi } from "bun:test";
+import { describe, it, expect, vi, beforeEach, afterEach } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   listComments,
   addComment,
@@ -29,15 +32,18 @@ function issueModel(overrides: Record<string, any> = {}) {
 }
 
 describe("listComments", () => {
-  it("maps rawRequest nodes to rows, falling back to 'unknown' author", async () => {
+  // The author is an OBJECT (id + displayName) like every other list row's
+  // relations, and null for a deleted account — not a display string, and no
+  // "unknown" placeholder that a script could mistake for a real name.
+  it("maps rawRequest nodes to rows: author object, thread parent, edited/resolved", async () => {
     // listComments uses a tailored GraphQL query (no N+1) via client.client.rawRequest.
     const rawRequest = vi.fn().mockResolvedValue({
       data: {
         issue: {
           comments: {
             nodes: [
-              { id: "c1", body: "hello\nworld", url: "u1", createdAt: "2026-01-02T03:04:05.000Z", user: { displayName: "Ada" } },
-              { id: "c2", body: "anon", url: "u2", createdAt: "2026-02-02T00:00:00.000Z", user: null },
+              { id: "c1", body: "hello\nworld", url: "u1", createdAt: "2026-01-02T03:04:05.000Z", editedAt: null, resolvedAt: null, parent: null, user: { id: "u-ada", displayName: "Ada" } },
+              { id: "c2", body: "anon", url: "u2", createdAt: "2026-02-02T00:00:00.000Z", editedAt: "2026-02-03T00:00:00.000Z", resolvedAt: null, parent: { id: "c1" }, user: null },
             ],
             pageInfo: { hasNextPage: false },
           },
@@ -49,8 +55,8 @@ describe("listComments", () => {
 
     const rows = await listComments(client, ISSUE_UUID, 50);
     expect(rows).toEqual([
-      { id: "c1", body: "hello\nworld", author: "Ada", createdAt: "2026-01-02T03:04:05.000Z", url: "u1" },
-      { id: "c2", body: "anon", author: "unknown", createdAt: "2026-02-02T00:00:00.000Z", url: "u2" },
+      { id: "c1", body: "hello\nworld", user: { id: "u-ada", displayName: "Ada" }, createdAt: "2026-01-02T03:04:05.000Z", editedAt: null, resolvedAt: null, parent: null, url: "u1" },
+      { id: "c2", body: "anon", user: null, createdAt: "2026-02-02T00:00:00.000Z", editedAt: "2026-02-03T00:00:00.000Z", resolvedAt: null, parent: { id: "c1" }, url: "u2" },
     ]);
   });
 });
@@ -76,6 +82,122 @@ describe("addComment", () => {
     await expect(addComment(client, ISSUE_UUID, "hi")).rejects.toMatchObject({
       code: "api",
       exitCode: 1,
+    });
+  });
+
+  /**
+   * `--attach <file>` (TES-602): every file is validated, then uploaded, and
+   * the markdown embeds are appended to the body — a blank line, then one per
+   * line — before the one createComment. Images embed inline (`![]()`),
+   * anything else links.
+   */
+  describe("with attachments", () => {
+    const PNG = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    let dir: string;
+    let png: string;
+    let txt: string;
+    let calls: string[];
+    let savedFetch: typeof fetch;
+
+    beforeEach(() => {
+      dir = mkdtempSync(join(tmpdir(), "lincmatt-"));
+      png = join(dir, "shot.png");
+      txt = join(dir, "notes.txt");
+      writeFileSync(png, PNG);
+      writeFileSync(txt, "hello");
+      calls = [];
+      savedFetch = globalThis.fetch;
+      globalThis.fetch = (async (url: any) => {
+        calls.push(`PUT ${String(url).split("?")[0]}`);
+        return new Response("", { status: 200 });
+      }) as typeof fetch;
+    });
+    afterEach(() => {
+      globalThis.fetch = savedFetch;
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    function client(createComment = vi.fn()) {
+      let n = 0;
+      createComment.mockResolvedValue({
+        success: true,
+        comment: Promise.resolve({ id: "new", url: "url" }),
+      });
+      return {
+        issue: vi.fn().mockResolvedValue(issueModel()),
+        fileUpload: async (contentType: string, filename: string, size: number, vars: any) => {
+          calls.push(`fileUpload ${filename} public=${vars.makePublic}`);
+          n++;
+          return {
+            success: true,
+            lastSyncId: 1,
+            uploadFile: {
+              assetUrl: `https://uploads.linear.app/ws/${n}`,
+              uploadUrl: `https://storage.googleapis.com/b/${n}?X-Goog-Signature=s`,
+              headers: [],
+            },
+          };
+        },
+        createComment,
+      } as any;
+    }
+
+    it("uploads, then appends the embeds to the body — image inline, text as a link", async () => {
+      const createComment = vi.fn();
+      const res = await addComment(client(createComment), ISSUE_UUID, "Look:", { attachments: [png, txt] });
+      expect(createComment).toHaveBeenCalledWith({
+        issueId: ISSUE_UUID,
+        body: "Look:\n\n![shot.png](https://uploads.linear.app/ws/1)\n[notes.txt](https://uploads.linear.app/ws/2)",
+      });
+      expect(calls).toEqual([
+        "fileUpload shot.png public=false",
+        "PUT https://storage.googleapis.com/b/1",
+        "fileUpload notes.txt public=false",
+        "PUT https://storage.googleapis.com/b/2",
+      ]);
+      expect(res.uploads.map((u) => u.filename)).toEqual(["shot.png", "notes.txt"]);
+    });
+
+    it("an empty body with attachments is just the embeds", async () => {
+      const createComment = vi.fn();
+      await addComment(client(createComment), ISSUE_UUID, "", { attachments: [png] });
+      expect(createComment).toHaveBeenCalledWith({
+        issueId: ISSUE_UUID,
+        body: "![shot.png](https://uploads.linear.app/ws/1)",
+      });
+    });
+
+    it("validates every file before uploading any", async () => {
+      const createComment = vi.fn();
+      await expect(
+        addComment(client(createComment), ISSUE_UUID, "x", { attachments: [png, join(dir, "nope.txt")] }),
+      ).rejects.toMatchObject({ code: "usage" });
+      expect(calls).toEqual([]);
+      expect(createComment).not.toHaveBeenCalled();
+    });
+
+    it("--public on a non-image is refused before anything is uploaded", async () => {
+      const createComment = vi.fn();
+      await expect(
+        addComment(client(createComment), ISSUE_UUID, "x", { attachments: [txt], public: true }),
+      ).rejects.toMatchObject({ code: "usage" });
+      expect(calls).toEqual([]);
+    });
+
+    it("--public is passed through and reported on the uploads", async () => {
+      const res = await addComment(client(), ISSUE_UUID, "x", { attachments: [png], public: true });
+      expect(calls[0]).toBe("fileUpload shot.png public=true");
+      expect(res.uploads[0]!.public).toBe(true);
+    });
+
+    it("no attachments: the plain path is unchanged, and uploads is empty", async () => {
+      const createComment = vi.fn();
+      const res = await addComment(client(createComment), ISSUE_UUID, "hi", {});
+      expect(createComment).toHaveBeenCalledWith({ issueId: ISSUE_UUID, body: "hi" });
+      expect(res.uploads).toEqual([]);
     });
   });
 });

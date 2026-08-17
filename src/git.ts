@@ -50,12 +50,62 @@ export function isGitRepo(cwd?: string): boolean {
 }
 
 /**
- * Build the commit-message trailer that links a commit to a Linear issue via
- * Linear's git magic words. `Fixes <ID>` closes the issue on merge; the
- * `references` option emits `References <ID>` which links without closing.
+ * The Linear magic-word phrase that links a commit or PR to an issue: `Fixes
+ * <ID>` closes the issue on merge; the `references` option gives `References
+ * <ID>`, which links without closing. Both are on Linear's list of recognized
+ * words (linear.app/docs/github); the word must sit directly before the id.
  */
 export function buildTrailer(identifier: string, opts: { references?: boolean } = {}): string {
   return `${opts.references ? "References" : "Fixes"} ${identifier}`;
+}
+
+/**
+ * The two git trailers `issue describe` and `issue pull-request` emit — the
+ * exact lines schpet/linear-cli writes (T `src/utils/jj.ts`), so a transplanted
+ * `git commit -m "$(linear issue describe)"` produces the same commit:
+ *
+ *     Linear-issue: Fixes TES-123
+ *     Linear-issue-url: https://linear.app/…/issue/TES-123/…
+ *
+ * Proper `Key: value` trailers rather than a bare `Fixes TES-123` line, on
+ * purpose: `git interpret-trailers` / `git log --format=%(trailers:key=Linear-issue)`
+ * and jj's `trailers` template can read them back (schpet's jj mode infers the
+ * current issue from exactly this trailer), while Linear still sees the magic
+ * word directly before the id and links — and closes — the issue. The URL line is
+ * for the humans reading the log.
+ */
+export function buildTrailers(identifier: string, url: string, opts: { references?: boolean } = {}): string {
+  return `Linear-issue: ${buildTrailer(identifier, opts)}\nLinear-issue-url: ${url}`;
+}
+
+/**
+ * What `issue describe` prints: schpet's subject line (`ID Title`), a blank
+ * line, then the trailers. Piped into `git commit -m` / `jj describe -m` it is
+ * the whole message.
+ */
+export function buildDescription(
+  identifier: string,
+  title: string,
+  url: string,
+  opts: { references?: boolean } = {},
+): string {
+  return `${identifier} ${title}\n\n${buildTrailers(identifier, url, opts)}`;
+}
+
+/**
+ * The title and body `issue pull-request` hands to `gh pr create`: schpet's
+ * `ID Title` (a custom title is prefixed the same way), and the two trailers as
+ * the body — the URL for the humans, the magic word so Linear links (and, on
+ * merge, closes) the issue even when the branch name does not carry the id.
+ */
+export function buildPrContent(
+  issue: { identifier: string; title: string; url: string },
+  customTitle?: string,
+): { title: string; body: string } {
+  return {
+    title: `${issue.identifier} ${customTitle ?? issue.title}`,
+    body: buildTrailers(issue.identifier, issue.url),
+  };
 }
 
 export interface PrArgsInput {

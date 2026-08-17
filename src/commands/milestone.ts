@@ -2,7 +2,9 @@
  * `linear milestone` (alias `m`) — project milestone management.
  *
  * Milestones live inside a project: `list`/`create` take a project reference
- * (name or id), while `view`/`update`/`delete` take a milestone id.
+ * (name or id), while `view`/`update`/`delete` take a milestone id — or a
+ * milestone *name* together with `--project`, since names are unique only
+ * within a project.
  */
 
 import { Command } from "commander";
@@ -17,10 +19,22 @@ import type { Column } from "../output/table.js";
 const ROW_COLUMNS: Column<svc.MilestoneRow>[] = [
   { key: "name", header: "Name", value: (r) => r.name, max: 40 },
   { key: "target", header: "Target", value: (r) => r.targetDate ?? "—" },
-  { key: "progress", header: "Progress", value: (r) => `${Math.round(r.progress * 100)}%` },
+  { key: "progress", header: "Progress", value: (r) => formatMilestoneProgress(r.progress) },
   { key: "status", header: "Status", value: (r) => r.status, max: 14 },
   { key: "id", header: "ID", value: (r) => r.id },
 ];
+
+/**
+ * `ProjectMilestone.progress` is already a percentage — `38.46` for 38%
+ * (verified live) — unlike `Project.progress`, which is a fraction. Multiplying
+ * it by 100 as the project renderer does printed `3846%`. Exported for tests.
+ */
+export function formatMilestoneProgress(progress: number | null): string {
+  if (progress === null || progress === undefined) return "—";
+  return `${Math.round(progress)}%`;
+}
+
+const PROJECT_SCOPE = ["-p, --project <name>", "the milestone's project, when <id> is a name (names are unique per project only)"] as const;
 
 export function registerMilestone(program: Command): void {
   const milestone = program
@@ -43,19 +57,21 @@ export function registerMilestone(program: Command): void {
   // view --------------------------------------------------------------------
   milestone
     .command("view <id>")
-    .description("Show a milestone and the issues in it")
+    .description("Show a milestone and the issues in it (by id, or by name with --project)")
+    .option(...PROJECT_SCOPE)
     .action(
-      action(async (ctx: Context, _opts, id: string) => {
+      action(async (ctx: Context, opts, idArg: string) => {
+        const id = await svc.resolveMilestoneRef(ctx.client, idArg, opts.project);
         const detail = await svc.getMilestoneDetail(ctx.client, id, ctx.limit);
         const issueLines = detail.issues.map(
-          (i) => `  ${i.identifier}  ${i.state ? `[${i.state}] ` : ""}${i.title}`,
+          (i) => `  ${i.identifier}  ${i.state ? `[${i.state.name}] ` : ""}${i.title}`,
         );
         if (detail.issuesTruncated) issueLines.push("  … more (use --all)");
         ctx.output.detail(detail, [
           ["Milestone", detail.name],
-          ["Project", detail.project],
+          ["Project", detail.project?.name ?? null],
           ["Target", detail.targetDate],
-          ["Progress", `${Math.round(detail.progress * 100)}%`],
+          ["Progress", formatMilestoneProgress(detail.progress)],
           ["Status", detail.status],
           ["Updated", detail.updatedAt],
           ["ID", detail.id],
@@ -99,18 +115,20 @@ export function registerMilestone(program: Command): void {
   const update = milestone
     .command("update <id>")
     .alias("edit")
-    .description("Update a milestone")
+    .description("Update a milestone (by id, or by name with --project)")
+    .option(...PROJECT_SCOPE)
     .option("--name <name>", "new name")
     .option("-d, --description <text>", "new description")
     .option("--description-file <path>", "read description from a file ('-' = stdin)")
     .option("--target <date>", "target date (YYYY-MM-DD)")
     .action(
-      action(async (ctx: Context, opts, id: string) => {
+      action(async (ctx: Context, opts, idArg: string) => {
         const description = resolveBody({
           arg: opts.description,
           file: opts.descriptionFile,
           interactive: false,
         });
+        const id = await svc.resolveMilestoneRef(ctx.client, idArg, opts.project);
         const updated = await svc.updateMilestone(ctx.client, id, {
           name: opts.name,
           description,
@@ -127,10 +145,12 @@ export function registerMilestone(program: Command): void {
   milestone
     .command("delete <id>")
     .alias("rm")
-    .description("Delete a milestone")
+    .description("Delete a milestone (by id, or by name with --project)")
+    .option(...PROJECT_SCOPE)
     .action(
-      action(async (ctx: Context, _opts, id: string) => {
-        if (!(await confirmDestructive(ctx, `Delete milestone ${id}?`))) return;
+      action(async (ctx: Context, opts, idArg: string) => {
+        const id = await svc.resolveMilestoneRef(ctx.client, idArg, opts.project);
+        if (!(await confirmDestructive(ctx, `Delete milestone ${idArg}?`))) return;
         const deleted = await svc.deleteMilestone(ctx.client, id);
         ctx.output.emit({ id: deleted.id, name: deleted.name, deleted: true }, () =>
           ctx.output.success(`Deleted milestone ${deleted.name}`),

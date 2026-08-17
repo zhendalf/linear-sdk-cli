@@ -7,6 +7,7 @@
 
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
+import { shape } from "../lib/shape.js";
 import { collect, collectRawQuery } from "../lib/pagination.js";
 import { usageError, notFound, ambiguous } from "../lib/errors.js";
 import { assertMutation, unwrapMutation } from "../lib/mutation.js";
@@ -30,8 +31,23 @@ export interface ProjectRow {
   lead: { displayName: string } | null;
 }
 
+/** The row's shape as `linear commands` advertises it (TES-610); checked against the interface. */
+export const PROJECT_ROW_SHAPE = shape<ProjectRow>({
+  id: "string",
+  name: "string",
+  state: "string|null",
+  progress: "number|null",
+  url: "string",
+  startDate: "string|null",
+  targetDate: "string|null",
+  status: { nullable: { name: "string" } },
+  lead: { nullable: { displayName: "string" } },
+});
+
 export interface ListFilters {
   team?: string;
+  /** Every team's projects: no team clause at all, and the default team is not applied. */
+  allTeams?: boolean;
   state?: string;
 }
 
@@ -54,7 +70,10 @@ export async function buildFilter(
   defaultTeamKey: string | undefined,
 ): Promise<Record<string, unknown>> {
   const filter: Record<string, any> = {};
-  const teamKey = f.team ?? defaultTeamKey;
+  // Without a team the list is scoped to the configured default, so a project
+  // in another team is invisible unless `--all-teams` says the whole workspace
+  // (the only other way out used to be the accidental `--team ''`).
+  const teamKey = f.allTeams ? undefined : (f.team ?? defaultTeamKey);
   if (teamKey) {
     filter.accessibleTeams = { some: { key: { eq: teamKey.toUpperCase() } } };
   }
@@ -100,15 +119,22 @@ export async function listProjects(
   );
 }
 
+/**
+ * A single project with every relation `view` shows. Relations are objects
+ * with ids — `status` matches the list row's `status: { name }` and adds
+ * `id`/`type`; `lead` matches the row's `lead: { displayName }` and adds
+ * `id`/`email`. `teams` used to be `"KEY name"` strings, which a script could
+ * not split back apart (team names contain spaces).
+ */
 export interface ProjectDetail {
   id: string;
   name: string;
   description: string | null;
   /** The project's markdown body (Project.content), not the one-line description. */
   content: string | null;
-  labels: string[];
+  labels: Array<{ id: string; name: string }>;
   state: string | null;
-  status: string | null;
+  status: { id: string; name: string; type: string } | null;
   health: string | null;
   progress: number | null;
   priority: number;
@@ -119,42 +145,103 @@ export interface ProjectDetail {
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
-  lead: string | null;
-  teams: string[];
-  members: string[];
+  archivedAt: string | null;
+  lead: { id: string; displayName: string; email: string } | null;
+  teams: Array<{ id: string; key: string; name: string }>;
+  members: Array<{ id: string; displayName: string; email: string }>;
 }
 
+/** The detail's shape; checked against `ProjectDetail`. */
+export const PROJECT_DETAIL_SHAPE = shape<ProjectDetail>({
+  id: "string",
+  name: "string",
+  description: "string|null",
+  content: "string|null",
+  labels: [{ id: "string", name: "string" }],
+  state: "string|null",
+  status: { nullable: { id: "string", name: "string", type: "string" } },
+  health: "string|null",
+  progress: "number|null",
+  priority: "number",
+  priorityLabel: "string",
+  url: "string",
+  startDate: "string|null",
+  targetDate: "string|null",
+  createdAt: "string",
+  updatedAt: "string",
+  completedAt: "string|null",
+  archivedAt: "string|null",
+  lead: { nullable: { id: "string", displayName: "string", email: "string" } },
+  teams: [{ id: "string", key: "string", name: "string" }],
+  members: [{ id: "string", displayName: "string", email: "string" }],
+});
+
+/**
+ * Everything `project view` shows, in one round-trip: the name lookup, the
+ * project, and its relations, which the SDK-model path fetched one request
+ * each (7 requests, measured). A UUID filters by id; anything else is a
+ * case-insensitive name match — the same rule as `resolveProjectId`, with the
+ * same not-found/ambiguous outcomes. An id finds an archived project too (as
+ * `client.project(id)` did); a name matches live projects only (as
+ * `resolveProjectId` does), so an archived namesake cannot make a live project
+ * ambiguous.
+ *
+ * `first: 2`, not a full page: a second match already means "ambiguous", and
+ * Linear prices a query by its worst case — 250 projects × three nested
+ * 50-item connections was refused as too complex (49 975 against a cap of
+ * 10 000, verified live).
+ */
+const DETAIL_QUERY = `
+query CliProjectDetail($filter: ProjectFilter!, $includeArchived: Boolean!) {
+  projects(filter: $filter, first: 2, includeArchived: $includeArchived) {
+    nodes {
+      id name description content state health progress priority priorityLabel url
+      startDate targetDate createdAt updatedAt completedAt archivedAt
+      status { id name type }
+      lead { id displayName email }
+      labels(first: 50) { nodes { id name } }
+      teams(first: 50) { nodes { id key name } }
+      members(first: 50) { nodes { id displayName email } }
+    }
+  }
+}`;
+
 export async function getProjectDetail(client: LinearClient, idArg: string): Promise<ProjectDetail> {
-  const projectId = await resolveProjectId(client, idArg);
-  const project = await withRetry(() => client.project(projectId));
-  const [status, lead, teams, members, labels] = await Promise.all([
-    project.status,
-    project.lead,
-    project.teams(),
-    project.members(),
-    project.labels(),
-  ]);
+  const byId = isUuid(idArg);
+  const filter = byId ? { id: { eq: idArg } } : { name: { eqIgnoreCase: idArg } };
+  const data: any = await withRetry(() =>
+    (client as any).client.rawRequest(DETAIL_QUERY, { filter, includeArchived: byId }),
+  );
+  const nodes: any[] = data.data?.projects?.nodes ?? [];
+  if (nodes.length === 0)
+    throw notFound(`No project matching '${idArg}'. Run 'linear project list' to see the options.`);
+  if (nodes.length > 1)
+    throw ambiguous(
+      `Multiple projects match '${idArg}': ${nodes.map((p) => p.name).join(", ")}. Pass the project id instead.`,
+    );
+  const p = nodes[0];
   return {
-    id: project.id,
-    name: project.name,
-    description: project.description || null,
-    content: (project as any).content || null,
-    labels: labels.nodes.map((l: any) => l.name),
-    state: project.state ?? null,
-    status: status?.name ?? null,
-    health: project.health ?? null,
-    progress: project.progress ?? null,
-    priority: project.priority,
-    priorityLabel: project.priorityLabel,
-    url: project.url,
-    startDate: project.startDate ?? null,
-    targetDate: project.targetDate ?? null,
-    createdAt: project.createdAt.toISOString(),
-    updatedAt: project.updatedAt.toISOString(),
-    completedAt: project.completedAt ? project.completedAt.toISOString() : null,
-    lead: lead?.displayName ?? null,
-    teams: teams.nodes.map((t) => `${t.key} ${t.name}`),
-    members: members.nodes.map((m) => m.displayName),
+    id: p.id,
+    name: p.name,
+    description: p.description || null,
+    content: p.content || null,
+    labels: p.labels?.nodes ?? [],
+    state: p.state ?? null,
+    status: p.status ?? null,
+    health: p.health ?? null,
+    progress: p.progress ?? null,
+    priority: p.priority,
+    priorityLabel: p.priorityLabel,
+    url: p.url,
+    startDate: p.startDate ?? null,
+    targetDate: p.targetDate ?? null,
+    createdAt: p.createdAt,
+    updatedAt: p.updatedAt,
+    completedAt: p.completedAt ?? null,
+    archivedAt: p.archivedAt ?? null,
+    lead: p.lead ?? null,
+    teams: p.teams?.nodes ?? [],
+    members: p.members?.nodes ?? [],
   };
 }
 
@@ -254,12 +341,33 @@ export async function archiveProject(client: LinearClient, idArg: string) {
   return project;
 }
 
+/**
+ * Trash a project (`projectDelete`). Distinct from `archiveProject`: an
+ * archived project stays in the workspace, read-only; a trashed one is gone
+ * from every list and is purged after Linear's grace period. Returns the
+ * project as it was, for the receipt.
+ */
+export async function deleteProject(client: LinearClient, idArg: string) {
+  const projectId = await resolveProjectId(client, idArg);
+  const project = await withRetry(() => client.project(projectId));
+  await assertMutation(withRetry(() => client.deleteProject(projectId)), "Project deletion");
+  return project;
+}
+
 export interface MilestoneRow {
   id: string;
   name: string;
   targetDate: string | null;
   progress: number | null;
 }
+
+/** `project milestones` rows; checked against this file's `MilestoneRow`. */
+export const PROJECT_MILESTONE_ROW_SHAPE = shape<MilestoneRow>({
+  id: "string",
+  name: "string",
+  targetDate: "string|null",
+  progress: "number|null",
+});
 
 export async function listMilestones(
   client: LinearClient,

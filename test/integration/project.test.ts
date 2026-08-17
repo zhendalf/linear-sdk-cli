@@ -46,10 +46,13 @@ suite("project — project lifecycle (live)", () => {
 
   it("views a project with resolved relations", () => {
     const { id, name } = makeProject("view");
-    const d = runJson<{ id: string; name: string; teams: string[] }>(["project", "view", id]);
+    // Detail relations are objects (TES-627): teams is [{id,key,name}], not "KEY Name" strings.
+    const d = runJson<{ id: string; name: string; teams: Array<{ id: string; key: string; name: string }> }>(
+      ["project", "view", id],
+    );
     expect(d.id).toBe(id);
     expect(d.name).toBe(name);
-    expect(d.teams.some((t) => t.includes(TEAM))).toBe(true);
+    expect(d.teams.some((t) => t.key === TEAM)).toBe(true);
   });
 
   it("updates name and description", () => {

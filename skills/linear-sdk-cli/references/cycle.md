@@ -34,12 +34,33 @@ linear cycle create [options] [team]
 | `--end <date>`   | end date/time (ISO, e.g. 2026-07-14)   |
 | `--name <name>`  | custom cycle name                      |
 
+**Output (`--json`)**: a receipt object
+
+```text
+id: string
+number: number
+```
+
 ### `linear cycle current`
 
 Show the team's currently active cycle
 
 ```
 linear cycle current [options] [team]
+```
+
+**Output (`--json`)**: a bare object
+
+```text
+id: string
+number: number
+name: string | null
+description: string | null
+startsAt: string
+endsAt: string
+completedAt: string | null
+progress: number
+team: string | null
 ```
 
 ### `linear cycle list`
@@ -50,6 +71,18 @@ Aliases: `ls`
 
 ```
 linear cycle list [options] [team]
+```
+
+**Output (`--json`)**: a bare array of objects
+
+```text
+id: string
+number: number
+name: string | null
+startsAt: string
+endsAt: string
+progress: number
+completedAt: string | null
 ```
 
 ### `linear cycle update`
@@ -68,10 +101,31 @@ linear cycle update [options] <id>
 | `--start <date>` | start date/time (ISO) |
 | `--end <date>`   | end date/time (ISO)   |
 
+**Output (`--json`)**: a receipt object
+
+```text
+id: string
+number: number
+```
+
 ### `linear cycle view`
 
 Show a cycle (by id, number, or 'current')
 
 ```
 linear cycle view [options] <id>
+```
+
+**Output (`--json`)**: a bare object
+
+```text
+id: string
+number: number
+name: string | null
+description: string | null
+startsAt: string
+endsAt: string
+completedAt: string | null
+progress: number
+team: string | null
 ```

@@ -34,6 +34,13 @@ linear favorite add [options]
 | `--project <id\|name>` | project name or id                    |
 | `--document <id>`      | document id (UUID)                    |
 
+**Output (`--json`)**: a receipt object
+
+```text
+id: string
+type: string
+```
+
 ### `linear favorite list`
 
 List your favorites
@@ -44,6 +51,15 @@ Aliases: `ls`
 linear favorite list [options]
 ```
 
+**Output (`--json`)**: a bare array of objects
+
+```text
+id: string
+type: string
+name: string
+url: string | null
+```
+
 ### `linear favorite remove`
 
 Remove a favorite by id
@@ -52,4 +68,11 @@ Aliases: `rm`
 
 ```
 linear favorite remove [options] <favoriteId>
+```
+
+**Output (`--json`)**: a receipt object
+
+```text
+id: string
+removed: boolean
 ```

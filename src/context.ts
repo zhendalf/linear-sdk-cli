@@ -6,7 +6,7 @@
 
 import type { LinearClient } from "@linear/sdk";
 import { resolveConfig, type ResolvedConfig } from "./config.js";
-import { createClient } from "./client.js";
+import { createClient, setRetryReporter } from "./client.js";
 import { Output } from "./output/format.js";
 
 /**
@@ -80,6 +80,9 @@ export class Context {
       debug: options.debug === true,
       fields: options.fields,
     });
+    // Rate-limit waits are status, so they go through the same sink as every
+    // other status line: stderr, silenced by --quiet, never on JSON stdout.
+    setRetryReporter((line) => this.output.info(line));
   }
 
   /** Lazily construct the Linear client (so `--help` never needs a key). */

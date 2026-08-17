@@ -1,110 +1,77 @@
-# Feature Parity — `linear-sdk-cli` vs `linear-cli`
+# Parity Review — `linear-sdk-cli` vs `schpet/linear-cli` v2.5.0
 
-This project (`linear-sdk-cli`, `@linear/sdk`-based) compared against the reference CLI
-(`linear-cli` v2.1.0, GraphQL-codegen-based — github.com/zhendalf/linear-cli).
+_Reviewed 2026-08-16, scorecard updated 2026-08-17 after the fix waves, against the **schpet original** at `5af8286` (v2.5.0, Deno/cliffy). Every
+claim was verified in that source or against the live API. Earlier versions of this file compared
+against a Bun fork at "v2.1.0" that already carried 2.2–2.4 features; treat anything older as
+superseded._
 
-_Rewritten 2026-08-12 against source and the live API, after an external audit found the previous
-version wrong or stale in ~25 places. **Read the method note at the bottom before editing this
-file** — the old version rotted because it was maintained from memory._
+The bar this project sets for itself: **better than schpet/linear-cli in every way** — simplicity,
+integrity, reliability, security, ergonomics — with an easy switch for its users (`MIGRATING.md`).
+This file is the honest scorecard against that bar. Where we are not there yet, it says so and
+names the Linear issue.
 
-## Where the two stand
+## Scorecard
 
-- **Ours is the stronger base for agents and scripts.** Uniform JSON (lists = bare array, single =
-  bare object, errors = `{"error":{message,code}}` on stderr), stable error codes, meaningful exit
-  codes, and live discovery (`linear commands --json`, `linear schema`). The reference has no
-  equivalent contract — its shapes vary per command and it exits 1 for every handled failure.
-- **Theirs is the better terminal tool.** Rendered markdown, a pager, width- and Unicode-aware
-  tables, contextual empty states, masked secret input, richer interactive creation.
-- **We are broader across the Linear data model**; they are deeper in issue discovery, file
-  workflows, portfolio linkage, bulk operations, and VCS integration.
-- **Neither is a superset**, and after the 2026-08-12 alignment pass the *dangerous* differences are
-  gone: no command spelled the same way now returns different data (see `ALIGNMENT.md`).
-
-## Architecture
-
-| Aspect | Ours | Reference |
+| Dimension | Verdict | Evidence |
 |---|---|---|
-| API layer | `@linear/sdk` **v89**, with tailored raw GraphQL for list queries | GraphQL codegen against a vendored schema |
-| CLI framework | commander 15 | commander |
-| Runtime | Bun, raw TS shipped (no build) | Bun, raw TS shipped |
-| Binaries | `linear`, `lin` | `linear` |
-| Auth | multi-workspace credentials + default | multi-workspace credentials + default |
-| Config | user config **and** project `.linear.toml` for non-secret settings (team/workspace/sort/vcs); the API key is **never** read from a project file | `.linear.toml` / `.config/linear.toml`, git-root aware |
-| Output | table default, `--json`/`-j` opt-in, `--fields` projection | table default, per-command `-j/--json`, markdown render + pager |
-| VCS | git; GitHub PR via `gh`; `issue describe` | git **and jj**; GitHub PR; autolinks; `issue commits` |
-| Escape hatch | `api` (query-file, vars-file, paginate, raw) + `schema` dump | `api` + `schema` dump |
+| **Integrity** (does it do what it says) | **Ours ahead** | Every mutation asserts `success` + entity via one helper (`src/lib/mutation.ts`); schpet checks `success` on ~33 of its mutation sites, entity presence on fewer. Every resolver scans past page one and names candidates on a miss. Two silent-wrong-result filters and a `--no-input` that did nothing were found and fixed here this week — by an external audit we ran on ourselves; see `AUDIT.md`. |
+| **Agent / scripting contract** | **Ours ahead** | Uniform bare array/object JSON on all 141 commands; `{"error":{message,code}}` on stderr; exit codes 0–6. schpet: `--json` on **19 of 90** command files — `issue create`, `issue update`, `issue mine` have none — and `Deno.exit(1)` for every failure (16 sites, one code). `linear commands --json` + `linear schema` for cold discovery; schpet ships a static skill. |
+| **Security** | **Ours ahead** | API key never read from a project file (schpet loads project `.env`, which can supply one); stored in the **OS keyring** by default (macOS Keychain / `secret-tool`, service `linear-cli` — schpet's exact convention, so a schpet credential is found without re-login), `--plaintext` opt-out to a 0600 atomic file; masked prompt; TOML errors never echo a secret; upload URLs (bearer credentials) redacted from every error; `api --paginate` refuses mutations; uploads private by default, `--public` refused for non-images. |
+| **Reliability** | **Ours** | Both retry. Ours announces rate-limit waits on stderr with a capped backoff, wraps `fetchNext` so a page-2 429 retries, classifies connection failures as `network` (not `api`), and asserts `success` on every mutation. schpet: several lists issue one connection request only (no pagination). |
+| **Simplicity** | **Ours** | ~11k LOC vs ~22k; commands → services → SDK with one mutation unwrapper, one filter builder, one pagination helper, one comment lister (the seven duplicate list pairs are gone). Detail views are one tailored query each (was 6–10 requests). schpet's codegen + vendored schema is a heavier build. |
+| **Ergonomics — human** | **schpet ahead** | Rendered markdown, pager, width-aware tables, `-w/-a` everywhere, richer interactive create, contextual empty states. Ours prints raw markdown into scrollback (TES-599). Honest gap. |
+| **Ergonomics — flags** | **Ours** | One meaning per short letter across the tree (`-t`=`--team` always). schpet 2.5: `-a` = `--app`/`--all`/`--assignee`/`--attach`, `-f` ×4, `-y` ×3, `-t` = `--title` and `--team`. Every schpet spelling is accepted here as an alias (§5 of `MIGRATING.md`). |
+| **Breadth (data model)** | **Ours** | Notifications, webhooks, favorites, organization, roadmaps, cycle create/update, comment resolve/reply/thread, label hierarchy, `issue archive/unarchive/subscribe`, attachment list/delete, team view/update — none in schpet. |
+| **Depth (issue workflows)** | **Parity → closing** | File upload landed (TES-602): `issue attach <issue> <file...>` (multi-file, `--title`, `--comment`, `--public`) and `--attach` on `comment add`, private by default with schpet's exact posture — `--public` warns, and is refused for non-images before any byte moves — plus what schpet does not have: a whole batch validated up front, the signed URL redacted from every error, `--json` on both. `issue commits`, jj, `team autolinks` — deliberately not adopting. Agent sessions, `project delete`, `team delete`, initiative↔project links, relative cycle refs — all in flight (TES-644/603/611); six document targets + `update` re-point landed (TES-613). |
+| **Migration** | **Done → `MIGRATING.md`** | Verified end-to-end on this machine: schpet's Keychain entry appears in `auth list` with no login; its `linear.toml`/`.config/linear.toml`/global file are read (`config` names the source); every schpet spelling is an alias; `issue attach/link/commits` typed out of habit point at the equivalent; the `linear` bin collision has a documented `lin` escape. Every claim in the guide re-verified against the built binary. |
 
-**Global flags.** Ours registers `--json/-j --no-color --api-key --workspace -t/--team -n/--limit
---all -f/--fields -y/--yes -q/--quiet --no-input --debug` on every command; a command may now
-declare its own version of a global to give it a local meaning (`issue update --team` moves an
-issue). The reference declares almost everything per-command. Ours is more uniform but advertises
-options some commands ignore — see `AUDIT.md` #8, which is only partly resolved.
+## Where schpet is genuinely better (no spin)
 
-## Real gaps in OURS
+1. **Human terminal output.** Markdown rendering, paging. This is what a person notices first,
+   and we have not built it (TES-599). Unicode-width tables and escape-sanitized output are done.
+2. **Interactive `issue create`** — guided, prompt-driven creation. Template handling (`--template`,
+   team default unless `--no-default-template`, `--parent` inheriting the project, `--start`) is at
+   parity; the wizard is not.
+3. **`issue commits`, jj, `team autolinks`** — deliberately not adopted (see divergences).
 
-Verified present in the reference and absent here. Anything reachable through `linear api` is still
-listed, because a raw GraphQL call is not an equivalent user-facing capability.
+Struck since the first review, all verified live: keyring storage + `auth migrate`; file attachments
+(`issue attach`, `comment add --attach`, private by default); config generation (`config init/set`)
+and discovery in every schpet location; cycle references (`now/next/previous/+1`, `active`).
 
-| Gap | Value | Notes |
-|---|---|---|
-| **File uploads** — `issue attach <file>`, `comment --attach` | Logs, screenshots, artifacts are core terminal/agent inputs | SDK exposes `fileUpload`; needs signed-upload + HTTP PUT. If built, copy their **private-by-default** posture with an explicit `--public` |
-| **Agent sessions** — `issue agent-session list/view` | Inspect coding-agent status and activity | SDK has the types; forward-looking |
-| **Initiative ↔ project linkage** — `initiative add-project`/`remove-project` | Portfolio workflows | Direct SDK methods |
-| **`initiative unarchive`** | Recovery | Direct SDK method |
-| **`project delete`** (we only archive) | Archive and trash are different lifecycle steps | Direct SDK method |
-| **`team delete`** (with `--move-issues`), **`team create --private`** | Consolidation; visibility at creation | `TeamCreateInput.private` exists |
-| **`team autolinks`** | GitHub repo onboarding | Not SDK work — `gh` integration |
-| **`issue commits`** + jj support | jj users; commit discovery | Needs a VCS abstraction; jj was explicitly dropped once already |
-| **Bulk operations** — `--bulk/--bulk-file/--bulk-stdin` | Generated id sets need one review and partial-failure handling | Loop existing mutations; no SDK blocker |
-| **Output ergonomics** — markdown rendering, pager, image download, `-a/--app` | The gap a human notices first | Their `charmd`/pager work is substantial |
-| **Document `--icon`, `-e/--edit`, `update --project`**, inline-comment overwrite guard | Metadata preservation and edit safety | Their guard refuses to overwrite a doc carrying active inline comments |
-| **Health-only status updates** | A health change should not require inventing prose | SDK permits an empty body; we require one |
-| **Richer `issue view`** — children, attachments, documents, threaded comments | Complete work context in one call | Typed SDK fields exist |
-| **Project slug resolution**, `--all-teams` on `project list` | URL-derived lookups; configured-team narrowing hides projects | Resolver work |
+The two remaining gaps have open issues in the `linear-sdk-cli` Linear project.
 
-## Gaps in the REFERENCE (our advantages)
+## Where we are better (verified, not asserted)
 
-Whole areas it does not cover: **notifications**, **webhooks**, **organization** metadata/invites,
-**favorites**, **roadmaps** (deprecated API), **cycle create/update** (it is read-only),
-**project archive** and broad project update (content/priority/members/icon/colour),
-**comment resolve/unresolve**, **issue subscribe/unsubscribe**, **attachment list/delete**,
-**team view/update**, **label update and sub-labels**, **user view/me**, **workflow-state view**,
-**initiative priority/labels**, resolved-config readback, `linear commands`/`schema` discovery,
-and shell completion.
+1. **JSON is universal and uniform.** schpet's `issue create --json` does not exist; an agent
+   creating an issue there gets human text.
+2. **Exit codes carry meaning** — 0 ok, 1 api, 2 usage, 3 not-found, 4 auth, 5 rate-limit, 6
+   cancelled. schpet: everything is 1.
+3. **Silent-failure posture.** `--json` implies non-interactive; a declined confirmation exits 6
+   with a receipt; contradictory flags (`--assignee` + `--unassigned`, both date spellings) are
+   usage errors, never a coin flip; a mutation whose payload says `success:false` cannot print
+   "Updated".
+4. **The trust boundary.** The API key is unreachable from anything a repository can commit.
+5. **One meaning per short flag**, and every schpet spelling accepted as an alias.
+6. **Discovery:** `linear commands --json` gives an agent the whole surface in one call.
+7. **Breadth:** the whole notification/webhook/favorite/org/roadmap surface, and full cycle CRUD.
+8. **Size:** under half the code for a larger surface.
 
-The audit also found **defects in the reference**: `initiative update` sends invalid lowercase
-status enums, `--search` silently drops `--milestone`, and several of its lists issue only one
-connection request (no pagination).
+## Deliberate divergences
 
-## Differences we deliberately keep
+Not gaps. Reasoning in `ALIGNMENT.md`.
 
-Not gaps — choices. Full reasoning in `ALIGNMENT.md`.
-
-- `issue list` stays general; theirs aliases `list` to `mine`. We ship `mine` separately.
-- One meaning per short flag. Their tree spells `-t` as both `--title` and `--team`, `-f` four ways.
-- `--sort priority` sorts state **ascending** (active work first). Theirs hardcodes descending,
+- `issue list` stays general; `issue mine` is the "yours, unstarted" view. schpet aliases `list`
+  to `mine`, and a `list` that hides colleagues' work is the sharpest silent hazard in a switch.
+- `--sort priority` groups by state **ascending** (active work first). schpet hardcodes descending,
   which the API answers with Backlog above In Progress.
-- `--all` is the spelling we teach for unlimited; `--limit 0` is accepted as their synonym.
-- Our uniform JSON envelope, rather than their per-command connection shapes.
+- No short-flag reassignment: schpet's own assignments conflict, so there is nothing to copy.
+- Uniform JSON over schpet's connection envelopes.
 
-Their spellings are otherwise accepted as aliases (`--due-date`, `--target-date`, `--start-date`,
-`--search`, `--status`, `self`, `issue query`, `auth whoami`, `issue comment <verb>`).
+## Method — how to keep this file honest
 
-## Method note — how to keep this file honest
-
-The previous version claimed `schema` was reference-only in three places while we shipped
-`linear schema`; called cycle support "full CRUD" when archive/delete do not exist; and listed
-`user list` and comment `reply` as ours-only when the reference has both. Every one of those came
-from editing prose rather than checking.
-
-Before changing anything here:
-
-1. **Regenerate the command diff.** `linear commands --json | jq -r '.[].path' | sort` for ours;
-   for theirs, extract `Usage:` lines from `skills/linear-cli/references/*.md` in its repo.
-2. **Treat that diff as leads, not findings.** It produces false positives in both directions —
-   `issue query` is an *alias* of our `issue list`, and `issue relation add` is a *positional
-   operand* here, not a missing subcommand. Both looked like gaps and were not.
-3. **Verify against source or the live API**, and say which. A capability that exists under a
-   different name, or as a flag on another command, is parity — record where it lives.
-4. `AUDIT.md` holds the externally verified capability matrix with `file:line` citations; prefer
-   linking to it over restating it here.
+The previous version rotted because it was edited from memory and compared against the wrong
+repository. Before touching it: (1) `git -C <schpet clone> log -1` and update the header;
+(2) regenerate the command diff (`linear commands --json | jq -r '.[].path'` vs the `Usage:` lines in
+schpet's `skills/linear-cli/references/*.md`) and treat it as *leads* — `issue query` is an alias
+here and `issue relation add` a positional operand, both false gaps; (3) verify each row in source
+or live and cite it; (4) `AUDIT.md` holds `file:line`-cited findings — link, don't restate.

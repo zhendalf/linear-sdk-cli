@@ -32,6 +32,11 @@ import * as projectUpdate from "../../src/services/project-update.js";
 import * as roadmap from "../../src/services/roadmap.js";
 import * as team from "../../src/services/team.js";
 import * as webhook from "../../src/services/webhook.js";
+import { uploadFile } from "../../src/lib/upload.js";
+import { fileURLToPath } from "node:url";
+
+/** A real, readable file for the upload paths: this test file itself. */
+const SOME_FILE = fileURLToPath(import.meta.url);
 
 const UUID = "11111111-1111-1111-1111-111111111111";
 const OTHER = "22222222-2222-2222-2222-222222222222";
@@ -104,7 +109,7 @@ function refusingClient(): any {
     attachment: async () => entity,
     client: {
       rawRequest: async (query: string) => {
-        if (query.includes("CliCommentParent")) {
+        if (query.includes("CliCommentLookup")) {
           return {
             data: {
               comment: { id: "c1", issueId: UUID, issue: { id: UUID, identifier: "TES-1" } },
@@ -134,6 +139,9 @@ function refusingClient(): any {
     },
 
     // ---- writes, all refused ---------------------------------------------
+    // The signed-URL request behind `issue attach` / `comment add --attach` is
+    // a mutation too: refused here means no PUT and no attachment.
+    fileUpload: refusedWith("uploadFile"),
     createAttachment: refusedWith("attachment"),
     deleteAttachment: refused,
     createComment: refusedWith("comment"),
@@ -188,6 +196,9 @@ function refusingClient(): any {
 /** Every mutating entry point in `src/services`, by the file it lives in. */
 const MUTATIONS: Array<[string, (c: any) => Promise<unknown>]> = [
   ["attachment.createAttachment", (c) => attachment.createAttachment(c, "TES-1", { url: "u", title: "t" })],
+  ["attachment.attachFiles", (c) => attachment.attachFiles(c, "TES-1", [SOME_FILE], {})],
+  ["comment.addComment(attachments)", (c) => comment.addComment(c, "TES-1", "body", { attachments: [SOME_FILE] })],
+  ["upload.uploadFile", (c) => uploadFile(c, SOME_FILE)],
   ["attachment.deleteAttachment", (c) => attachment.deleteAttachment(c, UUID)],
   ["comment.addComment", (c) => comment.addComment(c, "TES-1", "body")],
   ["comment.replyToComment", (c) => comment.replyToComment(c, "c1", "body")],
@@ -214,7 +225,6 @@ const MUTATIONS: Array<[string, (c: any) => Promise<unknown>]> = [
   ["issue.deleteIssue", (c) => issue.deleteIssue(c, "TES-1")],
   ["issue.setSubscription(true)", (c) => issue.setSubscription(c, "TES-1", true)],
   ["issue.setSubscription(false)", (c) => issue.setSubscription(c, "TES-1", false)],
-  ["issue.commentOnIssue", (c) => issue.commentOnIssue(c, "TES-1", "body")],
   ["issue.startIssue", (c) => issue.startIssue(c, "TES-1", { move: true })],
   ["issue.addRelation", (c) => issue.addRemoveRelation(c, "TES-1", "add", "blocks", "TES-2")],
   ["label.createLabel", (c) => label.createLabel(c, { name: "n" }, undefined)],

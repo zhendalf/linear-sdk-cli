@@ -16,8 +16,10 @@ import {
   parseIntOption,
   CYCLE_FLAG,
   CYCLE_DESC,
+  suggestSubcommand,
 } from "../lib/options.js";
 import { registerIssueCommentGroup } from "./comment.js";
+import { noteWorkspaceWide } from "./project.js";
 import { resolveBody } from "../lib/body.js";
 import { confirmDestructive, promptInput } from "../lib/prompt.js";
 import { usageError } from "../lib/errors.js";
@@ -26,12 +28,16 @@ import {
   checkoutBranch,
   isGitRepo,
   buildTrailer,
+  buildDescription,
+  buildPrContent,
   buildPrArgs,
 } from "../git.js";
 import { execFileSync } from "node:child_process";
 import { CliError } from "../lib/errors.js";
 import type { Context } from "../context.js";
 import * as svc from "../services/issue.js";
+import * as commentSvc from "../services/comment.js";
+import { isSelf } from "../lib/resolve.js";
 import type { Column } from "../output/table.js";
 
 /** Resolve the target issue id from an argument or the current git branch. */
@@ -45,15 +51,55 @@ function requireId(idArg: string | undefined): string {
 
 const ROW_COLUMNS: Column<svc.IssueRow>[] = [
   { key: "id", header: "ID", value: (r) => r.identifier },
-  { key: "state", header: "State", value: (r) => r.state?.name ?? "", max: 14 },
+  // `--include-archived` mixes live, archived and trashed rows; mark the latter
+  // two so they cannot pass for live. The state name alone stays under 14.
+  { key: "state", header: "State", value: (r) => `${r.state?.name ?? ""}${lifecycleMark(r)}`, max: 26 },
   { key: "priority", header: "Pri", value: (r) => shortPriority(r.priority) },
   { key: "assignee", header: "Assignee", value: (r) => r.assignee?.displayName ?? "—", max: 16 },
   { key: "title", header: "Title", value: (r) => r.title, max: 60 },
 ];
 
+/**
+ * Columns the default table leaves out (it is wide already) but `--fields` can
+ * ask for by name: `--fields id,milestone,title`. A cycle shows its name, or
+ * `#n` when it has none — the generic row-key fallback would print its id.
+ */
+const EXTRA_COLUMNS: Column<svc.IssueRow>[] = [
+  { key: "milestone", header: "Milestone", value: (r) => r.milestone?.name ?? "—", max: 30 },
+  { key: "cycle", header: "Cycle", value: (r) => cycleLabel(r.cycle) },
+];
+
+/** The list table's columns: the defaults, plus the optional ones once `--fields` is selecting. */
+function listColumns(ctx: Context): Column<svc.IssueRow>[] {
+  return ctx.options.fields?.length ? [...ROW_COLUMNS, ...EXTRA_COLUMNS] : ROW_COLUMNS;
+}
+
+/** `Sprint 3`, or `#3` for an unnamed cycle; `—` for none. */
+function cycleLabel(c: svc.IssueRow["cycle"]): string {
+  return c ? (c.name ?? `#${c.number}`) : "—";
+}
+
 function shortPriority(p: number): string {
   return ["—", "Urgent", "High", "Med", "Low"][p] ?? String(p);
 }
+
+/** ` (trashed)` / ` (archived)` for a row that is not live; empty otherwise. */
+function lifecycleMark(r: Pick<svc.IssueRow, "trashed" | "archivedAt">): string {
+  return r.trashed ? " (trashed)" : r.archivedAt ? " (archived)" : "";
+}
+
+/**
+ * schpet/linear-cli `issue` subcommands that a migrating user may type and that
+ * do not exist under that name here. Since `view` is the default subcommand,
+ * `linear issue link x` lands in `view` with "link" as the id; without this
+ * the error would only say it is not an issue id. Keep in step with MIGRATING.md.
+ * (`issue attach` is a real subcommand now — TES-602 — so it never lands here.)
+ */
+const SCHPET_ISSUE_SUBCOMMANDS: Record<string, string> = {
+  link: "Use 'linear attachment create <issue> --url <url>'.",
+  commits: "'issue commits' is not available here (jj/git log integration is not adopted). Use 'git log --grep <ID>'.",
+  "agent-session": "Use 'linear issue agent-session list|view <issue>'.",
+};
 
 export function registerIssue(program: Command): void {
   const issue = program.command("issue").alias("i").description("Work with issues");
@@ -66,6 +112,20 @@ export function registerIssue(program: Command): void {
     .option("--comments", "include recent comments")
     .action(
       action(async (ctx: Context, opts, idArg?: string) => {
+        // `view` is the default subcommand, so `linear issue lst` lands here
+        // with "lst" as the id. Say what it probably was, not just what it is not.
+        if (idArg !== undefined && !ISSUE_ID_RE.test(idArg)) {
+          // A schpet/linear-cli subcommand that lives elsewhere here (or not at
+          // all) is the likeliest thing a migrating user types; name the
+          // equivalent before falling back to a spelling guess.
+          const ported = SCHPET_ISSUE_SUBCOMMANDS[idArg.toLowerCase()];
+          const guess = ported ? undefined : suggestSubcommand(issue, idArg);
+          throw usageError(
+            `'${idArg}' is not a valid issue id (expected e.g. TES-123 or a UUID).${
+              ported ? ` ${ported}` : guess ? ` Did you mean 'linear issue ${guess}'?` : ""
+            }`,
+          );
+        }
         const detail = await svc.getIssueDetail(ctx.client, requireId(idArg));
         if (opts.web) {
           await openUrl(detail.url);
@@ -106,6 +166,7 @@ export function registerIssue(program: Command): void {
         if (opts.allStates && opts.state?.length) {
           throw usageError("Pass either --state or --all-states, not both.");
         }
+        noteWorkspaceWide(ctx, opts);
         const rows = await svc.listIssues(
           ctx.client,
           {
@@ -129,7 +190,7 @@ export function registerIssue(program: Command): void {
           ctx.limit,
           ctx.defaultTeam,
         );
-        ctx.output.list(rows, ROW_COLUMNS, rows);
+        ctx.output.list(rows, listColumns(ctx), rows);
       }),
     );
   addFilterOptions(list).addOption(
@@ -163,6 +224,7 @@ export function registerIssue(program: Command): void {
         if (opts.allStates && opts.state?.length) {
           throw usageError("Pass either --state or --all-states, not both.");
         }
+        noteWorkspaceWide(ctx, opts);
         const rows = await svc.listIssues(
           ctx.client,
           {
@@ -192,7 +254,7 @@ export function registerIssue(program: Command): void {
           ctx.limit,
           ctx.defaultTeam,
         );
-        ctx.output.list(rows, ROW_COLUMNS, rows);
+        ctx.output.list(rows, listColumns(ctx), rows);
       }),
     );
   addFilterOptions(mine, { assignee: false }).addOption(
@@ -214,6 +276,7 @@ export function registerIssue(program: Command): void {
     )
     .action(
       action(async (ctx: Context, opts, text: string) => {
+        noteWorkspaceWide(ctx, opts);
         const rows = await svc.searchIssues(
           ctx.client,
           text,
@@ -237,7 +300,7 @@ export function registerIssue(program: Command): void {
           ctx.limit,
           ctx.defaultTeam,
         );
-        ctx.output.list(rows, ROW_COLUMNS, rows);
+        ctx.output.list(rows, listColumns(ctx), rows);
       }),
     );
   // Search-only: the plain `issues` query has nowhere to put it, so this does
@@ -264,8 +327,14 @@ export function registerIssue(program: Command): void {
     .option("--milestone <name>", "project milestone (requires --project)")
     .option(CYCLE_FLAG, CYCLE_DESC)
     .option("--estimate <n>", "estimate points", parseIntOption)
-    .option("--parent <id>", "parent issue id")
+    .option("--parent <id>", "parent issue id (the sub-issue joins the parent's project unless --project says otherwise)")
     .option("--due <date>", "due date (YYYY-MM-DD)")
+    .option("--template <name|id>", "create from an issue template (the team's or a shared one)")
+    .option("--no-default-template", "do not apply the team's default issue template")
+    .option(
+      "--start",
+      "then start work: check out the branch, move to the first 'started' state (or --state), assign to you",
+    )
     .addHelpText(
       "after",
       [
@@ -274,11 +343,21 @@ export function registerIssue(program: Command): void {
         "  linear issue create --title 'Fix login' --team TES --assignee me",
         "  linear issue create --title 'Bug' -l bug -l urgent --priority 1",
         "  linear issue create --title 'Sprint task' --cycle current --state 'In Progress'",
+        "  linear issue create --title 'Sub-task' --parent TES-42          # inherits TES-42's project",
+        "  linear issue create --title 'Bug report' --template 'Bug'      # from a template",
+        "  linear issue create --title 'Hotfix' --start                    # create, branch, In Progress",
         "  linear issue create --title 'API' --team TES --json | jq -r '.identifier'",
       ].join("\n"),
     )
     .action(
       action(async (ctx: Context, opts) => {
+        // `--start` means *you* are starting on it, so it assigns to you (as the
+        // reference CLI does); naming somebody else at the same time is a contradiction.
+        if (opts.start && opts.assignee && !isSelf(opts.assignee)) {
+          throw usageError(
+            "--start assigns the issue to you; pass either --start or --assignee <someone else>, not both.",
+          );
+        }
         let title: string | undefined = opts.title;
         if (!title) title = await promptInput(ctx, "Title:", { required: true });
         const description = resolveBody({
@@ -293,7 +372,7 @@ export function registerIssue(program: Command): void {
             title,
             description,
             team: opts.team ?? ctx.defaultTeam,
-            assignee: opts.assignee,
+            assignee: opts.start ? (opts.assignee ?? "me") : opts.assignee,
             state: opts.state,
             priority: opts.priority,
             label: opts.label,
@@ -303,15 +382,47 @@ export function registerIssue(program: Command): void {
             estimate: opts.estimate,
             parent: opts.parent,
             dueDate: readAlias(opts, "--due", "--due-date"),
+            template: opts.template,
+            // Both spellings: ours, and the reference CLI's `--no-use-default-template`.
+            useDefaultTemplate: opts.defaultTemplate !== false && opts.useDefaultTemplate !== false,
           },
           ctx.defaultTeam,
         );
-        ctx.output.emit({ id: created.id, identifier: created.identifier, url: created.url }, () =>
-          ctx.output.success(`Created ${created.identifier}: ${created.url}`),
+        if (!opts.start) {
+          ctx.output.emit({ id: created.id, identifier: created.identifier, url: created.url }, () =>
+            ctx.output.success(`Created ${created.identifier}: ${created.url}`),
+          );
+          return;
+        }
+        // --start: the same two steps `issue start --move` takes, on the issue
+        // just created. An explicit --state already put it where it belongs, so
+        // only the default case moves it (to the team's first `started` state).
+        const moved = !opts.state;
+        await svc.moveIssueState(ctx.client, created, { move: moved });
+        const branchResult = isGitRepo() ? checkoutBranch(created.branchName) : undefined;
+        ctx.output.emit(
+          {
+            id: created.id,
+            identifier: created.identifier,
+            url: created.url,
+            branch: branchResult?.branch ?? created.branchName,
+            checkedOut: !!branchResult,
+            stateChanged: moved,
+          },
+          () => {
+            ctx.output.success(`Created ${created.identifier}: ${created.url}`);
+            if (branchResult)
+              ctx.output.success(
+                `${branchResult.created ? "Created and checked out" : "Checked out"} ${branchResult.branch}`,
+              );
+            else ctx.output.info(`Branch name: ${created.branchName}`);
+            if (moved) ctx.output.success(`Moved ${created.identifier} → started`);
+          },
         );
       }),
     );
   addAliasOption(create, "--due-date <date>", "--due");
+  addAliasOption(create, "--no-use-default-template", "--no-default-template");
 
   // update ------------------------------------------------------------------
   const update = issue
@@ -441,13 +552,23 @@ export function registerIssue(program: Command): void {
   // comment / comments ------------------------------------------------------
   const comment = issue
     .command("comment [id] [body]")
-    .description("Add a comment to an issue (or use the add/list/update/delete subcommands)")
+    .description(
+      "Add a comment to an issue; on a matching branch, `issue comment \"<body>\"` is enough (or use the add/list/update/delete subcommands)",
+    )
     .option("--body-file <path>", "read comment body from a file ('-' = stdin)")
     .action(
-      action(async (ctx: Context, opts, idArg?: string, bodyArg?: string) => {
+      action(async (ctx: Context, opts, a?: string, b?: string) => {
+        // Both operands are optional, so a lone one is ambiguous: `TES-42` is
+        // an id (body from --body-file or $EDITOR), anything else is the body
+        // with the id inferred from the branch — the README's headline
+        // `linear issue comment "shipped"`. Same rule as `assign`/`state`.
+        const { idArg, bodyArg } = idAndBody(a, b);
+        // Settle the id BEFORE the editor can open, so nobody writes a comment
+        // only to be told there was nowhere to put it.
+        const id = requireId(idArg);
         const body = resolveBody({ arg: bodyArg, file: opts.bodyFile, interactive: ctx.isTTY });
         if (!body) throw usageError("No comment body provided.");
-        const { issue: iss, comment } = await svc.commentOnIssue(ctx.client, requireId(idArg), body);
+        const { issue: iss, comment } = await commentSvc.addComment(ctx.client, id, body);
         ctx.output.emit({ id: comment?.id, issue: iss.identifier }, () =>
           ctx.output.success(`Commented on ${iss.identifier}`),
         );
@@ -464,12 +585,14 @@ export function registerIssue(program: Command): void {
     .description("List comments on an issue")
     .action(
       action(async (ctx: Context, _opts, idArg?: string) => {
-        const comments = await svc.listComments(ctx.client, requireId(idArg), ctx.limit);
+        // Same implementation and row shape as `comment list` — TES-629: this
+        // used to be a second, narrower lister with its own JSON.
+        const comments = await commentSvc.listComments(ctx.client, requireId(idArg), ctx.limit);
         ctx.output.list(
           comments,
           [
             { key: "createdAt", header: "Date", value: (c) => c.createdAt.slice(0, 10) },
-            { key: "user", header: "Author", value: (c) => c.user, max: 18 },
+            { key: "user", header: "Author", value: (c) => c.user?.displayName ?? "—", max: 18 },
             { key: "body", header: "Comment", value: (c) => c.body.replace(/\n/g, " "), max: 70 },
           ],
           comments,
@@ -478,29 +601,43 @@ export function registerIssue(program: Command): void {
     );
 
   // start -------------------------------------------------------------------
+  // "Start" moves the issue: to the team's first `started` state, or to
+  // `--state`. That is what the word means, what schpet/linear-cli does
+  // unconditionally (T `src/utils/actions.ts`), and what an agent that just
+  // said "start" expects to have happened. It used to be opt-in (`--move`), so
+  // a transplanted `linear issue start TES-1` checked the branch out and left
+  // the issue in Backlog without a word (TES-637 item 4). `--no-move` is the
+  // opt-out; `--move` is still accepted (hidden) so an existing script keeps
+  // working. Both the state change and the checkout are reported, so neither
+  // is a surprise.
   issue
     .command("start [id]")
-    .description("Checkout the issue's git branch (and optionally move its state)")
-    .option("--state <name>", "also move the issue to this state")
-    .option("--move", "move the issue to the first 'started' state")
+    .description("Start work on an issue: check out its branch and move it to the first 'started' state")
+    .option("--state <name>", "move to this state instead of the first 'started' one")
+    .option("--no-move", "do not change the state; only check out the branch")
+    .addOption(new Option("--move", "accepted for compatibility: moving is the default").hideHelp())
     .option("--no-checkout", "do not touch git; only update state")
     .addHelpText(
       "after",
       [
         "",
         "Examples:",
-        "  linear issue start TES-42            # checkout the issue's branch",
-        "  linear issue start TES-42 --move     # branch + move to first 'started' state",
-        "  linear issue start TES-42 --state 'In Progress' --no-checkout",
+        "  linear issue start TES-42                     # branch + first 'started' state",
+        "  linear issue start TES-42 --no-move           # branch only",
+        "  linear issue start TES-42 --state 'In Review' --no-checkout",
         "  linear issue start --json | jq -r '.branch'   # id from branch",
       ].join("\n"),
     )
     .action(
       action(async (ctx: Context, opts, idArg?: string) => {
-        const moved = !!opts.state || !!opts.move;
+        // `--state` is a move; `--no-move` says don't. Not a coin flip.
+        if (opts.state !== undefined && opts.move === false) {
+          throw usageError("Pass either --state or --no-move, not both.");
+        }
+        const moved = opts.state !== undefined || opts.move !== false;
         const issueModel = await svc.startIssue(ctx.client, requireId(idArg), {
           stateInput: opts.state,
-          move: opts.move,
+          move: moved,
         });
         let branchResult: { branch: string; created: boolean } | undefined;
         if (opts.checkout !== false && isGitRepo()) {
@@ -527,19 +664,33 @@ export function registerIssue(program: Command): void {
     );
 
   // describe ----------------------------------------------------------------
+  // The output is a whole commit message — `git commit -m "$(linear issue
+  // describe)"` — in schpet/linear-cli's exact shape (`ID Title`, blank line,
+  // `Linear-issue:` / `Linear-issue-url:` trailers; see `buildDescription` in
+  // git.ts). It used to be `Title` + a bare `Fixes ID` line, so the same
+  // pipeline produced a different commit (TES-637 item 5).
   issue
     .command("describe [id]")
-    .description("Print the issue title and a commit-message trailer (Fixes <ID>)")
-    .option("-r, --references", "use a 'References <ID>' trailer instead of 'Fixes <ID>'")
+    .description("Print a commit message for the issue: 'ID Title' plus Linear-issue trailers")
+    .option("-r, --references", "link without closing: 'References <ID>' instead of 'Fixes <ID>'")
     .action(
       action(async (ctx: Context, opts, idArg?: string) => {
         const detail = await svc.getIssueDetail(ctx.client, requireId(idArg));
-        const trailer = buildTrailer(detail.identifier, { references: opts.references });
-        ctx.output.emit({ identifier: detail.identifier, title: detail.title, trailer }, () => {
-          ctx.output.line(detail.title);
-          ctx.output.line();
-          ctx.output.line(trailer);
-        });
+        const references = opts.references === true;
+        const trailer = buildTrailer(detail.identifier, { references });
+        const message = buildDescription(detail.identifier, detail.title, detail.url, { references });
+        ctx.output.emit(
+          {
+            identifier: detail.identifier,
+            title: detail.title,
+            url: detail.url,
+            /** The magic-word phrase (`Fixes TES-1`); the trailers are `Linear-issue: <trailer>` + `Linear-issue-url: <url>`. */
+            trailer,
+            /** The full message, exactly as the human output prints it. */
+            message,
+          },
+          () => ctx.output.line(message),
+        );
       }),
     );
 
@@ -551,7 +702,7 @@ export function registerIssue(program: Command): void {
     .option("--base <branch>", "base branch for the PR")
     .option("--head <branch>", "head branch for the PR")
     .option("--draft", "create the PR as a draft")
-    .option("--title <title>", "PR title (defaults to the issue title)")
+    .option("--title <title>", "PR title after the issue id (default: the issue title)")
     .option("-w, --web", "open the PR creation page in the browser")
     .action(
       action(async (ctx: Context, opts, idArg?: string) => {
@@ -559,12 +710,12 @@ export function registerIssue(program: Command): void {
           throw usageError("`issue pr` must be run inside a git repository.");
         }
         const detail = await svc.getIssueDetail(ctx.client, requireId(idArg));
-        const title = opts.title ?? detail.title;
-        // Body = issue description (may be empty), then a trailer linking Linear
-        // both ways: the magic word closes the issue on merge, the URL backlinks.
-        const description = detail.description?.trim();
-        const trailerBlock = `${buildTrailer(detail.identifier)}\n${detail.url}`;
-        const body = description ? `${description}\n\n${trailerBlock}` : trailerBlock;
+        // Title `ID Title` (a custom --title is prefixed the same way), body the
+        // two Linear-issue trailers — schpet/linear-cli's PR, plus the magic word
+        // (`buildPrContent`). The issue's *description* is no longer copied in
+        // (TES-637 item 5): a GitHub PR body is a wider audience than a Linear
+        // issue, and Linear links the PR from the trailer, not from the prose.
+        const { title, body } = buildPrContent(detail, opts.title);
         const args = buildPrArgs({
           title,
           body,
@@ -719,26 +870,31 @@ export async function renderIssueDetail(
   detail: svc.IssueDetail,
   includeComments: boolean,
 ): Promise<void> {
-  const comments = includeComments ? await svc.listComments(ctx.client, detail.id, 10) : [];
+  const comments = includeComments ? await commentSvc.listComments(ctx.client, detail.id, 10) : [];
+  const { cycle, team } = detail;
   ctx.output.detail({ ...detail, comments: includeComments ? comments : undefined }, [
     ["Issue", `${detail.identifier}  ${detail.title}`],
-    ["State", detail.state],
+    // A deleted issue used to view exactly like a live one. Say so first, and
+    // in capitals: an agent that deletes and re-reads must see the change.
+    ["Trashed", detail.trashed ? `YES (deleted ${detail.archivedAt ?? "at an unknown time"})` : null],
+    ["Archived", !detail.trashed && detail.archivedAt ? `YES (${detail.archivedAt})` : null],
+    ["State", detail.state?.name ?? null],
     ["Priority", detail.priorityLabel],
-    ["Assignee", detail.assignee],
-    ["Team", detail.team],
-    ["Project", detail.project],
-    ["Milestone", detail.milestone],
-    ["Cycle", detail.cycle],
-    ["Parent", detail.parent],
+    ["Assignee", detail.assignee?.displayName ?? null],
+    ["Team", team ? `${team.key} ${team.name}` : null],
+    ["Project", detail.project?.name ?? null],
+    ["Milestone", detail.milestone?.name ?? null],
+    ["Cycle", cycle ? `#${cycle.number}${cycle.name ? ` ${cycle.name}` : ""}` : null],
+    ["Parent", detail.parent?.identifier ?? null],
     ["Estimate", detail.estimate],
-    ["Labels", detail.labels.length ? detail.labels.join(", ") : null],
+    ["Labels", detail.labels.length ? detail.labels.map((l) => l.name).join(", ") : null],
     ["Due", detail.dueDate],
     ["URL", detail.url],
     ["Updated", detail.updatedAt],
     ["Description", detail.description ? `\n${detail.description}` : null],
     ...(includeComments
       ? comments.map(
-          (c) => [c.createdAt.slice(0, 10) + " " + c.user, c.body] as [string, unknown],
+          (c) => [c.createdAt.slice(0, 10) + " " + (c.user?.displayName ?? "—"), c.body] as [string, unknown],
         )
       : []),
   ]);
@@ -778,6 +934,17 @@ function oneOrTwo(a: string | undefined, b: string | undefined, valueName: strin
     throw usageError(`Missing ${valueName}. Usage: <id> <${valueName}>  (or just <${valueName}> on a matching branch)`);
   }
   return { value: a };
+}
+
+/**
+ * `oneOrTwo`'s sibling for `issue comment [id] [body]`, where the value may
+ * legitimately be absent (it can come from --body-file or $EDITOR): a lone
+ * operand that looks like an issue id IS the id; anything else is the body.
+ */
+function idAndBody(a: string | undefined, b: string | undefined): { idArg?: string; bodyArg?: string } {
+  if (a !== undefined && b !== undefined) return { idArg: a, bodyArg: b };
+  if (a === undefined) return {};
+  return ISSUE_ID_RE.test(a) ? { idArg: a } : { bodyArg: a };
 }
 
 /**

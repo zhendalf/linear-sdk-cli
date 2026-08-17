@@ -24,7 +24,7 @@ linear issue list --json | jq -r '.[].identifier'  # ready for scripts
 - **Human-first by default** — aligned tables and readable detail views, color-aware, paged sanely.
 - **Agent- and script-friendly** — every data command takes `--json` and emits a stable, documented envelope on stdout; status text stays on stderr.
 - **Git-aware** — the current issue is inferred from your branch (`tes-123-fix` → `TES-123`), so most issue commands let you drop the id.
-- **Git + GitHub workflow** — `issue start` checks out the branch, `issue describe` prints a commit trailer, `issue pr` opens a GitHub PR — all linked back to the issue.
+- **Git + GitHub workflow** — `issue start` checks out the branch and marks the issue started, `issue describe` prints a commit message with Linear-issue trailers, `issue pr` opens a GitHub PR — all linked back to the issue.
 - **Forgiving inputs** — refer to things the way you think of them: `TES-123`, team `TES`, `--assignee me`, `--cycle current`, state and label by name.
 - **Multi-workspace** — store credentials for several workspaces and switch with a global `--workspace`.
 - **Complete & honest** — first-class commands for the core resource graph, a raw `linear api` for everything else, and a [measured coverage audit](#coverage) that CI keeps honest.
@@ -42,6 +42,35 @@ linear --help
 
 This installs two equivalent binaries: **`linear`** and the shorter **`lin`**. If you already
 have a different tool named `linear` on your `PATH`, just use `lin`.
+
+### If you already have `schpet/linear-cli` installed
+
+Both CLIs install a binary called **`linear`**, so whichever is earlier on your `PATH` wins and
+the other is silently shadowed — `linear --version` tells you which you got (`0.x` is this one,
+`2.x` is schpet's), and `which -a linear` lists both. Three ways out, pick one:
+
+- **Use `lin`.** It is ours alone; nothing of theirs claims it. Every example in this README works
+  with `lin` in place of `linear`. Zero-risk for the transition week.
+- **Keep theirs reachable as `linear-schpet`** and let ours have `linear`:
+
+  ```sh
+  # installed with deno: reinstall under a new name, then drop the old one
+  deno install -A --reload -f -g -n linear-schpet jsr:@schpet/linear-cli
+  deno uninstall -g linear
+  # installed with homebrew (schpet/tap/linear): keep the keg, relink under a new name
+  brew unlink schpet/tap/linear
+  ln -s "$(brew --prefix)/opt/linear/bin/linear" ~/.local/bin/linear-schpet   # any dir on your PATH
+  # installed with npm/bun globally: rename the shim in place
+  mv "$(command -v linear)" "$(dirname "$(command -v linear)")/linear-schpet"
+  ```
+
+  (A package-manager upgrade of theirs may put `linear` back; re-run the line for your channel.)
+- **Uninstall theirs** once you no longer need it. Your credentials survive: they are in the OS
+  keyring under the same service and account, and we read them — see [Authentication](#authentication).
+
+Their project-pinned install (`bun add -D @schpet/linear-cli`, run as `bunx linear`) does not
+collide with a global install of ours; inside such a project `bunx linear` is theirs and
+`linear`/`lin` on your `PATH` is ours.
 
 <details>
 <summary>Run from source instead</summary>
@@ -62,7 +91,7 @@ linear whoami                              # confirm you're connected
 linear issue list --assignee me --state started        # my in-progress work
 linear issue view TES-42                                # full detail
 linear issue create --title "Fix login" --team TES -P 2 # new High-priority issue
-linear issue start TES-42 --move                        # check out its branch + mark started
+linear issue start TES-42                               # check out its branch + mark it started
 linear issue comment TES-42 "shipped — please review"
 ```
 
@@ -72,18 +101,29 @@ branch, so most issue commands let you omit the id entirely.
 ## Authentication
 
 The CLI resolves your API key in this order: the `--api-key` flag → the `LINEAR_API_KEY`
-environment variable → a stored credential in the user config file
-(`~/.config/linear/config.toml`, written `0600`).
+environment variable → a plaintext key in the user config file (`~/.config/linear/config.toml`,
+written `0600`) → the **OS keyring** (macOS Keychain, or `secret-tool` on Linux).
 
 > **Credential trust boundary.** The API key is **never** read from a project-local
 > `.linear.toml` — only non-secret settings live there — so a key can't be committed by accident,
 > and a checked-out project can never steer which credential you use.
 
 ```sh
-linear auth login                          # store a key (prompts, then validates)
+linear auth login                          # store a key (prompts, validates, saves to the keyring)
+linear auth login --plaintext              # …or keep it in the 0600 config file instead
 linear auth status                         # where the key came from (value redacted)
+linear auth migrate                        # move plaintext keys from the file into the keyring
 linear auth token                          # print the resolved key (for scripting)
 ```
+
+`auth login` stores the secret in the system keyring by default and writes only a
+`keyring = true` marker to the config file; where there is no keyring (other platforms, or a Linux
+box without `libsecret`) it falls back to the file, and says so. The keyring entry is
+`service = linear-cli`, `account = <workspace slug>` — the same convention as
+[schpet/linear-cli](https://github.com/schpet/linear-cli), so if you are coming from it your key is
+found without a re-login (`auth status` reports `Source: keychain`). Note the entry is shared:
+`auth logout` here removes it for both tools. `--key -` reads the key from stdin for scripts;
+passing it as `--key <value>` works but earns a warning, since argv is visible to other processes.
 
 ### Multiple workspaces
 
@@ -135,20 +175,24 @@ linear issue archive TES-42 --yes
 branch everywhere below.
 
 ```sh
-linear issue start TES-123 --move          # checkout tes-123-* branch and mark it started
-git commit -m "$(linear issue describe)"   # commit with a "Fixes TES-123" trailer
-linear issue pr                             # open a GitHub PR (title/body from the issue)
+linear issue start TES-123                 # checkout tes-123-* branch and mark it started (--no-move: branch only)
+git commit -m "$(linear issue describe)"   # "TES-123 Title" + Linear-issue trailers
+linear issue pr                             # open a GitHub PR titled "TES-123 Title", body = the trailers
 linear issue pr --draft --base main        # …as a draft against a specific base
 linear issue pr --json | jq -r .url        # the created PR URL is the only thing on stdout
 ```
 
-`issue describe` prints the issue title plus a commit trailer using Linear's
-[git magic words](https://linear.app/docs/github#link-prs-and-commits) (`Fixes TES-123`, or
-`References TES-123` with `-r`), so the issue is linked — and closed on merge — when the commit
-lands. `issue pull-request` (alias `pr`) opens the PR via the [`gh`](https://cli.github.com) CLI:
-the body is the issue description followed by a `Fixes <ID>` trailer and the Linear URL, so the PR
-and issue reference each other. It never pushes or creates branches for you, and fails with a
-clear error (not a stack trace) when `gh` is missing, unauthenticated, or the branch isn't pushed.
+`issue describe` prints a whole commit message — `TES-123 Title`, a blank line, then two git
+trailers, `Linear-issue: Fixes TES-123` and `Linear-issue-url: <url>` (the same text
+schpet/linear-cli prints, so `git interpret-trailers` and jj read it back). The magic word sits
+right before the id, which is where Linear's
+[git integration](https://linear.app/docs/github#link-prs-and-commits) reads it, so the issue is
+linked — and closed on merge — when the commit lands; `-r` swaps in `References` to link without
+closing. `issue pull-request` (alias `pr`) opens the PR via the [`gh`](https://cli.github.com) CLI:
+title `TES-123 Title` (a custom `--title` is prefixed the same way), body the same two trailers,
+so the PR and issue reference each other; the issue description stays in Linear. It never pushes
+or creates branches for you, and fails with a clear error (not a stack trace) when `gh` is
+missing, unauthenticated, or the branch isn't pushed.
 
 **Projects & status updates**
 
@@ -200,8 +244,8 @@ API rejects roadmap mutations with a deprecation notice. Use `initiative` for ne
 | Flag | Effect |
 | --- | --- |
 | `--json` | Emit machine JSON only on stdout (see [the contract](#scripting--agents)). |
-| `-f, --fields a,b,c` | Choose which columns to show (table output). |
-| `-n, --limit <n>` / `--all` | Cap results, or fetch every page. |
+| `-f, --fields a,b,c` | Choose which columns to show (table output), detail lines, or JSON keys. Refused on a command that prints only a receipt. |
+| `-n, --limit <n>` / `--all` | Cap results, or fetch every page. Refused on a command that pages nothing. |
 | `-t, --team <key>` | Set the default team for the command. |
 | `--workspace <slug>` | Select which stored workspace credential to use. |
 | `-y, --yes` | Skip confirmation prompts (required for destructive actions when not a TTY). |
@@ -292,10 +336,29 @@ from a file or stdin instead of a flag — e.g. `--body-file <path>` with `-` fo
 too, so you can pipe GraphQL straight in.
 
 **Agent skill.** This repo ships a Claude agent skill at `skills/linear-sdk-cli/` that teaches an
-agent to drive the CLI (the JSON envelope, exit codes, discovery, and forgiving inputs). Point a
-compatible agent at it to get reliable Linear automation out of the box.
+agent to drive the CLI — the JSON envelope, exit codes, discovery, forgiving inputs, and how to
+install the CLI itself if it is missing. Three ways to install it:
+
+```bash
+# Claude Code — as a plugin (the repo is its own marketplace)
+claude plugin marketplace add <owner>/linear-sdk-cli
+claude plugin install linear-sdk-cli
+
+# any agent that reads SKILL.md — the package ships skills/, so from a clone or an install:
+ln -s "$PWD/skills/linear-sdk-cli" ~/.claude/skills/linear-sdk-cli
+```
+
+The skill is self-contained: an agent that has only the skill and no CLI is told to
+`bun add -g linear-sdk-cli`, and one arriving from `schpet/linear-cli` is told not to re-enter a
+key before `linear auth status`, since existing credentials are found. `linear commands --json`
+gives it the full command surface at runtime, so the reference docs are a starting point, not a
+cage.
 
 ## Coming from linear-cli
+
+> The full guide — install without a collision, credentials found without a re-login, config
+> read from the same files, and the three places the two CLIs would silently differ — is
+> [`MIGRATING.md`](MIGRATING.md). This section is the flag-level cheat sheet.
 
 If your fingers or your scripts learned the other `linear-cli`, most of its spellings work here
 unchanged. The left column is theirs, the right is the canonical one this CLI documents and prints
@@ -343,9 +406,35 @@ option model, where we keep true globals.
 
 ## Configuration
 
-Non-secret defaults live in `~/.config/linear/config.toml` (user-wide) or a project-local
-`.linear.toml` (walked up from the working directory). **Secrets never go in `.linear.toml`** — the
-API key is only ever read from the user config, the env, or the flag.
+Non-secret defaults live in `~/.config/linear/config.toml` (user-wide) or a project-local config
+file. **Secrets never go in a project file** — the API key is only ever read from the flag, the
+env, the user config, or the OS keyring.
+
+Precedence, highest first — `linear config` prints each value with the tier and file it came from:
+
+1. the flag (`--team`, `--workspace`, `--sort`)
+2. the environment (`LINEAR_TEAM`/`LINEAR_TEAM_ID`, `LINEAR_WORKSPACE`, `LINEAR_ISSUE_SORT`, `LINEAR_VCS`)
+3. the **project config**: the first file found walking up from the working directory, checking in
+   each directory `linear.toml`, then `.linear.toml`, then `.config/linear.toml` — the same
+   names and order as [schpet/linear-cli](https://github.com/schpet/linear-cli), so a repo set
+   up with its `linear config` (which writes `<git root>/.config/linear.toml`) is picked up as-is
+4. the **user config**, `~/.config/linear/config.toml` (`$XDG_CONFIG_HOME` honored)
+5. schpet/linear-cli's **global config**, `~/.config/linear/linear.toml` — read for non-secret
+   settings only, so a migrating user's defaults carry over
+
+Keys: `team` (or `team_id`), `workspace`, `sort` (or `issue_sort`), `vcs`. You can write these from
+the CLI — comments and layout in an existing file are preserved, and the write is atomic:
+
+```sh
+linear config init                    # pick a team from a list → <git root>/.linear.toml
+linear config init --team TES         # …or say which (scripts); --sort, --path, --force
+linear config set sort updated        # edit one key in the project config in effect
+linear config set team ENG --user     # …or in ~/.config/linear/config.toml
+linear config                         # show the result, with each value's source
+```
+
+`config set` will not write `api_key` or anything else that belongs to the credential store — that
+is what `auth login` is for.
 
 ```toml
 # ~/.config/linear/config.toml
@@ -355,9 +444,9 @@ sort = "priority"              # default issue-list sort: priority | updated | c
 vcs = "git"
 
 [workspaces."acme"]            # per-workspace credentials (hyphenated slugs are quoted)
-api_key = "lin_api_xxxxxxxx"
+keyring = true                 # secret lives in the OS keyring (service linear-cli, account acme)
 [workspaces."other-org"]
-api_key = "lin_api_yyyyyyyy"
+api_key = "lin_api_yyyyyyyy"   # …or, with `auth login --plaintext`, in this 0600 file
 ```
 
 Relevant environment variables: **`LINEAR_API_KEY`** (absolute — bypasses workspace selection) and

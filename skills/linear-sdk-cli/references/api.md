@@ -23,3 +23,5 @@ linear api [options] [query]
 | `--operation <name>`  | run this operation of a multi-operation document                  |
 | `--paginate`          | auto-follow the first connection's pageInfo cursor (queries only) |
 | `--raw`               | print the full GraphQL response (data + extensions)               |
+
+**Output (`--json`)**: raw JSON (keys depend on the request) — the response `data` as the API returned it (`--raw`: {data, extensions}); `--paginate` prints one array of every page's nodes

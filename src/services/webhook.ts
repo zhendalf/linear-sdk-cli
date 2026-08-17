@@ -8,6 +8,7 @@
 
 import { type LinearClient, WebhookResourceType } from "@linear/sdk";
 import { withRetry } from "../client.js";
+import { shape } from "../lib/shape.js";
 import { collect } from "../lib/pagination.js";
 import { usageError, notFound } from "../lib/errors.js";
 import { assertMutation, unwrapMutation } from "../lib/mutation.js";
@@ -44,6 +45,15 @@ export interface WebhookRow {
   label: string | null;
 }
 
+/** The row's shape as `linear commands` advertises it (TES-610); checked against the interface. */
+export const WEBHOOK_ROW_SHAPE = shape<WebhookRow>({
+  id: "string",
+  url: "string|null",
+  enabled: "boolean",
+  resourceTypes: ["string"],
+  label: "string|null",
+});
+
 /** All webhooks in the workspace (relation-light, so no N+1). */
 export async function listWebhooks(client: LinearClient, limit: number): Promise<WebhookRow[]> {
   const conn = await withRetry(() =>
@@ -71,6 +81,20 @@ export interface WebhookDetail {
   createdAt: string;
   updatedAt: string;
 }
+
+/** The detail's shape; checked against `WebhookDetail`. */
+export const WEBHOOK_DETAIL_SHAPE = shape<WebhookDetail>({
+  id: "string",
+  url: "string|null",
+  enabled: "boolean",
+  resourceTypes: ["string"],
+  label: "string|null",
+  allPublicTeams: "boolean",
+  team: "string|null",
+  creator: "string|null",
+  createdAt: "string",
+  updatedAt: "string",
+});
 
 export async function getWebhookDetail(client: LinearClient, id: string): Promise<WebhookDetail> {
   const webhook = await withRetry(() => client.webhook(id));

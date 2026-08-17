@@ -4,6 +4,8 @@
  */
 
 import type { Command } from "commander";
+import type { OutputShape } from "./shape.js";
+import { outputShapeOf } from "./output-shapes.js";
 
 export interface CommandArgument {
   name: string;
@@ -23,6 +25,12 @@ export interface CommandNode {
   aliases: string[];
   arguments: CommandArgument[];
   options: CommandOption[];
+  /**
+   * What the command prints under `--json` (TES-610): the row/object keys with
+   * their types, from `lib/output-shapes.ts`. Absent on a group that only holds
+   * subcommands and prints nothing of its own.
+   */
+  output?: OutputShape;
 }
 
 /**
@@ -60,11 +68,14 @@ function describe(cmd: Command, path: string[]): CommandNode {
     .filter((o: any) => !o.hidden)
     .map((o: any) => ({ flags: o.flags as string, description: (o.description as string) ?? "" }));
 
+  const joined = path.join(" ");
+  const output = outputShapeOf(joined);
   return {
-    path: path.join(" "),
+    path: joined,
     description: cmd.description() ?? "",
     aliases: cmd.aliases(),
     arguments: args,
     options,
+    ...(output ? { output } : {}),
   };
 }

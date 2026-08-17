@@ -8,6 +8,111 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Every command declares its `--json` output, and `linear commands <path>` prints it (TES-610).**
+  An agent driving the CLI cold guessed key names and filed false bugs (`.user` read as `.author`,
+  `.parent` as `.parentId`); the field names were knowable only from the source. Each node of
+  `linear commands --json` now carries `output`: `kind` (`list` — bare array of rows; `object` — a
+  view; `receipt` — a mutation's ids and what happened; `raw` — `api`/`schema`; `none` —
+  `completion`), `fields` (key → `"string"`, `"number|null"`, `["string"]`, nested `{…}`,
+  `{nullable: {…}}` for a relation that may be null, `"comments?"` for a key present only
+  sometimes) and `variants` (the whole shape under `--web`, `--start`, `op=list`, …). New `linear
+  commands <path...>` describes one command — a bare object under `--json` (`.output.fields`),
+  or usage, options and one `key: type` line per field for a human, plus its subcommands for a
+  group; an unknown path is `not_found` (exit 3) with the nearest paths. The shapes are declared
+  beside the interfaces they describe (`shape<IssueRow>({…})`, `src/lib/shape.ts`), where a field
+  renamed, added, removed, re-typed or de-nulled in the interface is a compile error in the shape;
+  the receipts live in `src/lib/output-shapes.ts`, one table keyed by command path; and a test
+  drives every JSON-printing command through the real program against an everything-succeeds
+  client and holds what it printed against what it declared — every key, no extra key, every type,
+  and a relation still null after a source that answers every relation ("not selected or not
+  mapped"). A command missing from the table fails the same test, so a new command cannot ship
+  undocumented. The skill's per-command references (`bun run skill:docs`) carry the same
+  **Output (`--json`)** block, and `SKILL.md` tells an agent to read it before guessing.
+- **File uploads: `issue attach <issue> <file...>` and `comment add --attach <file>`, private by
+  default (TES-602).** `issue attach` uploads each file to Linear's storage (`fileUpload` for a
+  signed URL, then an HTTP `PUT` of the bytes with exactly the headers Linear returned plus the
+  Content-Type the URL was signed for) and attaches it to the issue by its asset URL — `--title`
+  for a single file, `--comment <body>` to also post one comment embedding every file as markdown
+  (`![name](url)` for images, `[name](url)` otherwise, one per line after a blank line), and
+  `--json` a bare array of `{id, title, url, assetUrl, contentType, size}` (plus `comment` when
+  one was posted). `comment add` (and its `issue comment add` mount) takes `--attach <file>`,
+  repeatable, appending the same embeds to the body; a bodiless comment with attachments is just
+  the embeds, and no editor opens for it. Uploads are **private** — `uploads.linear.app`,
+  readable by workspace members only, like an upload from the Linear app (an anonymous fetch
+  answers 401). `--public` puts a raster image on a world-readable `public.linear.app` URL and
+  warns so on stderr; on any other type it is a usage error, decided before any bytes move
+  (Linear itself refuses "Public uploads are only supported for images (excluding SVG)"). Every
+  file in a batch is validated up front — exists, is a regular file, is readable, and may be
+  public if asked — so a typo in file 3 does not leave files 1–2 uploaded and orphaned. The
+  signed upload URL is a bearer credential: it is never printed and is redacted from any error,
+  including the storage backend's `SignatureDoesNotMatch` bodies. MIME comes from a small
+  extension table with `application/octet-stream` as the fallback. `linear issue attach x` used
+  to land in `view` with a "not available yet" pointer; it is a real subcommand now.
+- **`project delete`, `team delete`, and `issue agent-session list/view` (TES-644).**
+  `project delete <id>` trashes a project (`projectDelete`) where `archive` keeps it read-only;
+  `team delete <key>` deletes a team, naming its issue count in the confirmation, and
+  `--move-issues <team>` moves them elsewhere first (in batches of 50 via `issueBatchUpdate`)
+  — the key is required, never the configured default. Both take the shared confirmation gate
+  (`--yes` off-TTY, exit 6 on decline). `issue agent-session list [issue]` lists the sessions
+  Linear's agent integrations opened on an issue (or the current branch's; `--all-issues` for the
+  workspace feed, `--status` to narrow), and `view <id>` shows one with its activity transcript,
+  oldest first. The row is the same whichever way a session is found.
+- **Initiative ↔ project linking, `unarchive`, list filters, `--icon`/`--color` (TES-603,
+  TES-642).** `initiative add-project <initiative> <project>` (`--sort-order`) and
+  `remove-project` (confirmed; finds the link on the project's side, so no workspace-wide paging)
+  and `initiative unarchive <id>` (resolves among archived initiatives, refuses a live one). `initiative
+  list` gains `--status`, `--owner`, `--archived` — the list stays every-status by default, and
+  the reference CLI's `--all-statuses` is accepted as the no-op it is here. `initiative
+  create/update` take `--icon`/`--color`, and `initiative view` shows `icon`, `archivedAt` and
+  the linked `projects` (`{id, name, status}`).
+- **`project list --all-teams`, `team create --private`, health-only status updates (TES-642).**
+  `project list` is scoped to the default team and the only way out was the accidental
+  `--team ''`; `--all-teams` drops the team clause (and refuses to be combined with `--team`).
+  `team create --private` sends `private: true` (a plan without private teams refuses it as
+  `feature_not_accessible`). `project-update create` / `initiative-update create` accept `--health`
+  with no body — the UI's "mark on track" — posting the empty body the API stores for it; a
+  create with neither body nor health is still a usage error.
+- **Credentials in the OS keyring, and schpet/linear-cli's found without a re-login.**
+  `auth login` now stores the API key in the macOS Keychain (or Linux `secret-tool`) under service
+  `linear-cli` / account `<workspace slug>` — the reference CLI's exact convention — and writes only
+  a `keyring = true` marker to `config.toml`; `--plaintext` keeps today's `0600` file behaviour,
+  and a platform with no keyring falls back to it silently (a platform is not an error). Resolution
+  falls through to the keyring after the flag, the env and a plaintext `api_key`, and `auth status`
+  reports `Source: keychain`. A user coming from schpet 2.x is authenticated before their first
+  command: their `credentials.toml` workspace list and `default` are read (never its inline keys),
+  and the Keychain item is where we look. New `auth migrate` moves every plaintext key from the
+  file into the keyring, all-or-nothing with rollback; `auth list` gains a `Storage` column;
+  `auth logout` removes the keyring entry too, and drops the slug from schpet's list so neither
+  tool advertises a workspace whose key is gone. The secret never travels on argv: macOS goes
+  through `security -i` (commands over stdin — `add-generic-password -w` as the last option
+  prompts on `/dev/tty` and hangs in a real terminal, verified), Linux through `secret-tool`'s
+  stdin. `auth login --key -` reads the key from stdin; `--key <value>` warns that argv is
+  visible to other processes.
+- **Config discovery now covers every file schpet/linear-cli reads.** We looked only for
+  `.linear.toml` up the tree and `~/.config/linear/config.toml`, so a repo configured with its
+  `linear config` — which prefers `<git root>/.config/linear.toml` — and a user's global
+  `~/.config/linear/linear.toml` were both invisible: `issue create` said "No team specified" and
+  every list widened to the workspace. The project walk now checks `linear.toml`, `.linear.toml`
+  and `.config/linear.toml` in each directory from cwd up, in its order (it looks at cwd and the
+  git root; every directory between is a superset that agrees wherever it would find something),
+  and its global `linear.toml` is read as the lowest tier for non-secret settings — never for the
+  `api_key` it allows there, same rule as a project file. `linear config` now prints each value with
+  the tier and file it came from (`Team: TES (project: /repo/.config/linear.toml)`), and the JSON
+  carries `origins` and `globalConfigPath`.
+- **`config init` and `config set` — the config was read-only, so a project's `.linear.toml` had to
+  be written by hand.** `config init` writes `<git root>/.linear.toml` (or `./.linear.toml` outside
+  a repository; `--path` to choose), taking `--team` or offering the workspace's teams in a prompt;
+  it refuses to replace an existing file without `--force`. `config set <key> <value>` changes one
+  of `team`, `workspace`, `sort`, `vcs` in the project config discovery would actually read — a
+  schpet-written `.config/linear.toml` included, in *its* spelling (`team_id`, `issue_sort`), so no
+  second competing key appears — or, with `--user`, in `~/.config/linear/config.toml`. The edit is
+  textual, one line replaced or appended before the first table, so comments and layout survive;
+  the result is parsed back to prove it, falling back to a full re-serialize only if a layout we
+  did not foresee defeats the line edit. Values are checked the way the reader will judge them
+  (`sort manual` is refused here, not on the next `issue list`), keys that belong to the credential
+  store (`api_key`, `workspaces`, …) are refused with a pointer to `auth login`, and every write
+  is atomic. Bare `linear config` still shows the resolved configuration (it is `config show`).
+
 - **The query filters a script carried over from `linear-cli` expects.** These failed loudly before
   (unknown flag), so nothing changes meaning — but they blocked real workflows, and every one of
   them is now on `issue list`, `issue mine` and `issue search` alike, because all three share one
@@ -119,6 +224,22 @@ All notable changes to this project are documented here. The format is based on
 - **`document list --project` / `--issue`.** Documents can be narrowed to their container;
   human references (a project name, an issue identifier like `TES-1`) are resolved to ids first,
   since `DocumentFilter` matches containers by id.
+- **Documents: all six attachment targets, and `update` re-points** (TES-613). A document is
+  attached to exactly one of a project, issue, initiative, team, cycle or release
+  (`DocumentCreateInput` carries the six ids; verified live for every one the test workspace can
+  hold — releases need a Business plan, so `--release` is schema-verified and resolved by name or
+  version, not exercised). `document create` and `document list` take `--project`, `--issue`,
+  `--initiative`, `--team`, `--cycle`, `--release`; `document update` takes the same six to
+  **move a document onto another target**, which the server answers by clearing the old one
+  (`update <id> --issue TES-42` takes a project document off its project). `--team` stays the
+  global flag: alone it names the team; with `--cycle` it scopes the cycle lookup and is not a
+  second target, as on the issue commands. Two targets on any of the three is a usage error naming
+  both flags — a document has one, and a list filtered by two could never match — and `create`
+  with none falls back to the configured team, as before; `list` is never narrowed by the
+  configured team (documents are workspace-wide) and `update` never re-points on its account,
+  only on an explicit `--team`. `document list --team X`, which was accepted (global) and
+  ignored, now filters. The list's `Project` column becomes `Attached to`, typed
+  (`Issue: TES-42`, `Cycle: #4 Sprint 4`, …), and `document view` shows the same line.
 - **`milestone view` lists the milestone's issues** (identifier, state, title), capped by the
   global `-n/--limit` and with an explicit `… more (use --all)` notice when the cap hides some,
   so a partial list never reads as a complete one.
@@ -140,9 +261,122 @@ All notable changes to this project are documented here. The format is based on
 - **Help examples.** `issue create`/`list`/`update`/`start` and `project create` now include an
   Examples section in `--help` surfacing forgiving inputs (`--assignee me`, label-by-name,
   `--cycle current`, `--state "In Progress"`) and a `--json` recipe.
+- **`issue create`: templates, sub-issues in their parent's project, and `--start`** (TES-639).
+  `--template <name|id>` creates from an issue template — the team's own or a workspace-shared one,
+  resolved by name (a team template outranks a shared one of the same name; a miss lists what
+  there is), sent as `templateId`; every value you pass alongside overrides what the template
+  fills. **The team's default template is now applied**, as Linear's own new-issue form and the
+  reference CLI do: the API applies it *only when asked* (verified live — a plain `issueCreate` on
+  a team with a default template returns an issue with no description), so `useDefaultTemplate:
+  true` is sent unless `--no-default-template` (also accepted under the reference's spelling,
+  `--no-use-default-template`); an explicit `--template` replaces it rather than stacking. A
+  `--parent` child now **joins its parent's project** unless `--project` says otherwise — the
+  sub-issues we created landed outside the project their parent was in — and `--milestone` can
+  name a milestone in that inherited project. `--start` does what `issue start --move` does, on the
+  issue it just created: assigns it to you (naming somebody else at the same time is a usage
+  error, as in the reference), moves it to the team's first `started` state (an explicit `--state`
+  is respected instead), and checks out the branch when run inside a git repository; the JSON
+  gains `branch`, `checkedOut`, `stateChanged` in that case and is unchanged otherwise.
 
 ### Changed
 
+- **`--fields`, `--limit` and `--all` are refused on commands that never read them** (TES-637 (2),
+  TES-596). All twelve globals are registered on every command so they can sit anywhere on the
+  line, but `--fields` projects a *rendered* result (a table or a detail block) and `--limit`/`--all`
+  cap or exhaust a *paged* query; on the ~90 commands that print a receipt (every mutation, `issue
+  id`, `commands`, …) all three used to vanish without a word. That silence cost data: schpet's `-f`
+  is `--description-file` on `project create`, so `linear project create --name X -f desc.md`
+  parsed `-f` as *our* `--fields`, created the project with **no description**, and exited 0. Now a
+  root `preAction` hook (`assertGlobalsApply` in `lib/options.ts`, driven by two applicability
+  tables keyed by command path — `FIELDS_COMMANDS`, `LIMIT_COMMANDS`) rejects them before the
+  action runs, with a usage error that names the command and, where the command has one, the flag
+  the user was reaching for: "--fields does not apply to `linear project create` … use
+  --description-file <path> or --content-file <path> (-f is --fields here, not a file)";
+  `project create -n 5` gets "-n is --limit here; the name is --name". Every renderer and paged
+  query is unchanged; the tables are pinned against the real program tree so a rename shows up
+  in the tests, and a renderer missing from the table fails loudly (its `--fields` is refused),
+  never quietly. `--team` is deliberately *not* guarded this way: `alias lin='linear -t TES'` is a
+  real usage pattern and must keep working on workspace-scoped commands. Not adopted: a local
+  `-f = --description-file` on the four commands — one letter, two meanings (see MIGRATING.md §5).
+- **`project create -t/--team` collects, as `--teams` does** (TES-637 (3)). The global `--team` is
+  single-valued, and on `project create` it named the project's team — so schpet's repeatable
+  `--team A --team B` created the project in **B alone**. `--team` is now declared locally there,
+  repeatable and comma-separated, one list with `--teams`; both flags at once is a usage error
+  ("Pass either --teams or --team, not both"). `project update --team` stays refused (that list
+  *replaces* the project's teams; the message points at `--teams`).
+- **`user list --all` / `team members --all` say what `--all` did not do** (TES-637 (1)). schpet's
+  `--all` there means "include inactive members"; ours is the global "exhaust pagination", and
+  deactivated users are `--include-disabled`. Same line, both exit 0, different rows. `--all` keeps
+  its one meaning; the listing prints a stderr warning — even under `--quiet`, since a script is
+  where a wrong result set goes unnoticed — that deactivated users are still excluded and names
+  `--include-disabled`; silent when that flag is present; `--help` says so up front on both.
+- **`issue start` moves the issue to the first `started` state by default** (TES-637 (4)).
+  schpet/linear-cli always does after branching; ours only did with `--move`, so a transplanted
+  `linear issue start TES-1` checked the branch out and left the issue in Backlog without a word.
+  "Start" moving the issue is what the word means and what an agent that says "start" expects,
+  and the change is visible (✓ Moved … on stderr, `stateChanged` in the JSON). `--no-move` opts
+  out (branch only); `--move` is still accepted, hidden; `--state <name>` still picks the state;
+  `--state` with `--no-move` is a usage error.
+- **`issue describe` prints schpet's commit message, byte for byte; `issue pull-request` titles
+  the PR `ID Title` and stops copying the issue description into GitHub** (TES-637 (5)).
+  `describe` used to print `Title`, a blank line, `Fixes ID`; it now prints `ID Title`, a blank
+  line, `Linear-issue: Fixes ID`, `Linear-issue-url: <url>` — git trailers that `git
+  interpret-trailers` / `git log --format=%(trailers:key=Linear-issue)` and jj's `trailers`
+  template read back, while Linear still sees the magic word directly before the id
+  (linear.app/docs/github lists `fixes` and `references` among the recognized words) and links
+  and closes the issue. `-r/--references` swaps the word. `--json` gains `url` and `message` (the
+  full text as printed). `pull-request`: title `<ID> <title>` (a custom `--title` is prefixed the
+  same way, as there); body the same two trailers — schpet sends the bare URL and relies on the
+  branch name for the link, the `Fixes` line keeps the link (and auto-close) when the branch was
+  renamed. The issue *description* is no longer pasted into the PR body: a GitHub PR is a wider
+  audience than a Linear issue, and Linear links from the trailer, not the prose.
+- **A team-scoped listing with no team says it is listing every team's** (TES-637 (8)). `issue
+  list`/`mine`/`search` and `project list` with no `--team`, no configured team and no
+  `--all-teams` list the whole workspace — by design; schpet errors there ("No default team…"), so
+  someone arriving from it could read the workspace as the team. One `info` line on stderr ("No
+  default team configured; listing every team's. Pass --team <KEY> …"), silenced by `--quiet`,
+  never on `--json` stdout.
+- **`--fields` is one projection, applied and validated in both modes** (TES-635 (1)). It was
+  validated only in human list mode — `--fields nope --json` exited 0 with every key while
+  `--fields nope` exited 2 — ignored on detail views entirely, and able to pick only among the
+  table's default columns although the row carried more (`issue list --fields id,title,labels` was
+  `Unknown field 'labels'`). Now: on a human table, a field is a column key/header **or any row
+  key** (`labels`, `project`, `url`, `updatedAt`, …), rendered readably (arrays comma-joined, a
+  relation object by its name); on a human detail block, a field is one of its labelled lines
+  (`--fields state,url`); under `--json`, a field is a top-level key of the object(s), kept in the
+  order asked (`issue list --fields identifier,state --json` → `[{identifier, state}]`) — smaller
+  payloads for an agent that wants three keys of fifty rows. Unknown fields are a usage error in
+  every mode, listing what there is. **The one behaviour change for scripts:** `--fields` under
+  `--json` used to be a no-op; a script that passed it and relied on getting every key back will now
+  get only the keys it named. Note the human `id` column shows the identifier (`TES-42`) while the
+  JSON `id` key is the UUID, as it always has been.
+- **Detail JSON carries relations as objects, not display strings** (TES-627 — a deliberate
+  JSON-contract change). `issue view --json` used to flatten every relation:
+  `team: "TES Test-workspace-bla"` (not even parseable — team names contain spaces),
+  `cycle: "#3 name"`, `assignee`/`project`/`milestone`/`parent` as bare display names with no ids,
+  `labels` as names only — while `issue list --json` carried `state: {name,type}` objects, so the
+  same field had two types depending on the command. Every one of those keys **stays**, and the
+  value under it becomes the object the row already used, plus the id:
+  `state: {id,name,type}`, `assignee: {id,displayName,email}`, `team: {id,key,name}`,
+  `project: {id,name}`, `milestone: {id,name}`, `cycle: {id,number,name}`,
+  `parent: {id,identifier}`, `labels: [{id,name}]`, `subscribers: [{id,displayName}]`. So
+  `.state.name` reads the same on a list row and a detail row, and an agent that wants the team
+  key, the state type or the assignee id after a `view` no longer needs a second command. Same
+  for `project view` (`status: {id,name,type}`, `lead`/`members: {id,displayName,email}`,
+  `teams: [{id,key,name}]`, `labels: [{id,name}]`) and `milestone view` (`project: {id,name}`,
+  `issues[].state: {id,name,type}`, plus `issues[].id`). The human renderings are unchanged; the
+  detail's top-level `id` is still the UUID. **If a script did `jq -r '.state'` or `.team` on a
+  view, it now needs `.state.name` / `.team.key`.**
+- **`document view` / `document list --json` carry the target relations as objects** (TES-613,
+  the same contract change TES-627 made for issues). `document view --json` had `project`,
+  `issue`, `creator` as bare display strings; they are now `project: {id,name}`,
+  `issue: {id,identifier}`, `creator: {id,displayName}`, joined by `initiative: {id,name}`,
+  `team: {id,key,name}`, `cycle: {id,number,name}`, `release: {id,name,version}` — the one that
+  is set, the rest `null` — and a list row carries the same six keys (its `project` gains `id`).
+  The human renderings are unchanged. **If a script did `jq -r '.project'` on `document view`, it
+  now needs `.project.name`.** Both now come from one tailored request each: the SDK's `Document`
+  model has no `team`/`cycle` getter (both `[Internal]` in the schema, though they work with a
+  plain API key), and the previous view spent three lazy fetches on what one query selects.
 - **Repeating `--label` now narrows instead of broadening.** `--label bug --label regression`
   used to return issues carrying *either* label; it now returns only those carrying *both*.
   Every other repeatable filter in this CLI narrows, the reference CLI narrows, and the broadening
@@ -198,6 +432,128 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- **`issue list`/`mine`/`search` rows omitted `milestone` and `cycle`** (TES-652). The list
+  query selected project and labels but neither relation, so `issue list --project X --json | jq
+  'group_by(.milestone.name)'` put every issue in the null bucket while `issue view` showed the
+  milestone. Rows now carry `milestone: {id, name} | null` and `cycle: {id, number, name} | null`
+  — the detail's exact object shapes, from the one existing query (two selections, no extra
+  request; `LIST_QUERY` and `SEARCH_QUERY` share the relation block so they cannot drift again).
+  The human table does not grow (it is wide already): `--fields id,milestone,cycle` selects the
+  new columns by name, an unnamed cycle shows as `#n`, and the "Unknown field" message lists them.
+- **`$EDITOR` with arguments (`code --wait`, `subl -w`, `vim -f`, `emacsclient -t`) broke the
+  editor path with a raw ENOENT** (TES-631). `openEditor` ran the whole `$EDITOR` string as the
+  executable name. It is now split shell-style — quotes and backslashes honoured, nothing
+  expanded — into argv with the file appended, the way git/gh run it; `$VISUAL` is consulted
+  before `$EDITOR` (git's precedence; `EDITOR` used to win); a missing editor is a usage error that
+  names the program and the variable it came from; and a non-zero editor exit is a failure rather
+  than "save whatever is in the file", as in git.
+- **`comment update` opened an empty editor, and an empty body wiped the comment** (TES-620).
+  The editor now opens on the comment's current body (fetched first, so a bad id fails before
+  anyone types), and the update refuses an empty or whitespace-only body ("Refusing to blank the
+  comment body. To remove a comment, use 'comment delete'.") and an unchanged one ("nothing to
+  update" — quitting the editor untouched is not an edit, and should not stamp `editedAt`).
+  Non-interactively, `comment update <id>` with no body is a usage error, not an editor.
+- **`issue comment "<body>"` on a matching branch failed** (TES-619) — the README's headline
+  example. `issue comment [id] [body]` read a lone operand as the id, so `linear issue comment
+  'shipped'` on `tes-615-…` produced "No comment body provided" (and, in a terminal, opened
+  `$EDITOR` for the body first and only then rejected `'shipped'` as an id — work lost).
+  `assign` and `state` already disambiguated a lone operand; `comment` now does the same: one
+  operand that looks like an issue id is the id (body from `--body-file` or the editor), anything
+  else is the body with the id inferred from the branch. The id is settled before any editor can
+  open. Two operands, the four `add|list|update|delete` subcommands, and `--body-file` are
+  unchanged.
+- **`-j` did not switch the error boundary to the JSON envelope** (TES-618). The boundary in
+  `src/bin/linear.ts` decided the error format by scanning `process.argv` for the literal string
+  `--json`, so the `-j` alias, bundled short flags (`-jq`) and every other spelling commander
+  accepts printed a plaintext `error: …` on stderr where a script expected
+  `{"error":{message,code}}` — an unparseable error stream for exactly the callers the envelope
+  exists for. Verified live: `linear issue view NOPE-1 -j` printed `error: No issue NOPE-1.` while
+  `--json` printed the envelope. The boundary no longer parses argv by hand: it reads the globals
+  back off the command tree commander already parsed (`parsedGlobalOptions` in `src/cli.ts`), which
+  finds `-j`/`--json`/`--debug`/`--no-ansi` wherever on the command path they sat, and works for
+  parse-time failures too because commander scans the whole argument list before reporting a bad
+  option. The contract suite now spawns the real binary against an isolated, key-less config and
+  asserts the envelope under `--json`, `-j`, `-jq` and `linear -j issue …`; before, it exercised
+  only the `Output` class, which is how this slipped past 600 tests.
+- **`linear schema | head` no longer dumps an EPIPE stack** (TES-635 (7)). A reader that stops
+  early closes stdout under us; without a listener Bun surfaced the resulting EPIPE as an unhandled
+  stream error — a raw `EPIPE: broken pipe, write … fd: 5` on stderr and exit 1. The binary now
+  listens for it on stdout and stderr and exits quietly (0), as any Unix filter does. Also fixed in
+  passing: `project milestones` printed milestone progress ×100 like the two `milestone`
+  renderers (TES-648).
+- **An unknown command is reported as one, with a guess; usage errors point at the right
+  `--help`; a bare group shows its help** (TES-633). The root has an action (bare `linear` shows the
+  branch's issue) and `issue` has a default subcommand (`view`), so commander's own "unknown
+  command" never fired for either: `linear issues list` was `too many arguments. Expected 0
+  arguments but got 2: issues, list.` and `linear issue lst` was `'lst' is not a valid issue id`.
+  Now: `Unknown command 'issues'. Did you mean 'issue'? Run 'linear --help' to see the commands.`
+  and `'lst' is not a valid issue id (…). Did you mean 'linear issue list'?` — a prefix (`proj`),
+  a small typo (`lable`, `isue`) or an alias (`docs`, `notif`) is close enough; two-letter aliases
+  are never guessed from, so `ab` does not "mean" `label`. `.showHelpAfterError()` was configured
+  and dead — the stderr it would have written was the one the boundary suppresses — so every
+  parse-time usage error now carries the hint itself, in both modes:
+  `unknown option '--nope'. Run 'linear issue create --help' for usage.` And a group invoked bare
+  (`linear notification`) printed only `error: (outputHelp)`, because commander wrote the group's
+  help to that same suppressed stderr; the boundary keeps what commander wrote and prints it (exit
+  2), or a one-line usage error under `--json`.
+- **Terminal escape sequences in Linear data no longer reach the terminal** (TES-623). API text
+  was written to human output byte-for-byte: `renderTable`/`renderDetail`, the bare scalar lines
+  (`issue title`), and every status/error line. Anyone who can create an issue in a workspace could
+  put colour, cursor movement, a clear-screen, a `\r` overwrite, an OSC-8 fake hyperlink or a
+  window-title rewrite into a title, and every teammate's `linear issue list` ran it — verified live
+  on a `clitest-esc` issue whose title carried `\e[31m` and an OSC-8 link. Every string that
+  reaches a person now passes through one function (`sanitizeForTerminal`, `src/output/sanitize.ts`)
+  that strips *whole* sequences — CSI, OSC (BEL- or ST-terminated), DCS/SOS/PM/APC, other `ESC`
+  sequences, and their 8-bit C1 spellings — so `\e[31m` vanishes rather than leaving `[31m`
+  behind, then whatever C0/C1/DEL and bidi-override characters remain (`\n` and `\t` stay: a
+  description is multi-line). It is applied in `cell()` (every table cell and detail value) and in
+  `Output.line/info/success/warn/cancelled` and the human error line. **`--json` is untouched**: JSON
+  escapes control characters itself and a script is owed the exact bytes; the contract test pins
+  both halves. While in `table.ts`: column widths are terminal columns now, not `s.length` — a CJK
+  title or one emoji used to push every column after it out of line — via Bun's `stringWidth`, and
+  truncation cuts by whole grapheme so an emoji is never split.
+- **`milestone view|update|delete` and `state view` take names, not only UUIDs** (TES-634). The
+  by-name resolvers existed — `issue create --milestone <name> --project <p>` and `--state <name>`
+  use them — but the entity commands sent whatever they were given to `projectMilestone(id:)` /
+  `workflowState(id:)`, so a name got the API's "Could not find referenced ProjectMilestone" with
+  no hint that only ids were ever tried. `milestone view|update|delete <name> --project <p>` now
+  resolves the name inside that project (names are unique per project only, the same rule
+  `issue update --milestone` applies); a name without `--project` is a usage error that says so:
+  `'…' is not a milestone id; pass --project <name|id> to look a milestone up by name.` `state view
+  <name-or-type>` resolves against `--team` or the configured default team, exactly as
+  `issue create --state` does, and says to pass `--team` when there is neither. UUIDs still go
+  straight through.
+- **`milestone list`/`view` printed progress ×100 — `3846%`** (TES-648, found while fixing the
+  above). `ProjectMilestone.progress` is already a percentage (`38.46`, verified live), unlike
+  `Project.progress`, which is a fraction; the milestone renderers multiplied it by 100 anyway. The
+  human output now reads `38%`; the JSON value stays as the API sends it.
+- **Detail views are one request each, not six to sixteen** (TES-622). Lists have always used a
+  tailored GraphQL query, but every *detail* path awaited the SDK model's lazy relation getters,
+  each its own HTTP round-trip. Measured live with a fetch counter before/after:
+  `getIssueDetail(TES-601)` **8 → 1**; `getProjectDetail(linear-sdk-cli)` **7 → 1**;
+  `getMilestoneDetail` with 13 issues **16 → 1** (it awaited `issue.state` per issue, so `-n 50`
+  on a full milestone cost ~53). Each now selects its relations in one query
+  (`CliIssueDetail`/`CliProjectDetail`/`CliMilestoneDetail`, in the services), and the unit tests
+  record `rawRequest` and assert the call count and the selection, so it cannot regress quietly.
+  Two things learned on the way and now written down in the code: Linear prices a query by its
+  worst case, so a project lookup at `first: 250` × three nested 50-item connections was refused
+  as too complex (49 975 vs. a cap of 10 000) — a name match with a second hit is already
+  "ambiguous", so it asks for two; and the milestone's issue pages are followed by cursor with the
+  milestone fields riding along, read off the first page. `updateIssue` is unchanged in this pass
+  (9 requests): its cost is in the shared resolvers (`resolveLabelIds` fetching each candidate
+  label's team, `teamStates` fetching the team then its states, and the SDK payload's lazy
+  `issue`), which are a separate change.
+- **`issue view`/`issue list` show archived and trashed issues as such** (TES-624). A deleted
+  issue read back exactly like a live one — `issue delete TES-616` then `issue view TES-616 --json`
+  showed `state: Backlog`, exit 0 — and `--include-archived` mixed live, archived and trashed rows
+  indistinguishably. Both shapes now carry `archivedAt`, `trashed`, `startedAt`, `completedAt` and
+  `canceledAt` (`trashed` is nullable upstream and is normalised to a boolean). The human `view`
+  says so first and in capitals — `Trashed: YES (deleted 2026-08-16T15:41:08.952Z)` /
+  `Archived: YES (…)` right under the title — and the list table marks the state column
+  `Backlog (trashed)` / `Backlog (archived)`.
+- **Rate-limit waits are announced through the Context's `Output`** rather than a bare stderr
+  writer, so the "rate limited; retrying in Ns" line honours `--quiet` like every other status line
+  and can never land on the JSON stdout a script is parsing.
 - **Mutations could report a success the API never gave** (AUDIT.md #6). Every Linear mutation
   answers with a payload carrying `success: Boolean!`, and almost nothing here read it. The
   create/update paths did have a guard, but it tested whether the *entity* came back, not whether

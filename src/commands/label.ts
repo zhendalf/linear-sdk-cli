@@ -27,10 +27,24 @@ export function registerLabel(program: Command): void {
   label
     .command("list [team]")
     .alias("ls")
-    .description("List labels (optionally scoped to a team)")
+    .description("List the labels usable in a team (its own plus workspace-level ones)")
+    .option("--all-teams", "list every label in the workspace, ignoring the team scope")
+    .addHelpText(
+      "after",
+      [
+        "",
+        "Examples:",
+        "  linear label list                 # labels valid on the default team's issues",
+        "  linear label list ENG             # the same for ENG",
+        "  linear label list --all-teams     # every label in the workspace",
+        "  linear label list --json | jq -c '.[] | select(.team == null) | .name'   # workspace-level only",
+      ].join("\n"),
+    )
     .action(
-      action(async (ctx: Context, _opts, teamArg?: string) => {
-        const rows = await svc.listLabels(ctx.client, teamArg, ctx.limit, ctx.defaultTeam);
+      action(async (ctx: Context, opts, teamArg?: string) => {
+        const rows = await svc.listLabels(ctx.client, teamArg, ctx.limit, ctx.defaultTeam, {
+          allTeams: !!opts.allTeams,
+        });
         ctx.output.list(rows, ROW_COLUMNS, rows);
       }),
     );

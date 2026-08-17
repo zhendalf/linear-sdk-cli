@@ -35,14 +35,33 @@ linear milestone create [options] <project>
 | `--description-file <path>` | read description from a file ('-' = stdin) |
 | `--target <date>`           | target date (YYYY-MM-DD)                   |
 
+**Output (`--json`)**: a receipt object
+
+```text
+id: string
+name: string
+```
+
 ### `linear milestone delete`
 
-Delete a milestone
+Delete a milestone (by id, or by name with --project)
 
 Aliases: `rm`
 
 ```
 linear milestone delete [options] <id>
+```
+
+| Option                 | Description                                                                      |
+| ---------------------- | -------------------------------------------------------------------------------- |
+| `-p, --project <name>` | the milestone's project, when <id> is a name (names are unique per project only) |
+
+**Output (`--json`)**: a receipt object
+
+```text
+id: string
+name: string
+deleted: boolean
 ```
 
 ### `linear milestone list`
@@ -55,9 +74,20 @@ Aliases: `ls`
 linear milestone list [options] <project>
 ```
 
+**Output (`--json`)**: a bare array of objects
+
+```text
+id: string
+name: string
+targetDate: string | null
+progress: number
+status: string
+description: string | null
+```
+
 ### `linear milestone update`
 
-Update a milestone
+Update a milestone (by id, or by name with --project)
 
 Aliases: `edit`
 
@@ -65,17 +95,45 @@ Aliases: `edit`
 linear milestone update [options] <id>
 ```
 
-| Option                      | Description                                |
-| --------------------------- | ------------------------------------------ |
-| `--name <name>`             | new name                                   |
-| `-d, --description <text>`  | new description                            |
-| `--description-file <path>` | read description from a file ('-' = stdin) |
-| `--target <date>`           | target date (YYYY-MM-DD)                   |
+| Option                      | Description                                                                      |
+| --------------------------- | -------------------------------------------------------------------------------- |
+| `-p, --project <name>`      | the milestone's project, when <id> is a name (names are unique per project only) |
+| `--name <name>`             | new name                                                                         |
+| `-d, --description <text>`  | new description                                                                  |
+| `--description-file <path>` | read description from a file ('-' = stdin)                                       |
+| `--target <date>`           | target date (YYYY-MM-DD)                                                         |
+
+**Output (`--json`)**: a receipt object
+
+```text
+id: string
+name: string
+```
 
 ### `linear milestone view`
 
-Show a milestone and the issues in it
+Show a milestone and the issues in it (by id, or by name with --project)
 
 ```
 linear milestone view [options] <id>
+```
+
+| Option                 | Description                                                                      |
+| ---------------------- | -------------------------------------------------------------------------------- |
+| `-p, --project <name>` | the milestone's project, when <id> is a name (names are unique per project only) |
+
+**Output (`--json`)**: a bare object
+
+```text
+id: string
+name: string
+description: string | null
+targetDate: string | null
+progress: number
+status: string
+project: {id: string, name: string} | null
+createdAt: string
+updatedAt: string
+issues: Array<{id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}>
+issuesTruncated: boolean
 ```

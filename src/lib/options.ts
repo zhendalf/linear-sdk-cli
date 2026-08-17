@@ -4,7 +4,7 @@
  */
 
 import { Command, Option } from "commander";
-import { usageError } from "./errors.js";
+import { usageError, type CliError } from "./errors.js";
 
 /** Repeatable `--var k=v` collector → { k: v }. */
 export function collectKeyVal(value: string, previous: Record<string, string> = {}): Record<string, string> {
@@ -82,6 +82,67 @@ export function parsePositiveInt(value: string): number {
     throw usageError(`Expected --limit to be a positive integer (or 0 for all), got '${value}'.`);
   }
   return Number.parseInt(value, 10);
+}
+
+/**
+ * The subcommand of `cmd` a mistyped `word` most plausibly meant, or nothing.
+ *
+ * Commander's own "did you mean" only fires on a command with no action
+ * handler; the root has one (bare `linear` shows the branch's issue) and so does
+ * `issue` (its default subcommand is `view`), so a stray word there used to be
+ * reported as "too many arguments" or "not a valid issue id". Names and aliases
+ * both count; a prefix (`proj` → `project`) or a small edit distance
+ * (`issues` → `issue`, `lable` → `label`) is close enough, and the closest wins.
+ */
+export function suggestSubcommand(cmd: Command, word: string): string | undefined {
+  const lower = word.toLowerCase();
+  let best: { name: string; distance: number } | undefined;
+  for (const sub of cmd.commands) {
+    for (const candidate of [sub.name(), ...sub.aliases()]) {
+      const c = candidate.toLowerCase();
+      // A prefix is a match (`proj` → `project`). Otherwise up to one edit per
+      // two characters, capped at three, so `lable` finds `label` — but never
+      // against a two-letter alias, where one edit away is everything.
+      let distance: number;
+      if (lower.length >= 2 && c.startsWith(lower)) distance = 0;
+      else if (c.length < 3) continue;
+      else distance = editDistance(lower, c);
+      if (distance > Math.min(3, Math.max(1, Math.floor(lower.length / 2)))) continue;
+      if (!best || distance < best.distance) best = { name: sub.name(), distance };
+    }
+  }
+  return best?.name;
+}
+
+/** A usage error for a word that names no subcommand of `cmd`, with the closest real one. */
+export function unknownCommand(cmd: Command, word: string): CliError {
+  const path = commandPath(cmd);
+  const guess = suggestSubcommand(cmd, word);
+  return usageError(
+    `Unknown command '${word}'.${guess ? ` Did you mean '${guess}'?` : ""} Run '${path} --help' to see the commands.`,
+  );
+}
+
+/** `linear issue` for the `issue` command — the way a user would type it. */
+export function commandPath(cmd: Command): string {
+  const names: string[] = [];
+  for (let c: Command | null = cmd; c; c = c.parent) names.unshift(c.name());
+  return names.join(" ");
+}
+
+/** Levenshtein distance — small strings only (command names). */
+function editDistance(a: string, b: string): number {
+  const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let diag = prev[0]!;
+    prev[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = prev[j]!;
+      prev[j] = Math.min(prev[j]! + 1, prev[j - 1]! + 1, diag + (a[i - 1] === b[j - 1] ? 0 : 1));
+      diag = tmp;
+    }
+  }
+  return prev[b.length]!;
 }
 
 /** Shared metavar + help for the cycle option (filter + create/update). */
@@ -196,12 +257,24 @@ function globalOptions(): Option[] {
       parsePositiveInt,
     ),
     new Option("--all", "fetch all results (exhaust pagination)"),
-    new Option("-f, --fields <a,b,c>", "select columns for human table output").argParser(parseList),
+    new Option(
+      "-f, --fields <a,b,c>",
+      "select fields: table columns or detail lines (human), top-level keys (--json)",
+    ).argParser(parseList),
     new Option("-y, --yes", "skip confirmation prompts"),
     new Option("-q, --quiet", "suppress status output"),
     new NoFlagOption("--no-input", "never prompt; fail instead"),
     new Option("--debug", "verbose errors (stack traces, raw GraphQL)"),
   ];
+}
+
+/**
+ * The attribute names the globals are stored under (`json`, `noAnsi`, `limit`,
+ * …), deduplicated — `--no-color` shares `noAnsi` with `--no-ansi` by design.
+ * The error boundary reads these back off the parsed command tree.
+ */
+export function globalOptionKeys(): string[] {
+  return [...new Set(globalOptions().map((option) => option.attributeName()))];
 }
 
 /**
@@ -213,13 +286,197 @@ function globalOptions(): Option[] {
  * `issue list`/`mine`/`search` declare a **repeatable** `--team` (several teams
  * in one query), and re-adding the single-valued global on top of it would
  * silently take the last key instead of collecting them.
+ *
+ * On the root program this also installs the guard that rejects `--fields`,
+ * `--limit` and `--all` on commands that never read them (`assertGlobalsApply`).
+ * The root is the one command every action descends from, so one hook there
+ * covers the tree; cli.ts calls this on the root before registering anything.
  */
 export function addGlobalOptions(program: Command): Command {
   for (const option of globalOptions()) {
     if (program.options.some((existing) => existing.long === option.long)) continue;
     program.addOption(option);
   }
+  if (!program.parent) {
+    program.hook("preAction", (_root, actionCommand) => assertGlobalsApply(actionCommand));
+  }
   return program;
+}
+
+// --- Which commands honor which globals ------------------------------------
+//
+// Every global is registered on every command so it can sit anywhere on the
+// command line, but not every command has anything to do with every global.
+// `--fields` projects a *rendered* result — a table (`Output.list`) or a
+// detail block (`Output.detail`); `--limit`/`--all` cap or exhaust a *paged*
+// query. A receipt (`Output.emit`: every mutation, `issue id`, `commands`, …)
+// has no columns to pick and no pages to walk, and on those commands the flags
+// used to vanish without a word.
+//
+// That silence is a transplant hazard, not a nicety. schpet/linear-cli spells
+// `--description-file` as `-f` on `project create`, so `linear project create
+// --name X -f desc.md` parsed `-f` as *our* `--fields`, created the project
+// with NO description, and exited 0 (TES-637 item 2). A receipt is only ever
+// printed *after* the mutation, so the check cannot wait for the render to
+// notice nothing consumed the flag: it has to run before the action, which
+// means knowing up front which commands render. That is what these two sets
+// are — the applicability table for the two globals whose silent no-op costs
+// data. It is keyed by command path (`project list`), the same spelling
+// `linear commands --json` reports, so it can feed that output when the
+// per-command applicability of every global is exposed there (TES-596).
+//
+// A renderer missing from the set fails LOUDLY (`--fields` is refused where it
+// would have worked), so the failure mode of a stale table is an obvious usage
+// error, not a quiet wrong result; `test/unit/options.test.ts` pins every entry
+// against the real program tree.
+
+/** Commands whose output `--fields` projects: everything that renders a table or a detail block. */
+export const FIELDS_COMMANDS: ReadonlySet<string> = new Set([
+  "whoami",
+  "auth whoami",
+  "auth status",
+  "auth list",
+  "config show",
+  "attachment list",
+  "comment list",
+  "cycle list",
+  "cycle view",
+  "cycle current",
+  "document list",
+  "document view",
+  "favorite list",
+  "initiative list",
+  "initiative view",
+  "initiative-update list",
+  "issue view",
+  "issue list",
+  "issue mine",
+  "issue search",
+  "issue comments",
+  "issue comment list",
+  // `relation … list` renders a table; `add`/`remove` print a receipt. One
+  // command, so it is admitted whole rather than split by its positional.
+  "issue relation",
+  "issue agent-session list",
+  "issue agent-session view",
+  "label list",
+  "milestone list",
+  "milestone view",
+  "notification list",
+  "organization view",
+  "organization members",
+  "organization invites",
+  "project list",
+  "project view",
+  "project milestones",
+  "project-update list",
+  "roadmap list",
+  "roadmap view",
+  "state list",
+  "state view",
+  "team list",
+  "team view",
+  "team members",
+  "team states",
+  "team labels",
+  "team cycles",
+  "user list",
+  "user view",
+  "user me",
+  "webhook list",
+  "webhook view",
+]);
+
+/** Commands that page through a query: `--limit <n>` caps them, `--all` (or `--limit 0`) exhausts them. */
+export const LIMIT_COMMANDS: ReadonlySet<string> = new Set([
+  "attachment list",
+  "comment list",
+  "cycle list",
+  "document list",
+  "favorite list",
+  "initiative list",
+  "initiative-update list",
+  "issue list",
+  "issue mine",
+  "issue search",
+  "issue comments",
+  "issue comment list",
+  "issue agent-session list",
+  "label list",
+  "milestone list",
+  // The detail block lists the milestone's issues, capped by --limit.
+  "milestone view",
+  "notification list",
+  "organization members",
+  "organization invites",
+  "project list",
+  "project milestones",
+  "project-update list",
+  "roadmap list",
+  "state list",
+  "team list",
+  "team members",
+  "team states",
+  "team labels",
+  "team cycles",
+  "user list",
+  "webhook list",
+]);
+
+/** `project list` for the `list` command under `project` — the path without the program name. */
+export function subcommandPath(cmd: Command): string {
+  const names: string[] = [];
+  for (let c: Command | null = cmd; c && c.parent; c = c.parent) names.unshift(c.name());
+  return names.join(" ");
+}
+
+/**
+ * The file-reading options a command offers, if any. schpet's `-f` is
+ * `--description-file` / `--content-file` on the four commands that have them,
+ * which is exactly where a transplanted `-f <path>` lands on our `--fields`; the
+ * error names the flag the user was reaching for.
+ */
+function fileOptionsOf(cmd: Command): string[] {
+  return cmd.options
+    .filter((o) => o.long === "--description-file" || o.long === "--content-file")
+    .map((o) => `${o.long} <path>`);
+}
+
+/**
+ * Refuse `--fields`, `--limit` and `--all` on a command that never reads them.
+ *
+ * Runs as the root's `preAction` hook — before the action, and so before any
+ * request — for every command in the tree. The root's own action (bare
+ * `linear`, which renders the branch's issue) and group commands (no action of
+ * their own) are left alone. Rejection is a usage error naming the command and
+ * what it prints instead, so a `-f desc.md` meant as a file lands on the flag
+ * that reads one, and a `-n 'My Project'` meant as a name is a message about
+ * `--limit`, never a project created without either.
+ */
+export function assertGlobalsApply(cmd: Command): void {
+  const path = subcommandPath(cmd);
+  if (!path) return;
+  const merged = cmd.optsWithGlobals() as Record<string, unknown>;
+  if (merged.fields !== undefined && !FIELDS_COMMANDS.has(path)) {
+    const files = fileOptionsOf(cmd);
+    throw usageError(
+      `--fields does not apply to \`linear ${path}\`: it prints a receipt, not a table or detail block to select fields from.` +
+        (files.length ? ` To read from a file, use ${files.join(" or ")} (-f is --fields here, not a file).` : ""),
+    );
+  }
+  if (!LIMIT_COMMANDS.has(path)) {
+    if (merged.limit !== undefined) {
+      throw usageError(
+        `--limit does not apply to \`linear ${path}\`: it is not a paged query.` +
+          (cmd.options.some((o) => o.long === "--name")
+            ? " (-n is --limit here; the name is --name <name>.)"
+            : ""),
+      );
+    }
+    if (merged.all === true) {
+      throw usageError(`--all does not apply to \`linear ${path}\`: it is not a paged query.`);
+    }
+  }
 }
 
 /** Opt-outs for the shared filter sets; `issue mine` is fixed to the viewer. */

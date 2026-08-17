@@ -1,7 +1,16 @@
 import { describe, it, expect } from "bun:test";
-import { listTeams, listMembers, listStates, updateTeam, createTeam } from "../../src/services/team.js";
+import {
+  listTeams,
+  listMembers,
+  listStates,
+  updateTeam,
+  createTeam,
+  planDeleteTeam,
+  moveTeamIssues,
+  deleteTeam,
+} from "../../src/services/team.js";
 import { CliError } from "../../src/lib/errors.js";
-import { connection } from "./_fakes.js";
+import { connection, okPayload, failedPayload, payload } from "./_fakes.js";
 
 // A faithful SDK connection (see _fakes.ts): fetchNext() mutates and returns
 // `this`, which is what the real one does and what an ad-hoc literal did not.
@@ -116,6 +125,19 @@ describe("updateTeam", () => {
 });
 
 describe("createTeam", () => {
+  // TES-642: `--private`. Sent only when asked for; Linear's default is public,
+  // and a plan without private teams refuses it (feature_not_accessible).
+  it("sends private: true only when asked", async () => {
+    const inputs: any[] = [];
+    const client = {
+      createTeam: async (input: any) => (inputs.push(input), payload("team", { id: "t", key: "K", name: "N" })),
+    } as any;
+    await createTeam(client, { name: "N" });
+    await createTeam(client, { name: "N", private: false });
+    await createTeam(client, { name: "N", private: true });
+    expect(inputs).toEqual([{ name: "N" }, { name: "N" }, { name: "N", private: true }]);
+  });
+
   it("requires only name and unwraps the created team", async () => {
     let captured: any;
     const client = {
@@ -134,5 +156,82 @@ describe("createTeam", () => {
       createTeam: async () => ({ success: false, team: Promise.resolve(null) }),
     } as any;
     await expect(createTeam(client, { name: "x" })).rejects.toBeInstanceOf(CliError);
+  });
+});
+
+/**
+ * TES-644: `team delete <key> [--move-issues <team>]`. The plan is resolved in
+ * full before the confirmation so the prompt can name the team, its issue count
+ * and the destination; the move goes in batches; the delete asserts success.
+ */
+describe("team delete", () => {
+  const OTHER = { id: "t2", key: "ENG", name: "Engineering" };
+  function client(overrides: any = {}) {
+    return {
+      teams: async () => conn(TEAMS),
+      team: async (id: string) => ({
+        ...teamModel(),
+        id,
+        key: id === "t1" ? "TES" : "ENG",
+        issueCount: id === "t1" ? 3 : 0,
+        issues: async () => conn([{ id: "i1" }, { id: "i2" }, { id: "i3" }]),
+      }),
+      ...overrides,
+    } as any;
+  }
+
+  it("plans against an explicit key only — never the configured default", async () => {
+    const plan = await planDeleteTeam(client(), "tes", undefined);
+    expect(plan.team).toEqual({ id: "t1", key: "TES", name: "Test" });
+    expect(plan.issueCount).toBe(3);
+    expect(plan.moveTo).toBeUndefined();
+    await expect(planDeleteTeam(client(), undefined as any, undefined)).rejects.toMatchObject({
+      code: "usage",
+    });
+  });
+
+  it("resolves --move-issues and refuses the team itself", async () => {
+    const plan = await planDeleteTeam(client(), "TES", "eng");
+    expect(plan.moveTo).toEqual(OTHER);
+    await expect(planDeleteTeam(client(), "TES", "tes")).rejects.toMatchObject({ code: "usage" });
+  });
+
+  it("moves every live issue in batches of 50 and asserts each payload", async () => {
+    const seen: Array<{ ids: string[]; input: any }> = [];
+    const ids = Array.from({ length: 120 }, (_, i) => ({ id: `i${i}` }));
+    const c = client({
+      team: async () => ({ ...teamModel(), issues: async () => conn(ids) }),
+      updateIssueBatch: async (batchIds: string[], input: any) => {
+        seen.push({ ids: batchIds, input });
+        return okPayload();
+      },
+    });
+    const moved = await moveTeamIssues(c, { id: "t1", key: "TES", name: "Test" }, OTHER);
+    expect(moved).toBe(120);
+    expect(seen.map((s) => s.ids.length)).toEqual([50, 50, 20]);
+    expect(seen.every((s) => s.input.teamId === "t2")).toBe(true);
+  });
+
+  it("stops at the first batch the API refuses", async () => {
+    let calls = 0;
+    const c = client({
+      updateIssueBatch: async () => (calls++, failedPayload()),
+    });
+    await expect(
+      moveTeamIssues(c, { id: "t1", key: "TES", name: "Test" }, OTHER),
+    ).rejects.toMatchObject({ code: "api" });
+    expect(calls).toBe(1);
+  });
+
+  it("deleteTeam asserts success and reports a refusal as an api error", async () => {
+    const seen: string[] = [];
+    await deleteTeam(
+      client({ deleteTeam: async (id: string) => (seen.push(id), okPayload()) }),
+      { id: "t1", key: "TES", name: "Test" },
+    );
+    expect(seen).toEqual(["t1"]);
+    await expect(
+      deleteTeam(client({ deleteTeam: async () => failedPayload() }), { id: "t1", key: "TES", name: "Test" }),
+    ).rejects.toMatchObject({ code: "api" });
   });
 });
