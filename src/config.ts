@@ -42,6 +42,7 @@ import {
   renameSync,
   unlinkSync,
 } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { CliError } from "./lib/errors.js";
 import { keyring, KeyringError } from "./lib/keyring.js";
@@ -492,24 +493,23 @@ function readUserObject(path: string): Record<string, unknown> {
 }
 
 /**
- * Serialize + persist a config object ATOMICALLY, with 0600 perms.
+ * Persist text ATOMICALLY, with the given perms.
  *
  * Writing in place truncates the file first, so a crash — or a concurrent
  * reader, or a second `linear auth login` — could see a half-written config and
  * lose every stored credential. Instead we write a temp file in the same
  * directory (same filesystem, so the rename is atomic), fsync it, and rename it
  * over the target: a reader sees either the old config or the new one, never a
- * torn one. The temp file is created 0600 from the start, so the key is never
- * momentarily readable by anyone else — as before, 0600 is asserted rather than
- * inherited, so a config that was loosened by hand is tightened again.
+ * torn one. The temp file is created with `mode` from the start, so a 0600 key
+ * file is never momentarily readable by anyone else — and the mode is asserted
+ * rather than inherited, so a config that was loosened by hand is tightened
+ * again.
  */
-function writeUserObject(path: string, obj: Record<string, unknown>): void {
+function writeFileAtomic(path: string, body: string, mode: number): void {
   const dir = dirname(path);
   mkdirSync(dir, { recursive: true });
 
-  const mode = 0o600;
   const tmp = join(dir, `.${basename(path)}.${process.pid}-${randomBytes(6).toString("hex")}.tmp`);
-  const body = stringifyToml(obj) + "\n";
   try {
     // 'wx' refuses to clobber, so two racing writers cannot share a temp file.
     const fd = openSync(tmp, "wx", mode);
@@ -531,6 +531,11 @@ function writeUserObject(path: string, obj: Record<string, unknown>): void {
     }
     throw err;
   }
+}
+
+/** Serialize + persist the user config object atomically, 0600 (it holds keys). */
+function writeUserObject(path: string, obj: Record<string, unknown>): void {
+  writeFileAtomic(path, stringifyToml(obj) + "\n", 0o600);
 }
 
 interface WorkspaceTable {
@@ -743,4 +748,169 @@ export function redactKey(key: string | undefined): string {
   if (key.length <= 12) return "••••";
   const prefix = key.startsWith("lin_api_") ? "lin_api_" : key.slice(0, 4);
   return `${prefix}••••${key.slice(-4)}`;
+}
+
+// ---------------------------------------------------------------------------
+// Project config writers (`config init` / `config set`)
+//
+// A project file is the user's, hand-edited and committed, so `config set`
+// edits it textually — one line replaced or appended — and keeps their
+// comments and layout. The result is parsed back to prove the edit did what it
+// meant to; only if that check fails does it fall back to a full re-serialize.
+// ---------------------------------------------------------------------------
+
+/** The settings `config set` / `config init` will write to a project file. */
+export const SETTABLE_KEYS = ["team", "workspace", "sort", "vcs"] as const;
+export type SettableKey = (typeof SETTABLE_KEYS)[number];
+
+/**
+ * The reference CLI's spelling for each key. A file that already uses it keeps
+ * it: `config set team ENG` on a schpet-written `team_id = "TES"` line changes
+ * that line rather than adding a second, competing key.
+ */
+const KEY_ALIASES: Record<SettableKey, readonly string[]> = {
+  team: ["team", "team_id"],
+  workspace: ["workspace"],
+  sort: ["sort", "issue_sort"],
+  vcs: ["vcs"],
+};
+
+/** Keys that must never be written to a project file, and why. */
+const SECRET_KEYS = new Set(["api_key", "workspaces", "default_workspace", "keyring"]);
+
+/**
+ * Where `config init` writes and `config set` falls back to when no project
+ * config exists yet: `<git root>/.linear.toml` inside a repository (the whole
+ * repo then sees it, since discovery walks up), else `<cwd>/.linear.toml`.
+ */
+export function defaultProjectConfigPath(cwd: string = process.cwd()): string {
+  let root: string | undefined;
+  try {
+    root = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+      cwd,
+      stdio: ["ignore", "pipe", "ignore"],
+      encoding: "utf8",
+    }).trim();
+  } catch {
+    // Not a repository.
+  }
+  return join(root || cwd, ".linear.toml");
+}
+
+/** Refuse a key that would put a secret (or the credential store) in a project file. */
+export function assertSettableKey(key: string): asserts key is SettableKey {
+  if (SECRET_KEYS.has(key)) {
+    throw new CliError(
+      `'${key}' is not a project setting: secrets and the credential store live only in the user config. Run \`linear auth login\` instead.`,
+      "usage",
+    );
+  }
+  if (!(SETTABLE_KEYS as readonly string[]).includes(key)) {
+    throw new CliError(
+      `Unknown setting '${key}'. Settable keys: ${SETTABLE_KEYS.join(", ")}.`,
+      "usage",
+    );
+  }
+}
+
+/** A TOML basic string: JSON's escapes are a subset of TOML's, so this is exact. */
+function tomlString(value: string): string {
+  return JSON.stringify(value);
+}
+
+/**
+ * Set one top-level key in a TOML file, creating the file if needed.
+ * Returns the spelling that was written (`team` or `team_id`, say).
+ */
+export function setConfigKey(
+  path: string,
+  key: SettableKey,
+  value: string,
+  opts: { mode?: number } = {},
+): string {
+  const mode = opts.mode ?? 0o644;
+  const text = existsSync(path) ? readFileSync(path, "utf8") : "";
+  // Parse first so a broken file is reported as such rather than edited blind.
+  if (text.trim()) parseTomlFile(path);
+
+  const lines = text.split("\n");
+  // Only the top-level region (before the first table header) is ours to
+  // touch: `api_key = …` inside `[workspaces.x]` must not be mistaken for a
+  // top-level key of the same name.
+  const firstTable = lines.findIndex((l) => /^\s*\[/.test(l));
+  const topEnd = firstTable === -1 ? lines.length : firstTable;
+  const spellings = KEY_ALIASES[key];
+  const keyLine = new RegExp(`^\\s*(${spellings.map((s) => s.replace(".", "\\.")).join("|")})\\s*=`);
+  const idx = lines.findIndex((l, i) => i < topEnd && keyLine.test(l));
+
+  let spelling: string;
+  let next: string[];
+  if (idx !== -1) {
+    spelling = lines[idx]!.match(keyLine)![1]!;
+    // Keep a trailing comment on the line, if any.
+    const comment = lines[idx]!.match(/\s+#.*$/)?.[0] ?? "";
+    next = [...lines];
+    next[idx] = `${spelling} = ${tomlString(value)}${comment}`;
+  } else {
+    spelling = key;
+    next = [...lines];
+    // Drop the trailing empty line a `\n`-terminated file splits into (the
+    // file is re-terminated below), then insert right after the last
+    // non-blank top-level line — before any blank line that separates the
+    // top-level keys from the first table. No alias line exists up there (we
+    // searched), so the insert is unambiguous.
+    if (next[next.length - 1] === "") next.pop();
+    let at = firstTable === -1 ? next.length : firstTable;
+    while (at > 0 && next[at - 1]!.trim() === "") at--;
+    const inserted = [`${spelling} = ${tomlString(value)}`];
+    // A file that opens with a table needs a blank line between us and it.
+    if (at < next.length && /^\s*\[/.test(next[at]!)) inserted.push("");
+    next.splice(at, 0, ...inserted);
+  }
+  let body = next.join("\n");
+  if (!body.endsWith("\n")) body += "\n";
+
+  // Prove the edit: the parsed file must carry exactly this value under this
+  // spelling. If a layout we did not foresee defeats the line edit, fall back
+  // to a full round-trip — correct, if less pretty.
+  let parsed: Record<string, unknown> | undefined;
+  try {
+    parsed = parseToml(body) as Record<string, unknown>;
+  } catch {
+    parsed = undefined;
+  }
+  if (!parsed || parsed[spelling] !== value) {
+    const obj = text.trim() ? parseTomlFile(path) : {};
+    for (const s of spellings) if (s !== spelling) delete obj[s];
+    obj[spelling] = value;
+    body = stringifyToml(obj) + "\n";
+  }
+  writeFileAtomic(path, body, mode);
+  return spelling;
+}
+
+/**
+ * Write a fresh project config. Refuses to replace an existing file unless
+ * `force`, since `config set` is the tool for changing one value.
+ */
+export function initProjectConfig(
+  path: string,
+  settings: Partial<Record<SettableKey, string>>,
+  opts: { force?: boolean } = {},
+): void {
+  if (existsSync(path) && !opts.force) {
+    throw new CliError(
+      `${path} already exists. Use \`linear config set <key> <value>\` to change a value, or --force to overwrite it.`,
+      "usage",
+    );
+  }
+  const lines = [
+    "# linear-sdk-cli project config — non-secret defaults for this repository.",
+    "# The API key never goes here; `linear auth login` stores it for you.",
+  ];
+  for (const key of SETTABLE_KEYS) {
+    const value = settings[key];
+    if (value !== undefined) lines.push(`${key} = ${tomlString(value)}`);
+  }
+  writeFileAtomic(path, lines.join("\n") + "\n", 0o644);
 }

@@ -10,6 +10,7 @@ import {
   chmodSync,
   readdirSync,
   existsSync,
+  realpathSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -23,7 +24,13 @@ import {
   listCredentials,
   migrateCredentials,
   referenceCredentialsPath,
+  initProjectConfig,
+  setConfigKey,
+  assertSettableKey,
+  defaultProjectConfigPath,
+  SETTABLE_KEYS,
 } from "../../src/config.js";
+import { execFileSync } from "node:child_process";
 import { setKeyringBackend, memoryKeyring, KeyringError, type KeyringBackend } from "../../src/lib/keyring.js";
 import { createClient } from "../../src/client.js";
 import { readFileSync } from "node:fs";
@@ -859,5 +866,113 @@ describe("redactKey", () => {
   });
   it("fully masks short keys", () => {
     expect(redactKey("short")).toBe("••••");
+  });
+});
+
+describe("project config writers (`config init` / `config set`)", () => {
+  const read = (p: string) => readFileSync(p, "utf8");
+
+  it("initProjectConfig writes a commented .linear.toml with the given settings, and refuses to clobber", () => {
+    const path = join(root, "proj", ".linear.toml");
+    initProjectConfig(path, { team: "TES", sort: "updated" });
+    const text = read(path);
+    expect(text).toMatch(/^# linear-sdk-cli project config/);
+    expect(text).toContain("The API key never goes here");
+    expect(parseToml(text)).toEqual({ team: "TES", sort: "updated" });
+    expect(resolveConfig({ env: baseEnv(), cwd: projectDir }).team).toBe("TES");
+    expect(() => initProjectConfig(path, { team: "ENG" })).toThrow(/already exists.*config set/);
+    initProjectConfig(path, { team: "ENG" }, { force: true });
+    expect(parseToml(read(path))).toEqual({ team: "ENG" });
+  });
+
+  it("setConfigKey creates the file when there is none", () => {
+    const path = join(root, "proj", ".linear.toml");
+    expect(setConfigKey(path, "team", "TES")).toBe("team");
+    expect(parseToml(read(path))).toEqual({ team: "TES" });
+    expect(statSync(path).mode & 0o777).toBe(0o644);
+  });
+
+  it("setConfigKey replaces a key's line in place and keeps comments and layout", () => {
+    const path = join(root, "proj", ".linear.toml");
+    writeFileSync(
+      path,
+      `# our team\nteam = "TES" # trailing note\n\n# sorting\nsort = "priority"\n\n[extra]\nteam = "NOT-TOP-LEVEL"\n`,
+    );
+    setConfigKey(path, "team", "ENG");
+    expect(read(path)).toBe(
+      `# our team\nteam = "ENG" # trailing note\n\n# sorting\nsort = "priority"\n\n[extra]\nteam = "NOT-TOP-LEVEL"\n`,
+    );
+  });
+
+  it("setConfigKey appends a missing key before the first table, after existing top-level keys", () => {
+    const path = join(root, "proj", ".linear.toml");
+    writeFileSync(path, `team = "TES"\n\n[extra]\nx = 1\n`);
+    setConfigKey(path, "sort", "updated");
+    expect(read(path)).toBe(`team = "TES"\nsort = "updated"\n\n[extra]\nx = 1\n`);
+    // and to a file with no tables it goes at the end
+    writeFileSync(path, `team = "TES"\n`);
+    setConfigKey(path, "vcs", "jj");
+    expect(read(path)).toBe(`team = "TES"\nvcs = "jj"\n`);
+    // and a file that opens with a table gets a blank line between
+    writeFileSync(path, `[extra]\nx = 1\n`);
+    setConfigKey(path, "team", "TES");
+    expect(read(path)).toBe(`team = "TES"\n\n[extra]\nx = 1\n`);
+  });
+
+  it("setConfigKey keeps the reference CLI's spelling when the file already uses it", () => {
+    // A schpet-written .config/linear.toml.
+    const path = join(root, "proj", ".config", "linear.toml");
+    mkdirSync(join(root, "proj", ".config"), { recursive: true });
+    writeFileSync(path, `# linear cli\nworkspace = "acme"\nteam_id = "TES"\nissue_sort = "priority"\n`);
+    expect(setConfigKey(path, "team", "ENG")).toBe("team_id");
+    expect(setConfigKey(path, "sort", "updated")).toBe("issue_sort");
+    expect(read(path)).toBe(`# linear cli\nworkspace = "acme"\nteam_id = "ENG"\nissue_sort = "updated"\n`);
+    // Nothing competes: one key, one spelling, and the reader agrees.
+    expect(resolveConfig({ env: baseEnv(), cwd: projectDir })).toMatchObject({ team: "ENG", sort: "updated" });
+  });
+
+  it("setConfigKey never touches a same-named key inside a table (the user config's api_key)", () => {
+    const path = userConfigPath(baseEnv());
+    writeFileSync(path, `default_workspace = "acme"\n\n[workspaces.acme]\napi_key = "lin_api_secret00000"\n`);
+    setConfigKey(path, "team", "TES", { mode: 0o600 });
+    const text = read(path);
+    expect(text).toBe(
+      `default_workspace = "acme"\nteam = "TES"\n\n[workspaces.acme]\napi_key = "lin_api_secret00000"\n`,
+    );
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+    expect(resolveConfig({ env: baseEnv(), cwd: root })).toMatchObject({
+      team: "TES",
+      apiKey: "lin_api_secret00000",
+    });
+  });
+
+  it("setConfigKey refuses to edit a file it cannot parse, and names it", () => {
+    const path = join(root, "proj", ".linear.toml");
+    writeFileSync(path, `team = "unterminated\n`);
+    expect(() => setConfigKey(path, "team", "TES")).toThrow(/Failed to parse config at/);
+    expect(read(path)).toBe(`team = "unterminated\n`);
+  });
+
+  it("setConfigKey writes atomically (a new inode, no temp files left)", () => {
+    const path = join(root, "proj", ".linear.toml");
+    setConfigKey(path, "team", "TES");
+    const first = statSync(path).ino;
+    setConfigKey(path, "team", "ENG");
+    expect(statSync(path).ino).not.toBe(first);
+    expect(readdirSync(join(root, "proj"))).toEqual([".linear.toml", "nested"]);
+  });
+
+  it("assertSettableKey refuses secrets and unknown keys with a pointed message", () => {
+    for (const k of ["api_key", "workspaces", "default_workspace", "keyring"]) {
+      expect(() => assertSettableKey(k)).toThrow(/not a project setting.*auth login/);
+    }
+    expect(() => assertSettableKey("colour")).toThrow(/Unknown setting 'colour'.*team, workspace, sort, vcs/);
+    for (const k of SETTABLE_KEYS) expect(() => assertSettableKey(k)).not.toThrow();
+  });
+
+  it("defaultProjectConfigPath is <git root>/.linear.toml inside a repo, <cwd>/.linear.toml outside", () => {
+    expect(defaultProjectConfigPath(projectDir)).toBe(join(projectDir, ".linear.toml"));
+    execFileSync("git", ["init", "-q"], { cwd: join(root, "proj") });
+    expect(defaultProjectConfigPath(projectDir)).toBe(join(realpathSync(root), "proj", ".linear.toml"));
   });
 });

@@ -370,8 +370,19 @@ Precedence, highest first — `linear config` prints each value with the tier an
 5. schpet/linear-cli's **global config**, `~/.config/linear/linear.toml` — read for non-secret
    settings only, so a migrating user's defaults carry over
 
-Keys: `team` (or `team_id`), `workspace`, `sort` (or `issue_sort`), `vcs`. `config init` writes a
-project file; `config set` edits one key.
+Keys: `team` (or `team_id`), `workspace`, `sort` (or `issue_sort`), `vcs`. You can write these from
+the CLI — comments and layout in an existing file are preserved, and the write is atomic:
+
+```sh
+linear config init                    # pick a team from a list → <git root>/.linear.toml
+linear config init --team TES         # …or say which (scripts); --sort, --path, --force
+linear config set sort updated        # edit one key in the project config in effect
+linear config set team ENG --user     # …or in ~/.config/linear/config.toml
+linear config                         # show the result, with each value's source
+```
+
+`config set` will not write `api_key` or anything else that belongs to the credential store — that
+is what `auth login` is for.
 
 ```toml
 # ~/.config/linear/config.toml

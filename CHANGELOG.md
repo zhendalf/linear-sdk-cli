@@ -35,6 +35,19 @@ All notable changes to this project are documented here. The format is based on
   `api_key` it allows there, same rule as a project file. `linear config` now prints each value with
   the tier and file it came from (`Team: TES (project: /repo/.config/linear.toml)`), and the JSON
   carries `origins` and `globalConfigPath`.
+- **`config init` and `config set` — the config was read-only, so a project's `.linear.toml` had to
+  be written by hand.** `config init` writes `<git root>/.linear.toml` (or `./.linear.toml` outside
+  a repository; `--path` to choose), taking `--team` or offering the workspace's teams in a prompt;
+  it refuses to replace an existing file without `--force`. `config set <key> <value>` changes one
+  of `team`, `workspace`, `sort`, `vcs` in the project config discovery would actually read — a
+  schpet-written `.config/linear.toml` included, in *its* spelling (`team_id`, `issue_sort`), so no
+  second competing key appears — or, with `--user`, in `~/.config/linear/config.toml`. The edit is
+  textual, one line replaced or appended before the first table, so comments and layout survive;
+  the result is parsed back to prove it, falling back to a full re-serialize only if a layout we
+  did not foresee defeats the line edit. Values are checked the way the reader will judge them
+  (`sort manual` is refused here, not on the next `issue list`), keys that belong to the credential
+  store (`api_key`, `workspaces`, …) are refused with a pointer to `auth login`, and every write
+  is atomic. Bare `linear config` still shows the resolved configuration (it is `config show`).
 
 - **The query filters a script carried over from `linear-cli` expects.** These failed loudly before
   (unknown flag), so nothing changes meaning — but they blocked real workflows, and every one of
