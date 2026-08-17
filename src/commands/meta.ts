@@ -1,6 +1,6 @@
 /**
- * Top-level meta commands: whoami, auth (login/list/default/token/status/logout),
- * config.
+ * Top-level meta commands: whoami, auth (login/list/default/token/status/
+ * logout/migrate), config.
  */
 
 import { Command } from "commander";
@@ -12,9 +12,12 @@ import {
   removeCredential,
   setDefaultWorkspace,
   listCredentials,
+  migrateCredentials,
   redactKey,
   resolveConfig,
 } from "../config.js";
+import { keyring } from "../lib/keyring.js";
+import { readStdinSync } from "../lib/body.js";
 import { authError, usageError } from "../lib/errors.js";
 import { promptSecret } from "../lib/prompt.js";
 import { firstTeam, type Context } from "../context.js";
@@ -62,18 +65,33 @@ export function registerMeta(program: Command): void {
   auth
     .command("login")
     .description("Validate and store a Linear API key for a workspace")
-    .option("--key <key>", "API key (otherwise prompted)")
+    .option("--key <key>", "API key (otherwise prompted; '-' reads it from stdin)")
+    .option(
+      "--plaintext",
+      "Store the key in the config file (0600) instead of the system keyring",
+    )
     .action(
       // The global `--workspace <slug>` selects the slug to store under
       // (default: derived from the key's organization urlKey).
       action(async (ctx: Context, opts) => {
         // `--key` still works for scripts. When prompted, the key is masked —
         // it is a credential, and it must not reach the screen or scrollback.
-        // Nothing below echoes it either: the receipt reports the user and the
-        // file it was written to, never the value.
+        // Nothing below echoes it either: the receipt reports the user and
+        // where the key went, never the value.
         let key: string | undefined = opts.key;
-        if (!key) key = await promptSecret(ctx, "Linear API key:", { required: true });
+        if (key === "-") {
+          key = readStdinSync();
+        } else if (key) {
+          // argv is world-readable (`ps`) and lands in shell history; say so
+          // once, quietly, and carry on — the script author chose it.
+          ctx.output.warn(
+            "--key on the command line is visible to other processes and shell history; prefer the prompt or `--key -` (stdin).",
+          );
+        } else {
+          key = await promptSecret(ctx, "Linear API key:", { required: true });
+        }
         key = key.trim();
+        if (!key) throw usageError("No API key provided.");
         // Validate before persisting and learn the workspace slug.
         const client = new LinearClient({ apiKey: key });
         let me;
@@ -85,17 +103,26 @@ export function registerMeta(program: Command): void {
           throw authError("That API key was rejected by Linear.");
         }
         const slug: string = ctx.options.workspace ?? org.urlKey;
-        const path = writeCredential(slug, key);
+        const { path, storage, keyringLabel } = writeCredential(slug, key, {
+          plaintext: opts.plaintext === true,
+        });
+        const where =
+          storage === "keychain"
+            ? `Key saved to the ${keyringLabel} (service linear-cli, account '${slug}'); ${path} records the workspace.`
+            : opts.plaintext
+              ? `Key saved to ${path} (plaintext, 0600).`
+              : `Key saved to ${path} (plaintext, 0600 — no system keyring on this platform).`;
         ctx.output.emit(
           {
             success: true,
             workspace: slug,
             user: { id: me.id, name: me.name, email: me.email },
+            storage,
             path,
           },
           () =>
             ctx.output.success(
-              `Authenticated as ${me.name} <${me.email}> for workspace '${slug}'. Key saved to ${path}`,
+              `Authenticated as ${me.name} <${me.email}> for workspace '${slug}'. ${where}`,
             ),
         );
       }),
@@ -114,6 +141,7 @@ export function registerMeta(program: Command): void {
           [
             { key: "slug", header: "Workspace", value: (e) => e.slug },
             { key: "isDefault", header: "Default", value: (e) => (e.isDefault ? "yes" : "") },
+            { key: "storage", header: "Storage", value: (e) => e.storage },
           ],
           entries,
         );
@@ -161,20 +189,47 @@ export function registerMeta(program: Command): void {
     .action(
       action(async (ctx) => {
         const c = ctx.config;
+        const backend = keyring();
         ctx.output.detail(
           {
             authenticated: !!c.apiKey,
             source: c.apiKeySource,
             workspace: c.credentialWorkspace ?? null,
             key: redactKey(c.apiKey),
+            keyring: backend?.name ?? null,
           },
           [
             ["Authenticated", !!c.apiKey],
             ["Source", c.apiKeySource],
             ["Workspace", c.credentialWorkspace ?? "(none)"],
             ["Key", redactKey(c.apiKey)],
+            ["Keyring", backend ? backend.label : "(none on this platform)"],
           ],
         );
+        // A plaintext key on a machine that has a keyring is worth one nudge
+        // (a human one — the JSON already carries `source` and `keyring`).
+        if (c.apiKeySource === "user" && backend && !ctx.output.json) {
+          ctx.output.info(`Run \`linear auth migrate\` to move it into the ${backend.label}.`);
+        }
+      }),
+    );
+
+  // migrate -----------------------------------------------------------------
+  auth
+    .command("migrate")
+    .description("Move plaintext credentials from the config file into the system keyring")
+    .action(
+      action(async (ctx: Context) => {
+        const { migrated, path, keyringLabel } = migrateCredentials();
+        ctx.output.emit({ success: true, migrated, path }, () => {
+          if (migrated.length === 0) {
+            ctx.output.info(`Nothing to migrate: no plaintext keys in ${path}.`);
+          } else {
+            ctx.output.success(
+              `Moved ${migrated.length} credential${migrated.length === 1 ? "" : "s"} into the ${keyringLabel}: ${migrated.join(", ")}. ${path} now holds only the workspace list.`,
+            );
+          }
+        });
       }),
     );
 

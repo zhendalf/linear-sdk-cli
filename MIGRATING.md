@@ -26,16 +26,23 @@ zero risk of running the wrong tool, use `lin` for the first week.
 
 ## 2. Credentials — nothing to re-enter
 
-schpet 2.5 stores your API key in the **system keyring** (macOS Keychain, service `linear-cli`,
-account = workspace slug), with a plaintext fallback. We read that keyring entry directly, so:
+schpet 2.5 stores your API key in the **system keyring** (macOS Keychain or Linux `secret-tool`;
+service `linear-cli`, account = workspace slug) and keeps the workspace list in
+`~/.config/linear/credentials.toml`. We use the same keyring service and account, and we read that
+list file for slugs and its `default` (never for keys), so:
 
 ```bash
-linear auth status      # should already say Authenticated: true, Source: keychain
+linear auth status      # Authenticated: true, Source: keychain, Workspace: <your slug>
+linear auth list        # …lists it, Storage: keychain
 ```
 
-If it does not — no keyring on this platform, or you used schpet's plaintext mode — `linear auth
-login` prompts (masked) and stores the key. `auth migrate` moves a plaintext credential into the
-keyring, same command name as theirs. The API key is **never** read from a project `.linear.toml`.
+If it does not — no keyring on this platform, or you used schpet's plaintext mode (`slug =
+"lin_api_…"` inline in `credentials.toml`, which we deliberately do not read) — `linear auth login`
+prompts (masked) and stores the key in the keyring; `--plaintext` keeps it in our `0600`
+`config.toml` instead. `auth migrate` moves plaintext credentials from that file into the keyring,
+same command name as theirs. Because the keyring entry is shared, `auth logout` here removes it for
+schpet too (and drops the slug from its list file, so neither tool reports a workspace whose key is
+gone). The API key is **never** read from a project `.linear.toml`.
 
 ## 3. Config — same files, same keys
 

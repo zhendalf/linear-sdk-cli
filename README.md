@@ -72,18 +72,29 @@ branch, so most issue commands let you omit the id entirely.
 ## Authentication
 
 The CLI resolves your API key in this order: the `--api-key` flag → the `LINEAR_API_KEY`
-environment variable → a stored credential in the user config file
-(`~/.config/linear/config.toml`, written `0600`).
+environment variable → a plaintext key in the user config file (`~/.config/linear/config.toml`,
+written `0600`) → the **OS keyring** (macOS Keychain, or `secret-tool` on Linux).
 
 > **Credential trust boundary.** The API key is **never** read from a project-local
 > `.linear.toml` — only non-secret settings live there — so a key can't be committed by accident,
 > and a checked-out project can never steer which credential you use.
 
 ```sh
-linear auth login                          # store a key (prompts, then validates)
+linear auth login                          # store a key (prompts, validates, saves to the keyring)
+linear auth login --plaintext              # …or keep it in the 0600 config file instead
 linear auth status                         # where the key came from (value redacted)
+linear auth migrate                        # move plaintext keys from the file into the keyring
 linear auth token                          # print the resolved key (for scripting)
 ```
+
+`auth login` stores the secret in the system keyring by default and writes only a
+`keyring = true` marker to the config file; where there is no keyring (other platforms, or a Linux
+box without `libsecret`) it falls back to the file, and says so. The keyring entry is
+`service = linear-cli`, `account = <workspace slug>` — the same convention as
+[schpet/linear-cli](https://github.com/schpet/linear-cli), so if you are coming from it your key is
+found without a re-login (`auth status` reports `Source: keychain`). Note the entry is shared:
+`auth logout` here removes it for both tools. `--key -` reads the key from stdin for scripts;
+passing it as `--key <value>` works but earns a warning, since argv is visible to other processes.
 
 ### Multiple workspaces
 
@@ -355,9 +366,9 @@ sort = "priority"              # default issue-list sort: priority | updated | c
 vcs = "git"
 
 [workspaces."acme"]            # per-workspace credentials (hyphenated slugs are quoted)
-api_key = "lin_api_xxxxxxxx"
+keyring = true                 # secret lives in the OS keyring (service linear-cli, account acme)
 [workspaces."other-org"]
-api_key = "lin_api_yyyyyyyy"
+api_key = "lin_api_yyyyyyyy"   # …or, with `auth login --plaintext`, in this 0600 file
 ```
 
 Relevant environment variables: **`LINEAR_API_KEY`** (absolute — bypasses workspace selection) and

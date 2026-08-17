@@ -9,6 +9,7 @@ import {
   statSync,
   chmodSync,
   readdirSync,
+  existsSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,7 +21,10 @@ import {
   setDefaultWorkspace,
   removeCredential,
   listCredentials,
+  migrateCredentials,
+  referenceCredentialsPath,
 } from "../../src/config.js";
+import { setKeyringBackend, memoryKeyring, KeyringError, type KeyringBackend } from "../../src/lib/keyring.js";
 import { createClient } from "../../src/client.js";
 import { readFileSync } from "node:fs";
 import { parse as parseToml } from "smol-toml";
@@ -28,6 +32,8 @@ import { parse as parseToml } from "smol-toml";
 let root: string;
 let xdg: string;
 let projectDir: string;
+/** A fake keyring for every test here, so nothing reaches the real Keychain. */
+let kr: ReturnType<typeof memoryKeyring>;
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "lincfg-"));
@@ -35,9 +41,12 @@ beforeEach(() => {
   projectDir = join(root, "proj", "nested");
   mkdirSync(projectDir, { recursive: true });
   mkdirSync(join(xdg, "linear"), { recursive: true });
+  kr = memoryKeyring();
+  setKeyringBackend(kr);
 });
 
 afterEach(() => {
+  setKeyringBackend(undefined);
   rmSync(root, { recursive: true, force: true });
 });
 
@@ -243,7 +252,7 @@ describe("structured credential writers", () => {
   }
 
   it("writeCredential upserts and sets default when none exists", () => {
-    writeCredential("my-org", "lin_api_first00000");
+    writeCredential("my-org", "lin_api_first00000", { plaintext: true });
     const obj = readBack();
     expect(obj.default_workspace).toBe("my-org");
     expect(obj.workspaces["my-org"].api_key).toBe("lin_api_first00000");
@@ -254,7 +263,7 @@ describe("structured credential writers", () => {
       `default_workspace = "org-a"\nteam = "TES"\nsort = "updated"\n` +
         `[workspaces."org-a"]\napi_key = "lin_api_a000000000"\n`,
     );
-    writeCredential("org-b", "lin_api_b000000000");
+    writeCredential("org-b", "lin_api_b000000000", { plaintext: true });
     const obj = readBack();
     expect(obj.default_workspace).toBe("org-a"); // unchanged
     expect(obj.team).toBe("TES");
@@ -264,33 +273,33 @@ describe("structured credential writers", () => {
   });
 
   it("round-trips quoted hyphenated slugs through resolveConfig", () => {
-    writeCredential("acme-corp", "lin_api_acme000000");
+    writeCredential("acme-corp", "lin_api_acme000000", { plaintext: true });
     const cfg = resolveConfig({ env: baseEnv(), flags: { workspace: "acme-corp" } });
     expect(cfg.apiKey).toBe("lin_api_acme000000");
     expect(cfg.credentialWorkspace).toBe("acme-corp");
   });
 
   it("round-trips slugs needing real quoting (dots)", () => {
-    writeCredential("co.uk-org", "lin_api_couk000000");
+    writeCredential("co.uk-org", "lin_api_couk000000", { plaintext: true });
     const cfg = resolveConfig({ env: baseEnv(), flags: { workspace: "co.uk-org" } });
     expect(cfg.apiKey).toBe("lin_api_couk000000");
   });
 
   it("setDefaultWorkspace updates the default", () => {
-    writeCredential("org-a", "lin_api_a000000000");
-    writeCredential("org-b", "lin_api_b000000000");
+    writeCredential("org-a", "lin_api_a000000000", { plaintext: true });
+    writeCredential("org-b", "lin_api_b000000000", { plaintext: true });
     setDefaultWorkspace("org-b");
     expect(readBack().default_workspace).toBe("org-b");
   });
 
   it("setDefaultWorkspace errors for an unconfigured workspace", () => {
-    writeCredential("org-a", "lin_api_a000000000");
+    writeCredential("org-a", "lin_api_a000000000", { plaintext: true });
     expect(() => setDefaultWorkspace("ghost")).toThrow(/not configured/);
   });
 
   it("removeCredential removes only the target workspace", () => {
-    writeCredential("org-a", "lin_api_a000000000");
-    writeCredential("org-b", "lin_api_b000000000");
+    writeCredential("org-a", "lin_api_a000000000", { plaintext: true });
+    writeCredential("org-b", "lin_api_b000000000", { plaintext: true });
     expect(removeCredential("org-a")).toBe(true);
     const obj = readBack();
     expect(obj.workspaces["org-a"]).toBeUndefined();
@@ -298,14 +307,14 @@ describe("structured credential writers", () => {
   });
 
   it("removeCredential repoints the default when removing the default", () => {
-    writeCredential("org-a", "lin_api_a000000000"); // becomes default
-    writeCredential("org-b", "lin_api_b000000000");
+    writeCredential("org-a", "lin_api_a000000000", { plaintext: true }); // becomes default
+    writeCredential("org-b", "lin_api_b000000000", { plaintext: true });
     removeCredential("org-a");
     expect(readBack().default_workspace).toBe("org-b");
   });
 
   it("removeCredential clears default_workspace when removing the last workspace", () => {
-    writeCredential("solo", "lin_api_solo000000");
+    writeCredential("solo", "lin_api_solo000000", { plaintext: true });
     expect(removeCredential("solo")).toBe(true);
     const obj = readBack();
     expect(obj.default_workspace).toBeUndefined();
@@ -313,7 +322,7 @@ describe("structured credential writers", () => {
   });
 
   it("removeCredential returns false for an unknown workspace", () => {
-    writeCredential("org-a", "lin_api_a000000000");
+    writeCredential("org-a", "lin_api_a000000000", { plaintext: true });
     expect(removeCredential("ghost")).toBe(false);
   });
 
@@ -401,7 +410,7 @@ describe("credential writes are atomic", () => {
   });
 
   it("a reader holding the old file still sees a COMPLETE config after a write", () => {
-    writeCredential("org-a", "lin_api_a000000000");
+    writeCredential("org-a", "lin_api_a000000000", { plaintext: true });
     const path = userConfigPath(baseEnv());
     const before = readFileSync(path, "utf8");
 
@@ -410,7 +419,7 @@ describe("credential writes are atomic", () => {
     // file; replacing the path by rename cannot.
     const fd = openSync(path, "r");
     try {
-      writeCredential("org-b", "lin_api_b000000000");
+      writeCredential("org-b", "lin_api_b000000000", { plaintext: true });
       const seen = readFileSync(fd, "utf8");
       expect(seen).toBe(before);
       expect(parseToml(seen)).toBeTruthy();
@@ -425,31 +434,335 @@ describe("credential writes are atomic", () => {
   });
 
   it("the replacement is a new file, not a rewrite of the old inode", () => {
-    writeCredential("org-a", "lin_api_a000000000");
+    writeCredential("org-a", "lin_api_a000000000", { plaintext: true });
     const path = userConfigPath(baseEnv());
     const first = statSync(path).ino;
-    writeCredential("org-b", "lin_api_b000000000");
+    writeCredential("org-b", "lin_api_b000000000", { plaintext: true });
     expect(statSync(path).ino).not.toBe(first);
   });
 
   it("leaves no temp files behind", () => {
-    writeCredential("org-a", "lin_api_a000000000");
-    writeCredential("org-b", "lin_api_b000000000");
+    writeCredential("org-a", "lin_api_a000000000", { plaintext: true });
+    writeCredential("org-b", "lin_api_b000000000", { plaintext: true });
     setDefaultWorkspace("org-b");
     removeCredential("org-a");
     expect(readdirSync(join(xdg, "linear"))).toEqual(["config.toml"]);
   });
 
   it("keeps the credential file at 0600, tightening one that was loosened", () => {
-    writeCredential("org-a", "lin_api_a000000000");
+    writeCredential("org-a", "lin_api_a000000000", { plaintext: true });
     const path = userConfigPath(baseEnv());
     expect(statSync(path).mode & 0o777).toBe(0o600);
 
     chmodSync(path, 0o644);
-    writeCredential("org-b", "lin_api_b000000000");
+    writeCredential("org-b", "lin_api_b000000000", { plaintext: true });
     expect(statSync(path).mode & 0o777).toBe(0o600);
   });
 
+});
+
+describe("keyring-backed credentials", () => {
+  let savedXdg: string | undefined;
+  let savedHome: string | undefined;
+
+  beforeEach(() => {
+    savedXdg = process.env.XDG_CONFIG_HOME;
+    savedHome = process.env.HOME;
+    process.env.XDG_CONFIG_HOME = xdg;
+    process.env.HOME = root;
+  });
+
+  afterEach(() => {
+    if (savedXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = savedXdg;
+    if (savedHome === undefined) delete process.env.HOME;
+    else process.env.HOME = savedHome;
+  });
+
+  function readBack(): Record<string, any> {
+    return parseToml(readFileSync(userConfigPath(baseEnv()), "utf8")) as Record<string, any>;
+  }
+  /** The reference CLI's credentials.toml, keyring format. */
+  function writeReference(body: string) {
+    writeFileSync(referenceCredentialsPath(baseEnv()), body);
+  }
+
+  describe("resolution", () => {
+    it("falls through to the keyring for a `keyring = true` workspace, and says so", () => {
+      writeUserConfig(`[workspaces."acme"]\nkeyring = true\n`);
+      kr.store.set("acme", "lin_api_fromkeychain");
+      const cfg = resolveConfig({ env: baseEnv() });
+      expect(cfg.apiKey).toBe("lin_api_fromkeychain");
+      expect(cfg.apiKeySource).toBe("keychain");
+      expect(cfg.credentialWorkspace).toBe("acme");
+    });
+
+    it("finds a schpet/linear-cli user's entry with NO config of ours at all", () => {
+      // What a 2.x install leaves behind: the list file + a Keychain item under
+      // service linear-cli / account <slug>. Nothing to re-enter.
+      writeReference(`default = "lumiere"\nworkspaces = ["lumiere"]\n`);
+      kr.store.set("lumiere", "lin_api_schpetkey00");
+      const cfg = resolveConfig({ env: baseEnv() });
+      expect(cfg.apiKey).toBe("lin_api_schpetkey00");
+      expect(cfg.apiKeySource).toBe("keychain");
+      expect(cfg.credentialWorkspace).toBe("lumiere");
+      expect(cfg.apiKeyError).toBeUndefined();
+    });
+
+    it("honors the reference CLI's `default` when it lists several workspaces", () => {
+      writeReference(`default = "second"\nworkspaces = ["first", "second"]\n`);
+      kr.store.set("first", "lin_api_first000000");
+      kr.store.set("second", "lin_api_second00000");
+      const cfg = resolveConfig({ env: baseEnv() });
+      expect(cfg.credentialWorkspace).toBe("second");
+      expect(cfg.apiKey).toBe("lin_api_second00000");
+    });
+
+    it("our default_workspace beats the reference CLI's default", () => {
+      writeUserConfig(`default_workspace = "ours"\n[workspaces."ours"]\nkeyring = true\n`);
+      writeReference(`default = "theirs"\nworkspaces = ["theirs"]\n`);
+      kr.store.set("ours", "lin_api_ours0000000");
+      kr.store.set("theirs", "lin_api_theirs00000");
+      const cfg = resolveConfig({ env: baseEnv() });
+      expect(cfg.credentialWorkspace).toBe("ours");
+    });
+
+    it("ignores the reference CLI's inline (plaintext) format entirely", () => {
+      // Its keys are not one of our secret sources, and listing the slug
+      // without the key would only produce a confusing "no stored credential".
+      writeReference(`default = "old"\nold = "lin_api_inlineplain0"\n`);
+      const cfg = resolveConfig({ env: baseEnv() });
+      expect(cfg.apiKey).toBeUndefined();
+      expect(cfg.apiKeySource).toBe("none");
+      expect(cfg.apiKeyError).toBeUndefined();
+      expect(listCredentials(baseEnv())).toEqual([]);
+    });
+
+    it("a plaintext api_key in our file beats the keyring for the same slug", () => {
+      writeUserConfig(`[workspaces."acme"]\napi_key = "lin_api_fromfile000"\n`);
+      kr.store.set("acme", "lin_api_fromkeychain");
+      const cfg = resolveConfig({ env: baseEnv() });
+      expect(cfg.apiKey).toBe("lin_api_fromfile000");
+      expect(cfg.apiKeySource).toBe("user");
+    });
+
+    it("probes the keyring for an explicitly selected slug no file lists", () => {
+      kr.store.set("orphan", "lin_api_orphan00000");
+      const byFlag = resolveConfig({ env: baseEnv(), flags: { workspace: "orphan" } });
+      expect(byFlag.apiKey).toBe("lin_api_orphan00000");
+      expect(byFlag.apiKeySource).toBe("keychain");
+      const byEnv = resolveConfig({ env: baseEnv({ LINEAR_WORKSPACE: "orphan" }) });
+      expect(byEnv.apiKey).toBe("lin_api_orphan00000");
+    });
+
+    it("a listed slug with nothing in the keyring is a stale entry, reported as such", () => {
+      writeUserConfig(`[workspaces."gone"]\nkeyring = true\n`);
+      const cfg = resolveConfig({ env: baseEnv() });
+      expect(cfg.apiKey).toBeUndefined();
+      expect(cfg.apiKeyError?.message).toMatch(/No stored credential for workspace 'gone'/);
+    });
+
+    it("a keyring failure is reported as a keyring failure, not as a missing credential", () => {
+      writeUserConfig(`[workspaces."acme"]\nkeyring = true\n`);
+      const broken: KeyringBackend = {
+        ...kr,
+        get: () => {
+          // What a locked Keychain in an SSH session looks like.
+          throw new KeyringError("security find-generic-password failed (exit 36)");
+        },
+      };
+      setKeyringBackend(broken);
+      // Resolution stays total (no throw): the failure is stashed like any
+      // other selection problem, and it names the store, not "no credential".
+      const cfg = resolveConfig({ env: baseEnv() });
+      expect(cfg.apiKey).toBeUndefined();
+      expect(cfg.apiKeyError?.message).toMatch(/Could not read the test keyring entry for workspace 'acme'.*exit 36/);
+      expect(cfg.apiKeyError?.message).not.toMatch(/No stored credential/);
+      // Anything that is NOT a KeyringError is a bug and must surface.
+      setKeyringBackend({ ...kr, get: () => { throw new TypeError("oops"); } });
+      expect(() => resolveConfig({ env: baseEnv() })).toThrow(/oops/);
+    });
+
+    it("with no keyring on the platform, keyring-listed slugs simply have no credential", () => {
+      setKeyringBackend(null);
+      writeUserConfig(`[workspaces."acme"]\nkeyring = true\n`);
+      const cfg = resolveConfig({ env: baseEnv() });
+      expect(cfg.apiKey).toBeUndefined();
+      expect(cfg.apiKeyError?.message).toMatch(/No stored credential/);
+    });
+
+    it("still NEVER reads a key from a project .linear.toml, keyring or not", () => {
+      writeProjectConfig(projectDir, `api_key = "lin_api_projectkey00"\n[workspaces."acme"]\napi_key = "x"\n`);
+      const cfg = resolveConfig({ env: baseEnv(), cwd: projectDir });
+      expect(cfg.apiKey).toBeUndefined();
+    });
+  });
+
+  describe("writeCredential", () => {
+    it("stores the secret in the keyring by default and only a marker in the file", () => {
+      const res = writeCredential("acme", "lin_api_secret00000");
+      expect(res.storage).toBe("keychain");
+      expect(kr.store.get("acme")).toBe("lin_api_secret00000");
+      const obj = readBack();
+      expect(obj.workspaces.acme.keyring).toBe(true);
+      expect(obj.workspaces.acme.api_key).toBeUndefined();
+      expect(readFileSync(userConfigPath(baseEnv()), "utf8")).not.toContain("lin_api_secret");
+      expect(obj.default_workspace).toBe("acme");
+    });
+
+    it("a re-login moves a plaintext key into the keyring rather than leaving a copy", () => {
+      writeCredential("acme", "lin_api_old00000000", { plaintext: true });
+      writeCredential("acme", "lin_api_new00000000");
+      const obj = readBack();
+      expect(obj.workspaces.acme.api_key).toBeUndefined();
+      expect(obj.workspaces.acme.keyring).toBe(true);
+      expect(kr.store.get("acme")).toBe("lin_api_new00000000");
+      expect(resolveConfig({ env: baseEnv() }).apiKey).toBe("lin_api_new00000000");
+    });
+
+    it("--plaintext writes the file and drops the keyring marker", () => {
+      writeCredential("acme", "lin_api_kc000000000");
+      const res = writeCredential("acme", "lin_api_pt000000000", { plaintext: true });
+      expect(res.storage).toBe("file");
+      const obj = readBack();
+      expect(obj.workspaces.acme.api_key).toBe("lin_api_pt000000000");
+      expect(obj.workspaces.acme.keyring).toBeUndefined();
+    });
+
+    it("falls back to the file, without complaint, where there is no keyring", () => {
+      setKeyringBackend(null);
+      const res = writeCredential("acme", "lin_api_nokeyring00");
+      expect(res.storage).toBe("file");
+      expect(res.keyringLabel).toBeUndefined();
+      expect(readBack().workspaces.acme.api_key).toBe("lin_api_nokeyring00");
+    });
+
+    it("leaves the file untouched when the keyring refuses", () => {
+      setKeyringBackend({
+        ...kr,
+        set: () => {
+          throw new Error("keychain locked");
+        },
+      });
+      expect(() => writeCredential("acme", "lin_api_x0000000000")).toThrow(/keychain locked/);
+      expect(existsSync(userConfigPath(baseEnv()))).toBe(false);
+    });
+
+    it("does not override the reference CLI's default with a new login", () => {
+      writeReference(`default = "lumiere"\nworkspaces = ["lumiere"]\n`);
+      kr.store.set("lumiere", "lin_api_lumiere0000");
+      writeCredential("second", "lin_api_second00000");
+      expect(readBack().default_workspace).toBeUndefined();
+      expect(resolveConfig({ env: baseEnv() }).credentialWorkspace).toBe("lumiere");
+    });
+  });
+
+  describe("listCredentials / setDefaultWorkspace", () => {
+    it("lists file, keyring and reference-CLI workspaces with their storage", () => {
+      writeUserConfig(
+        `default_workspace = "pt"\n[workspaces."pt"]\napi_key = "lin_api_pt000000000"\n[workspaces."kc"]\nkeyring = true\n`,
+      );
+      writeReference(`workspaces = ["lumiere"]\n`);
+      const list = listCredentials(baseEnv());
+      expect(list).toEqual([
+        { slug: "pt", isDefault: true, storage: "file" },
+        { slug: "kc", isDefault: false, storage: "keychain" },
+        { slug: "lumiere", isDefault: false, storage: "keychain" },
+      ]);
+    });
+
+    it("setDefaultWorkspace accepts a keyring-backed or reference-listed slug", () => {
+      writeUserConfig(`[workspaces."kc"]\nkeyring = true\n`);
+      writeReference(`workspaces = ["lumiere"]\n`);
+      setDefaultWorkspace("kc");
+      expect(readBack().default_workspace).toBe("kc");
+      setDefaultWorkspace("lumiere");
+      expect(readBack().default_workspace).toBe("lumiere");
+      expect(() => setDefaultWorkspace("ghost")).toThrow(/not configured/);
+    });
+  });
+
+  describe("removeCredential", () => {
+    it("removes the keyring entry along with the table", () => {
+      writeCredential("acme", "lin_api_secret00000");
+      expect(removeCredential("acme")).toBe(true);
+      expect(kr.store.has("acme")).toBe(false);
+      expect(readBack().workspaces).toBeUndefined();
+    });
+
+    it("forgets a reference-CLI workspace: keyring entry gone, its list rewritten in its own layout", () => {
+      writeReference(`default = "lumiere"\nworkspaces = ["lumiere", "other"]\n`);
+      kr.store.set("lumiere", "lin_api_lumiere0000");
+      expect(removeCredential("lumiere")).toBe(true);
+      expect(kr.store.has("lumiere")).toBe(false);
+      const ref = parseToml(readFileSync(referenceCredentialsPath(baseEnv()), "utf8")) as any;
+      expect(ref).toEqual({ default: "other", workspaces: ["other"] });
+      expect(listCredentials(baseEnv()).map((e) => e.slug)).toEqual(["other"]);
+    });
+
+    it("returns false when nothing anywhere knows the slug", () => {
+      writeCredential("acme", "lin_api_secret00000");
+      expect(removeCredential("ghost")).toBe(false);
+    });
+  });
+
+  describe("migrateCredentials", () => {
+    it("moves every plaintext key into the keyring and leaves markers", () => {
+      writeUserConfig(
+        `default_workspace = "a"\nteam = "TES"\n` +
+          `[workspaces."a"]\napi_key = "lin_api_a000000000"\n` +
+          `[workspaces."b"]\napi_key = "lin_api_b000000000"\n` +
+          `[workspaces."c"]\nkeyring = true\n`,
+      );
+      const res = migrateCredentials();
+      expect(res.migrated.sort()).toEqual(["a", "b"]);
+      expect(kr.store.get("a")).toBe("lin_api_a000000000");
+      expect(kr.store.get("b")).toBe("lin_api_b000000000");
+      const text = readFileSync(userConfigPath(baseEnv()), "utf8");
+      expect(text).not.toContain("lin_api_");
+      const obj = readBack();
+      expect(obj.workspaces.a).toEqual({ keyring: true });
+      expect(obj.workspaces.b).toEqual({ keyring: true });
+      expect(obj.team).toBe("TES");
+      expect(obj.default_workspace).toBe("a");
+      expect(resolveConfig({ env: baseEnv() })).toMatchObject({
+        apiKey: "lin_api_a000000000",
+        apiKeySource: "keychain",
+      });
+    });
+
+    it("is a no-op with nothing to migrate", () => {
+      writeUserConfig(`[workspaces."c"]\nkeyring = true\n`);
+      const before = readFileSync(userConfigPath(baseEnv()), "utf8");
+      expect(migrateCredentials().migrated).toEqual([]);
+      expect(readFileSync(userConfigPath(baseEnv()), "utf8")).toBe(before);
+    });
+
+    it("rolls back the keyring and leaves the file alone if one store fails", () => {
+      writeUserConfig(
+        `[workspaces."a"]\napi_key = "lin_api_a000000000"\n` +
+          `[workspaces."b"]\napi_key = "lin_api_b000000000"\n`,
+      );
+      const before = readFileSync(userConfigPath(baseEnv()), "utf8");
+      let calls = 0;
+      setKeyringBackend({
+        ...kr,
+        set: (a, s) => {
+          if (++calls === 2) throw new Error("disk full");
+          kr.store.set(a, s);
+        },
+      });
+      expect(() => migrateCredentials()).toThrow(/disk full.*Rolled back 1/);
+      expect(kr.store.size).toBe(0);
+      expect(readFileSync(userConfigPath(baseEnv()), "utf8")).toBe(before);
+    });
+
+    it("refuses where there is no keyring, naming the file that keeps the keys", () => {
+      setKeyringBackend(null);
+      writeUserConfig(`[workspaces."a"]\napi_key = "lin_api_a000000000"\n`);
+      expect(() => migrateCredentials()).toThrow(/No system keyring/);
+    });
+  });
 });
 
 describe("redactKey", () => {
