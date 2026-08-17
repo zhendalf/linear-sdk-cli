@@ -256,6 +256,15 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- **`issue comment "<body>"` on a matching branch failed** (TES-619) — the README's headline
+  example. `issue comment [id] [body]` read a lone operand as the id, so `linear issue comment
+  'shipped'` on `tes-615-…` produced "No comment body provided" (and, in a terminal, opened
+  `$EDITOR` for the body first and only then rejected `'shipped'` as an id — work lost).
+  `assign` and `state` already disambiguated a lone operand; `comment` now does the same: one
+  operand that looks like an issue id is the id (body from `--body-file` or the editor), anything
+  else is the body with the id inferred from the branch. The id is settled before any editor can
+  open. Two operands, the four `add|list|update|delete` subcommands, and `--body-file` are
+  unchanged.
 - **`-j` did not switch the error boundary to the JSON envelope** (TES-618). The boundary in
   `src/bin/linear.ts` decided the error format by scanning `process.argv` for the literal string
   `--json`, so the `-j` alias, bundled short flags (`-jq`) and every other spelling commander

@@ -459,13 +459,23 @@ export function registerIssue(program: Command): void {
   // comment / comments ------------------------------------------------------
   const comment = issue
     .command("comment [id] [body]")
-    .description("Add a comment to an issue (or use the add/list/update/delete subcommands)")
+    .description(
+      "Add a comment to an issue; on a matching branch, `issue comment \"<body>\"` is enough (or use the add/list/update/delete subcommands)",
+    )
     .option("--body-file <path>", "read comment body from a file ('-' = stdin)")
     .action(
-      action(async (ctx: Context, opts, idArg?: string, bodyArg?: string) => {
+      action(async (ctx: Context, opts, a?: string, b?: string) => {
+        // Both operands are optional, so a lone one is ambiguous: `TES-42` is
+        // an id (body from --body-file or $EDITOR), anything else is the body
+        // with the id inferred from the branch — the README's headline
+        // `linear issue comment "shipped"`. Same rule as `assign`/`state`.
+        const { idArg, bodyArg } = idAndBody(a, b);
+        // Settle the id BEFORE the editor can open, so nobody writes a comment
+        // only to be told there was nowhere to put it.
+        const id = requireId(idArg);
         const body = resolveBody({ arg: bodyArg, file: opts.bodyFile, interactive: ctx.isTTY });
         if (!body) throw usageError("No comment body provided.");
-        const { issue: iss, comment } = await svc.commentOnIssue(ctx.client, requireId(idArg), body);
+        const { issue: iss, comment } = await svc.commentOnIssue(ctx.client, id, body);
         ctx.output.emit({ id: comment?.id, issue: iss.identifier }, () =>
           ctx.output.success(`Commented on ${iss.identifier}`),
         );
@@ -801,6 +811,17 @@ function oneOrTwo(a: string | undefined, b: string | undefined, valueName: strin
     throw usageError(`Missing ${valueName}. Usage: <id> <${valueName}>  (or just <${valueName}> on a matching branch)`);
   }
   return { value: a };
+}
+
+/**
+ * `oneOrTwo`'s sibling for `issue comment [id] [body]`, where the value may
+ * legitimately be absent (it can come from --body-file or $EDITOR): a lone
+ * operand that looks like an issue id IS the id; anything else is the body.
+ */
+function idAndBody(a: string | undefined, b: string | undefined): { idArg?: string; bodyArg?: string } {
+  if (a !== undefined && b !== undefined) return { idArg: a, bodyArg: b };
+  if (a === undefined) return {};
+  return ISSUE_ID_RE.test(a) ? { idArg: a } : { bodyArg: a };
 }
 
 /**
