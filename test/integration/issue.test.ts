@@ -62,13 +62,15 @@ suite("phase 1 — issue lifecycle (live)", () => {
 
   it("views an issue with resolved relations", () => {
     const id = makeIssue("view");
-    const d = runJson<{ identifier: string; priorityLabel: string; team: string }>([
-      "issue",
-      "view",
-      id,
-    ]);
+    // Detail relations are objects (TES-627): `team.key`, not "KEY Name" strings.
+    const d = runJson<{
+      identifier: string;
+      priorityLabel: string;
+      team: { id: string; key: string; name: string } | null;
+    }>(["issue", "view", id]);
     expect(d.identifier).toBe(id);
-    expect(d.team).toContain(TEAM);
+    expect(d.team?.key).toBe(TEAM);
+    expect(d.team?.id).toMatch(/^[0-9a-f-]{36}$/);
   });
 
   it("updates title, priority, state and assignee", () => {

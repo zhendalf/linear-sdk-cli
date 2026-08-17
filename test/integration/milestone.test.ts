@@ -58,14 +58,16 @@ suite("milestone — project milestone lifecycle (live)", () => {
 
   it("views a milestone with its resolved project", () => {
     const id = makeMilestone("view");
-    const d = runJson<{ id: string; name: string; project: string | null }>([
+    // Detail relations are objects (TES-627), not display strings.
+    const d = runJson<{ id: string; name: string; project: { id: string; name: string } | null }>([
       "milestone",
       "view",
       id,
     ]);
     expect(d.id).toBe(id);
     expect(d.name).toBe(`${FIXTURE_PREFIX}view`);
-    expect(d.project).toContain("milestone-host");
+    expect(d.project?.name).toContain("milestone-host");
+    expect(d.project?.id).toMatch(/^[0-9a-f-]{36}$/);
   });
 
   it("updates name, description and target date", () => {
