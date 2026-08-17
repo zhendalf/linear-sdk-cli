@@ -581,6 +581,27 @@ describe("lifecycle commands (TES-644)", () => {
     expect((view as any).registeredArguments.map((a: any) => a.name())).toEqual(["id"]);
   });
 
+  it("mounts `attach <issue> <file...>` under `issue`, and `--attach`/`--public` on both `comment add`s (TES-602)", () => {
+    const attach = find(["issue", "attach"])!;
+    expect(attach).toBeDefined();
+    const args = (attach as any).registeredArguments.map((a: any) => ({
+      name: a.name(),
+      required: a.required,
+      variadic: a.variadic,
+    }));
+    expect(args).toEqual([
+      { name: "issue", required: true, variadic: false },
+      { name: "file", required: true, variadic: true },
+    ]);
+    expect(visibleLongs(attach)).toEqual(expect.arrayContaining(["--title", "--comment", "--public"]));
+    for (const path of [
+      ["comment", "add"],
+      ["issue", "comment", "add"],
+    ]) {
+      expect(visibleLongs(find(path)!)).toEqual(expect.arrayContaining(["--attach", "--public"]));
+    }
+  });
+
   it("`commands --json` lists all of them", async () => {
     let out = "";
     const spy = vi.spyOn(process.stdout, "write").mockImplementation((c: any) => ((out += c), true));
@@ -596,6 +617,7 @@ describe("lifecycle commands (TES-644)", () => {
         "team delete",
         "issue agent-session list",
         "issue agent-session view",
+        "issue attach",
       ]),
     );
   });
@@ -647,10 +669,12 @@ describe("schpet issue subcommands land in view with a pointer", () => {
     }
     return "";
   }
-  it("attach → attachment create --url, and says upload is not here", async () => {
+  it("attach is a real subcommand now (TES-602): it never lands in view", async () => {
+    // `issue attach x` parses as the subcommand short one operand — not as
+    // `view` with "attach" as the id, and no "not available" pointer.
     const m = await errorFor("attach");
-    expect(m).toContain("attachment create");
-    expect(m).toContain("not available");
+    expect(m).toMatch(/missing required argument 'file'/i);
+    expect(m).not.toContain("not available");
   });
   it("link → attachment create --url", async () => {
     expect(await errorFor("link")).toContain("attachment create <issue> --url");

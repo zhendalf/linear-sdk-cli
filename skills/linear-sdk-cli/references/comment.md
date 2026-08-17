@@ -20,15 +20,17 @@ linear comment [options]
 
 ### `linear comment add`
 
-Add a comment to an issue
+Add a comment to an issue (images uploaded with --attach render inline)
 
 ```
 linear comment add [options] <issue> [body]
 ```
 
-| Option               | Description                                 |
-| -------------------- | ------------------------------------------- |
-| `--body-file <path>` | read comment body from a file ('-' = stdin) |
+| Option               | Description                                                                               |
+| -------------------- | ----------------------------------------------------------------------------------------- |
+| `--body-file <path>` | read comment body from a file ('-' = stdin)                                               |
+| `--attach <file>`    | upload a file and embed it in the comment (images inline; repeatable; private by default) |
+| `--public`           | upload the attachments to public, world-readable URLs (raster images only)                |
 
 ### `linear comment delete`
 

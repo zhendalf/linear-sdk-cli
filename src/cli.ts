@@ -10,6 +10,7 @@ import { registerApi } from "./commands/api.js";
 import { registerCompletion } from "./commands/completion.js";
 import { registerIssue, renderIssueDetail } from "./commands/issue.js";
 import { registerAgentSession } from "./commands/agent-session.js";
+import { registerAttach } from "./commands/attach.js";
 import { registerTeam } from "./commands/team.js";
 import { registerProject } from "./commands/project.js";
 import { registerProjectUpdate } from "./commands/project-update.js";
@@ -56,9 +57,11 @@ export function createProgram(): Command {
   registerApi(program);
   registerCompletion(program);
   // Phase 1: issues. Agent sessions live on issues, so their group is mounted
-  // under `issue` (`linear issue agent-session …`).
+  // under `issue` (`linear issue agent-session …`); so is file upload
+  // (`linear issue attach <issue> <file...>`, TES-602).
   registerIssue(program);
   registerAgentSession(program.commands.find((c) => c.name() === "issue")!);
+  registerAttach(program.commands.find((c) => c.name() === "issue")!);
   // Phase 2: teams, projects, milestones, cycles.
   registerTeam(program);
   registerProject(program);

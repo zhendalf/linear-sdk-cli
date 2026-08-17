@@ -36,27 +36,38 @@ Aliases: `new`
 linear project create [options]
 ```
 
-| Option                      | Description                                   |
-| --------------------------- | --------------------------------------------- |
-| `--name <name>`             | project name                                  |
-| `-d, --description <text>`  | project description (one-line summary)        |
-| `--description-file <path>` | read description from a file ('-' = stdin)    |
-| `--content <text>`          | project content (markdown body)               |
-| `--content-file <path>`     | read content from a file ('-' = stdin)        |
-| `--teams <key>`             | team (repeatable / comma-separated)           |
-| `--lead <who>`              | project lead (me\|email\|name\|id)            |
-| `--member <who>`            | project member (repeatable / comma-separated) |
-| `--state <name>`            | initial status (name, type, or id)            |
-| `--start <date>`            | planned start date (YYYY-MM-DD)               |
-| `--target <date>`           | planned target date (YYYY-MM-DD)              |
-| `-P, --priority <0-4>`      | priority (0 none, 1 urgent … 4 low)           |
-| `-l, --label <name>`        | project label (repeatable / comma-separated)  |
-| `--icon <name>`             | Linear icon name, capitalized (e.g. Rocket)   |
-| `--color <hex>`             | project color (e.g. #EB5757)                  |
+| Option                      | Description                                    |
+| --------------------------- | ---------------------------------------------- |
+| `--name <name>`             | project name                                   |
+| `-d, --description <text>`  | project description (one-line summary)         |
+| `--description-file <path>` | read description from a file ('-' = stdin)     |
+| `--content <text>`          | project content (markdown body)                |
+| `--content-file <path>`     | read content from a file ('-' = stdin)         |
+| `--teams <key>`             | team (repeatable / comma-separated)            |
+| `-t, --team <key>`          | same as --teams (repeatable / comma-separated) |
+| `--lead <who>`              | project lead (me\|email\|name\|id)             |
+| `--member <who>`            | project member (repeatable / comma-separated)  |
+| `--state <name>`            | initial status (name, type, or id)             |
+| `--start <date>`            | planned start date (YYYY-MM-DD)                |
+| `--target <date>`           | planned target date (YYYY-MM-DD)               |
+| `-P, --priority <0-4>`      | priority (0 none, 1 urgent … 4 low)            |
+| `-l, --label <name>`        | project label (repeatable / comma-separated)   |
+| `--icon <name>`             | Linear icon name, capitalized (e.g. Rocket)    |
+| `--color <hex>`             | project color (e.g. #EB5757)                   |
+
+### `linear project delete`
+
+Delete (trash) a project — `archive` keeps it, read-only
+
+Aliases: `rm`
+
+```
+linear project delete [options] <id>
+```
 
 ### `linear project list`
 
-List projects with filters
+List projects with filters (the default team's unless --all-teams)
 
 Aliases: `ls`
 
@@ -67,6 +78,7 @@ linear project list [options]
 | Option           | Description                                           |
 | ---------------- | ----------------------------------------------------- |
 | `--state <name>` | filter by status name or type (e.g. 'In QA', started) |
+| `--all-teams`    | every team's projects, ignoring the default team      |
 
 ### `linear project milestones`
 

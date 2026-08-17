@@ -24,6 +24,7 @@ import { collectRawQuery } from "../lib/pagination.js";
 import { usageError, notFound } from "../lib/errors.js";
 import { assertMutation, unwrapMutation } from "../lib/mutation.js";
 import { resolveIssue } from "../lib/resolve.js";
+import { appendEmbeds, uploadFile, validateUploads, type UploadResult } from "../lib/upload.js";
 
 export interface CommentRow {
   id: string;
@@ -116,15 +117,36 @@ export function threadOrder(rows: CommentRow[]): CommentRow[] {
   return out;
 }
 
-/** Add a comment to an issue. */
-export async function addComment(client: LinearClient, issueArg: string, body: string) {
+export interface AddCommentOptions {
+  /**
+   * `--attach <file>` (repeatable): files to upload and embed in the body — a
+   * blank line after it, then one markdown embed per line (images inline,
+   * anything else as a link). Validated as a batch before any is uploaded.
+   */
+  attachments?: string[];
+  /** Upload the attachments to public, world-readable URLs (raster images only). */
+  public?: boolean;
+}
+
+/** Add a comment to an issue, optionally with uploaded files embedded in it. */
+export async function addComment(
+  client: LinearClient,
+  issueArg: string,
+  body: string,
+  opts: AddCommentOptions = {},
+) {
+  const paths = opts.attachments ?? [];
+  // Every file first — a missing one fails before anything is uploaded or resolved.
+  validateUploads(paths, { public: opts.public });
   const issue = await resolveIssue(client, issueArg);
+  const uploads: UploadResult[] = [];
+  for (const path of paths) uploads.push(await uploadFile(client, path, { public: opts.public }));
   const comment = await unwrapMutation(
-    withRetry(() => client.createComment({ issueId: issue.id, body })),
+    withRetry(() => client.createComment({ issueId: issue.id, body: appendEmbeds(body, uploads) })),
     "comment",
     "Comment creation",
   );
-  return { issue, comment };
+  return { issue, comment, uploads };
 }
 
 const LOOKUP_QUERY = `

@@ -88,11 +88,11 @@ function lifecycleMark(r: Pick<svc.IssueRow, "trashed" | "archivedAt">): string 
 /**
  * schpet/linear-cli `issue` subcommands that a migrating user may type and that
  * do not exist under that name here. Since `view` is the default subcommand,
- * `linear issue attach x` lands in `view` with "attach" as the id; without this
+ * `linear issue link x` lands in `view` with "link" as the id; without this
  * the error would only say it is not an issue id. Keep in step with MIGRATING.md.
+ * (`issue attach` is a real subcommand now — TES-602 — so it never lands here.)
  */
 const SCHPET_ISSUE_SUBCOMMANDS: Record<string, string> = {
-  attach: "File upload is not available yet (tracked). To attach a URL: 'linear attachment create <issue> --url <url>'.",
   link: "Use 'linear attachment create <issue> --url <url>'.",
   commits: "'issue commits' is not available here (jj/git log integration is not adopted). Use 'git log --grep <ID>'.",
   "agent-session": "Use 'linear issue agent-session list|view <issue>'.",

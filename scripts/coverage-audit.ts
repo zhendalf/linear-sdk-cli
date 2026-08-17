@@ -74,7 +74,8 @@ const CURATED: Record<string, string[]> = {
   state: ["workflowStates", "workflowState"],
   comment: ["comments", "comment", "updateComment", "deleteComment", "commentResolve", "commentUnresolve"],
   document: ["documents", "document", "createDocument", "updateDocument", "deleteDocument"],
-  attachment: ["attachments", "attachment", "createAttachment", "deleteAttachment"],
+  // `fileUpload` is the signed-URL step behind `issue attach` and `comment add --attach` (TES-602).
+  attachment: ["attachments", "attachment", "createAttachment", "deleteAttachment", "fileUpload"],
   favorite: ["favorites", "favorite", "createFavorite", "deleteFavorite"],
   // phase 4 — initiatives, roadmaps, notifications, organization invites, webhooks
   // (`organization` member is already curated under `meta` — not duplicated here)

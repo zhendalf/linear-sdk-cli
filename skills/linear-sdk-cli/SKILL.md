@@ -252,10 +252,13 @@ linear favorite list
 linear favorite remove
 
 linear initiative
+linear initiative add-project
 linear initiative archive
 linear initiative create
 linear initiative delete
 linear initiative list
+linear initiative remove-project
+linear initiative unarchive
 linear initiative update
 linear initiative view
 
@@ -264,8 +267,12 @@ linear initiative-update create
 linear initiative-update list
 
 linear issue
+linear issue agent-session
+linear issue agent-session list
+linear issue agent-session view
 linear issue archive
 linear issue assign
+linear issue attach
 linear issue branch
 linear issue comment
 linear issue comment add
@@ -322,6 +329,7 @@ linear organization view
 linear project
 linear project archive
 linear project create
+linear project delete
 linear project list
 linear project milestones
 linear project update
@@ -347,6 +355,7 @@ linear state view
 linear team
 linear team create
 linear team cycles
+linear team delete
 linear team labels
 linear team list
 linear team members

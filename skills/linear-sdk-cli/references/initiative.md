@@ -18,6 +18,18 @@ Aliases: `init`
 linear initiative [options]
 ```
 
+### `linear initiative add-project`
+
+Link a project to an initiative
+
+```
+linear initiative add-project [options] <initiative> <project>
+```
+
+| Option             | Description                              |
+| ------------------ | ---------------------------------------- |
+| `--sort-order <n>` | position among the initiative's projects |
+
 ### `linear initiative archive`
 
 Archive an initiative
@@ -46,6 +58,8 @@ linear initiative create [options]
 | `--status <name>`           | status (Planned, Active, Completed, Canceled, Proposed) |
 | `-P, --priority <0-4>`      | priority (0 none, 1 urgent … 4 low)                     |
 | `-l, --label <name>`        | initiative label (repeatable / comma-separated)         |
+| `--icon <name>`             | Linear icon name, capitalized (e.g. Rocket)             |
+| `--color <hex>`             | initiative color (e.g. #5E6AD2)                         |
 
 ### `linear initiative delete`
 
@@ -59,12 +73,34 @@ linear initiative delete [options] <id>
 
 ### `linear initiative list`
 
-List workspace initiatives
+List workspace initiatives (every status unless --status narrows)
 
 Aliases: `ls`
 
 ```
 linear initiative list [options]
+```
+
+| Option            | Description                                                       |
+| ----------------- | ----------------------------------------------------------------- |
+| `--status <name>` | filter by status (Planned, Active, Completed, Canceled, Proposed) |
+| `--owner <who>`   | filter by owner (me\|email\|name\|id)                             |
+| `--archived`      | include archived initiatives                                      |
+
+### `linear initiative remove-project`
+
+Unlink a project from an initiative
+
+```
+linear initiative remove-project [options] <initiative> <project>
+```
+
+### `linear initiative unarchive`
+
+Unarchive an initiative
+
+```
+linear initiative unarchive [options] <id>
 ```
 
 ### `linear initiative update`
@@ -87,6 +123,8 @@ linear initiative update [options] <id>
 | `--status <name>`           | status (Planned, Active, Completed, Canceled, Proposed) |
 | `-P, --priority <0-4>`      | priority (0 none, 1 urgent … 4 low)                     |
 | `-l, --label <name>`        | replace the labels (repeatable / comma-separated)       |
+| `--icon <name>`             | Linear icon name, capitalized (e.g. Rocket)             |
+| `--color <hex>`             | initiative color (e.g. #5E6AD2)                         |
 
 ### `linear initiative view`
 

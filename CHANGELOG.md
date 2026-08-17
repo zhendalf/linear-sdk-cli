@@ -8,6 +8,26 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **File uploads: `issue attach <issue> <file...>` and `comment add --attach <file>`, private by
+  default (TES-602).** `issue attach` uploads each file to Linear's storage (`fileUpload` for a
+  signed URL, then an HTTP `PUT` of the bytes with exactly the headers Linear returned plus the
+  Content-Type the URL was signed for) and attaches it to the issue by its asset URL — `--title`
+  for a single file, `--comment <body>` to also post one comment embedding every file as markdown
+  (`![name](url)` for images, `[name](url)` otherwise, one per line after a blank line), and
+  `--json` a bare array of `{id, title, url, assetUrl, contentType, size}` (plus `comment` when
+  one was posted). `comment add` (and its `issue comment add` mount) takes `--attach <file>`,
+  repeatable, appending the same embeds to the body; a bodiless comment with attachments is just
+  the embeds, and no editor opens for it. Uploads are **private** — `uploads.linear.app`,
+  readable by workspace members only, like an upload from the Linear app (an anonymous fetch
+  answers 401). `--public` puts a raster image on a world-readable `public.linear.app` URL and
+  warns so on stderr; on any other type it is a usage error, decided before any bytes move
+  (Linear itself refuses "Public uploads are only supported for images (excluding SVG)"). Every
+  file in a batch is validated up front — exists, is a regular file, is readable, and may be
+  public if asked — so a typo in file 3 does not leave files 1–2 uploaded and orphaned. The
+  signed upload URL is a bearer credential: it is never printed and is redacted from any error,
+  including the storage backend's `SignatureDoesNotMatch` bodies. MIME comes from a small
+  extension table with `application/octet-stream` as the fallback. `linear issue attach x` used
+  to land in `view` with a "not available yet" pointer; it is a real subcommand now.
 - **`project delete`, `team delete`, and `issue agent-session list/view` (TES-644).**
   `project delete <id>` trashes a project (`projectDelete`) where `archive` keeps it read-only;
   `team delete <key>` deletes a team, naming its issue count in the confirmation, and

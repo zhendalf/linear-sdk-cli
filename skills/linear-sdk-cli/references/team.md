@@ -33,6 +33,7 @@ linear team create [options]
 | `--name <name>`            | team name                                               |
 | `--key <key>`              | team key (e.g. ENG); generated from the name if omitted |
 | `-d, --description <text>` | team description                                        |
+| `--private`                | make the team private (members only)                    |
 
 ### `linear team cycles`
 
@@ -41,6 +42,20 @@ List a team's cycles
 ```
 linear team cycles [options] [key]
 ```
+
+### `linear team delete`
+
+Delete a team (admin); its issues go with it unless --move-issues
+
+Aliases: `rm`
+
+```
+linear team delete [options] <key>
+```
+
+| Option                 | Description                                  |
+| ---------------------- | -------------------------------------------- |
+| `--move-issues <team>` | move the team's issues to another team first |
 
 ### `linear team labels`
 

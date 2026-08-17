@@ -18,6 +18,7 @@ import { action } from "../lib/action.js";
 import { resolveBody } from "../lib/body.js";
 import { confirmDestructive } from "../lib/prompt.js";
 import { usageError } from "../lib/errors.js";
+import { collectArray } from "../lib/options.js";
 import type { Context } from "../context.js";
 import * as svc from "../services/comment.js";
 import type { Column } from "../output/table.js";
@@ -49,15 +50,56 @@ function buildAdd(_o: MountOptions): Command {
   return new Command("add")
     .argument("<issue>")
     .argument("[body]")
-    .description("Add a comment to an issue")
+    .description("Add a comment to an issue (images uploaded with --attach render inline)")
     .option("--body-file <path>", "read comment body from a file ('-' = stdin)")
+    .option(
+      "--attach <file>",
+      "upload a file and embed it in the comment (images inline; repeatable; private by default)",
+      collectArray,
+    )
+    .option("--public", "upload the attachments to public, world-readable URLs (raster images only)")
     .action(
       action(async (ctx: Context, opts, issueArg: string, bodyArg?: string) => {
-        const body = resolveBody({ arg: bodyArg, file: opts.bodyFile, interactive: ctx.isTTY });
-        if (!body) throw usageError("No comment body provided.");
-        const { issue, comment: created } = await svc.addComment(ctx.client, issueArg, body);
-        ctx.output.emit({ id: created.id, issue: issue.identifier, url: created.url }, () =>
-          ctx.output.success(`Commented on ${issue.identifier}`),
+        const attachments: string[] = opts.attach ?? [];
+        if (opts.public && attachments.length === 0) {
+          throw usageError("--public applies to uploads; add --attach <file>, or drop --public.");
+        }
+        // With attachments the body is optional (the embeds are the comment),
+        // so the editor is not opened for one — the reference CLI's rule too.
+        const body = resolveBody({
+          arg: bodyArg,
+          file: opts.bodyFile,
+          interactive: ctx.isTTY && attachments.length === 0,
+        });
+        if (!body && attachments.length === 0) throw usageError("No comment body provided.");
+        const {
+          issue,
+          comment: created,
+          uploads,
+        } = await svc.addComment(ctx.client, issueArg, body ?? "", {
+          attachments,
+          public: opts.public === true,
+        });
+        for (const u of uploads) {
+          if (u.public) ctx.output.warn(`${u.filename} is on a public URL, readable by anyone: ${u.assetUrl}`);
+        }
+        ctx.output.emit(
+          {
+            id: created.id,
+            issue: issue.identifier,
+            url: created.url,
+            ...(uploads.length
+              ? {
+                  attachments: uploads.map((u) => ({
+                    filename: u.filename,
+                    assetUrl: u.assetUrl,
+                    contentType: u.contentType,
+                    size: u.size,
+                  })),
+                }
+              : {}),
+          },
+          () => ctx.output.success(`Commented on ${issue.identifier}`),
         );
       }),
     );

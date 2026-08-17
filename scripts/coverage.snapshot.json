@@ -198,7 +198,7 @@
   "externalUsers": "excluded",
   "favorite": "curated",
   "favorites": "curated",
-  "fileUpload": "raw-only",
+  "fileUpload": "curated",
   "googleUserAccountAuth": "excluded",
   "imageUploadFromUrl": "excluded",
   "importFileUpload": "excluded",

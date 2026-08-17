@@ -84,7 +84,9 @@ such features yet). `linear config init` writes a `.linear.toml`; `linear config
 | `issue mine` | `issue mine` | same defaults: yours, unstarted; `--all-states` widens |
 | `issue comment add\|list\|update\|delete` | same, or top-level `comment …` | one implementation |
 | `issue comment <id> "<body>"` | same | |
-| `issue attach <file>` / `issue link <url>` | `attachment create --url` | file upload not yet here — see §7 |
+| `issue attach <file>` | `issue attach <issue> <file...>` | same posture: private by default, `--public` for raster images only; ours takes several files and has `--json` |
+| `issue link <url>` | `attachment create --url` | |
+| `issue comment add --attach <file>` | same, or `comment add --attach` | repeatable; images render inline |
 | `auth whoami` | `whoami` (also `auth whoami`) | |
 | `auth migrate` | `auth migrate` | |
 | `config` (writes toml) | `config init` / `config set` | |
@@ -138,12 +140,11 @@ These are the only spots where the same command could *succeed and return differ
 
 ## 7. Not here yet
 
-`issue attach <file>` (file upload), `issue commits`, `team autolinks`, jj support, bulk
-`--bulk-file`, markdown rendering + pager. Each is tracked; the raw `linear api` reaches all of
-the API surface in the meantime. If you type one of these out of habit, the CLI says where the
-equivalent lives rather than just rejecting it: `linear issue attach x` answers "File upload is
-not available yet … To attach a URL: linear attachment create <issue> --url <url>", and
-`issue link` / `issue commits` point the same way.
+`issue commits`, `team autolinks`, jj support, bulk `--bulk-file`, markdown rendering + pager.
+Each is tracked; the raw `linear api` reaches all of the API surface in the meantime. If you type
+one of these out of habit, the CLI says where the equivalent lives rather than just rejecting it:
+`linear issue link x` answers "Use 'linear attachment create <issue> --url <url>'", and `issue
+commits` points at `git log`. (`issue attach` is here as of TES-602 — see §4.)
 
 ## 8. What you gain
 

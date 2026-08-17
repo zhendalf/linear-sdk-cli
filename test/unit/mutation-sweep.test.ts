@@ -32,6 +32,11 @@ import * as projectUpdate from "../../src/services/project-update.js";
 import * as roadmap from "../../src/services/roadmap.js";
 import * as team from "../../src/services/team.js";
 import * as webhook from "../../src/services/webhook.js";
+import { uploadFile } from "../../src/lib/upload.js";
+import { fileURLToPath } from "node:url";
+
+/** A real, readable file for the upload paths: this test file itself. */
+const SOME_FILE = fileURLToPath(import.meta.url);
 
 const UUID = "11111111-1111-1111-1111-111111111111";
 const OTHER = "22222222-2222-2222-2222-222222222222";
@@ -134,6 +139,9 @@ function refusingClient(): any {
     },
 
     // ---- writes, all refused ---------------------------------------------
+    // The signed-URL request behind `issue attach` / `comment add --attach` is
+    // a mutation too: refused here means no PUT and no attachment.
+    fileUpload: refusedWith("uploadFile"),
     createAttachment: refusedWith("attachment"),
     deleteAttachment: refused,
     createComment: refusedWith("comment"),
@@ -188,6 +196,9 @@ function refusingClient(): any {
 /** Every mutating entry point in `src/services`, by the file it lives in. */
 const MUTATIONS: Array<[string, (c: any) => Promise<unknown>]> = [
   ["attachment.createAttachment", (c) => attachment.createAttachment(c, "TES-1", { url: "u", title: "t" })],
+  ["attachment.attachFiles", (c) => attachment.attachFiles(c, "TES-1", [SOME_FILE], {})],
+  ["comment.addComment(attachments)", (c) => comment.addComment(c, "TES-1", "body", { attachments: [SOME_FILE] })],
+  ["upload.uploadFile", (c) => uploadFile(c, SOME_FILE)],
   ["attachment.deleteAttachment", (c) => attachment.deleteAttachment(c, UUID)],
   ["comment.addComment", (c) => comment.addComment(c, "TES-1", "body")],
   ["comment.replyToComment", (c) => comment.replyToComment(c, "c1", "body")],

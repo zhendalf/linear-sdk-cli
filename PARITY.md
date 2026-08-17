@@ -22,7 +22,7 @@ names the Linear issue.
 | **Ergonomics — human** | **schpet ahead** | Rendered markdown, pager, width-aware tables, `-w/-a` everywhere, richer interactive create, contextual empty states. Ours prints raw markdown into scrollback (TES-599). Honest gap. |
 | **Ergonomics — flags** | **Ours** | One meaning per short letter across the tree (`-t`=`--team` always). schpet 2.5: `-a` = `--app`/`--all`/`--assignee`/`--attach`, `-f` ×4, `-y` ×3, `-t` = `--title` and `--team`. Every schpet spelling is accepted here as an alias (§5 of `MIGRATING.md`). |
 | **Breadth (data model)** | **Ours** | Notifications, webhooks, favorites, organization, roadmaps, cycle create/update, comment resolve/reply/thread, label hierarchy, `issue archive/unarchive/subscribe`, attachment list/delete, team view/update — none in schpet. |
-| **Depth (issue workflows)** | **schpet ahead → closing** | File upload (`issue attach`, `--attach` on comments, private-by-default) — TES-602. `issue commits`, jj, `team autolinks` — deliberately not adopting. Agent sessions, `project delete`, `team delete`, initiative↔project links, relative cycle refs — all in flight (TES-644/603/611); six document targets + `update` re-point landed (TES-613). |
+| **Depth (issue workflows)** | **Parity → closing** | File upload landed (TES-602): `issue attach <issue> <file...>` (multi-file, `--title`, `--comment`, `--public`) and `--attach` on `comment add`, private by default with schpet's exact posture — `--public` warns, and is refused for non-images before any byte moves — plus what schpet does not have: a whole batch validated up front, the signed URL redacted from every error, `--json` on both. `issue commits`, jj, `team autolinks` — deliberately not adopting. Agent sessions, `project delete`, `team delete`, initiative↔project links, relative cycle refs — all in flight (TES-644/603/611); six document targets + `update` re-point landed (TES-613). |
 | **Migration** | **In progress → TES-606** | Aliases done; `MIGRATING.md` drafted; Keychain read (TES-645), config-path discovery (TES-638), `config init` (TES-600) and the `linear` bin collision (TES-607) are the remaining pieces. |
 
 ## Where schpet is genuinely better (no spin)
@@ -30,7 +30,9 @@ names the Linear issue.
 1. **Human terminal output.** Markdown rendering, paging, Unicode-width tables. This is what a
    person notices first, and we have not built it.
 2. **Keyring credential storage** with plaintext opt-out and `auth migrate`. Ours is a 0600 file.
-3. **File attachments** — upload, inline-image hints, `--attach` on comments.
+3. ~~**File attachments** — upload, inline-image hints, `--attach` on comments.~~ At parity as of
+   TES-602 (`issue attach`, `comment add --attach`, private by default, `--public` for raster
+   images only, the inline-render hint on image attachments).
 4. **Interactive `issue create`** — guided prompts. (Template handling — `--template`, the team
    default applied unless `--no-default-template`, `--parent` inheriting the project, `--start` —
    is at parity as of TES-639.)

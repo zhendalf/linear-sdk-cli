@@ -328,7 +328,9 @@ Several of this list have since been reproduced and **FIXED**:
 
 **Real gaps in ours** (ranked by the audit): issue team reassignment and exact label replacement;
 richer query facets (unassigned, multi-team/state, project-label, milestone, date bounds, comment
-search); file uploads for attachments and comments; initiative↔project linking; project slug
+search); ~~file uploads for attachments and comments~~ (**done, TES-602** — `issue attach`,
+`comment add --attach`, private by default, `--public` for raster images only, batch validated
+up front, signed URL never printed); initiative↔project linking; project slug
 resolution and all-teams listing; health-only status updates; richer `issue view` (children,
 attachments, documents, threaded comments); agent sessions; project delete and initiative unarchive.
 

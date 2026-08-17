@@ -18,6 +18,39 @@ Aliases: `i`
 linear issue [options]
 ```
 
+### `linear issue agent-session`
+
+Inspect the agent sessions on an issue
+
+```
+linear issue agent-session [options]
+```
+
+### `linear issue agent-session list`
+
+List an issue's agent sessions (newest first)
+
+Aliases: `ls`
+
+```
+linear issue agent-session list [options] [issue]
+```
+
+| Option              | Description                                        |
+| ------------------- | -------------------------------------------------- |
+| `--status <status>` | only sessions in this status                       |
+| `--all-issues`      | every session in the workspace, ignoring the issue |
+
+### `linear issue agent-session view`
+
+Show an agent session and its activity
+
+Aliases: `show`
+
+```
+linear issue agent-session view [options] <id>
+```
+
 ### `linear issue archive`
 
 Archive an issue
@@ -33,6 +66,20 @@ Assign an issue (use 'me', email, name, or id). Issue defaults to the branch.
 ```
 linear issue assign [options] [idOrAssignee] [assignee]
 ```
+
+### `linear issue attach`
+
+Upload files and attach them to an issue (private by default)
+
+```
+linear issue attach [options] <issue> <file...>
+```
+
+| Option             | Description                                                                   |
+| ------------------ | ----------------------------------------------------------------------------- |
+| `--title <title>`  | attachment title (single file only; default: the file name)                   |
+| `--comment <body>` | also post a comment with this body embedding the files as markdown            |
+| `--public`         | upload to a public, world-readable URL (raster images only; default: private) |
 
 ### `linear issue branch`
 
@@ -56,15 +103,17 @@ linear issue comment [options] [id] [body]
 
 ### `linear issue comment add`
 
-Add a comment to an issue
+Add a comment to an issue (images uploaded with --attach render inline)
 
 ```
 linear issue comment add [options] <issue> [body]
 ```
 
-| Option               | Description                                 |
-| -------------------- | ------------------------------------------- |
-| `--body-file <path>` | read comment body from a file ('-' = stdin) |
+| Option               | Description                                                                               |
+| -------------------- | ----------------------------------------------------------------------------------------- |
+| `--body-file <path>` | read comment body from a file ('-' = stdin)                                               |
+| `--attach <file>`    | upload a file and embed it in the comment (images inline; repeatable; private by default) |
+| `--public`           | upload the attachments to public, world-readable URLs (raster images only)                |
 
 ### `linear issue comment delete`
 
@@ -112,22 +161,25 @@ Aliases: `new`
 linear issue create [options]
 ```
 
-| Option                      | Description                                |
-| --------------------------- | ------------------------------------------ |
-| `--title <title>`           | issue title                                |
-| `-d, --description <text>`  | issue description (body)                   |
-| `--description-file <path>` | read description from a file ('-' = stdin) |
-| `--editor`                  | compose the description in $EDITOR         |
-| `-a, --assignee <who>`      | assignee (me\|email\|name\|id)             |
-| `-s, --state <name>`        | workflow state name or type                |
-| `-P, --priority <0-4>`      | priority                                   |
-| `-l, --label <name>`        | label (repeatable / comma-separated)       |
-| `-p, --project <name>`      | project name or id                         |
-| `--milestone <name>`        | project milestone (requires --project)     |
-| `--cycle <n>`               | cycle number, name, id, or 'current'       |
-| `--estimate <n>`            | estimate points                            |
-| `--parent <id>`             | parent issue id                            |
-| `--due <date>`              | due date (YYYY-MM-DD)                      |
+| Option                      | Description                                                                                          |
+| --------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `--title <title>`           | issue title                                                                                          |
+| `-d, --description <text>`  | issue description (body)                                                                             |
+| `--description-file <path>` | read description from a file ('-' = stdin)                                                           |
+| `--editor`                  | compose the description in $EDITOR                                                                   |
+| `-a, --assignee <who>`      | assignee (me\|email\|name\|id)                                                                       |
+| `-s, --state <name>`        | workflow state name or type                                                                          |
+| `-P, --priority <0-4>`      | priority                                                                                             |
+| `-l, --label <name>`        | label (repeatable / comma-separated)                                                                 |
+| `-p, --project <name>`      | project name or id                                                                                   |
+| `--milestone <name>`        | project milestone (requires --project)                                                               |
+| `--cycle <n>`               | cycle number, name, id, or 'current'                                                                 |
+| `--estimate <n>`            | estimate points                                                                                      |
+| `--parent <id>`             | parent issue id (the sub-issue joins the parent's project unless --project says otherwise)           |
+| `--due <date>`              | due date (YYYY-MM-DD)                                                                                |
+| `--template <name\|id>`     | create from an issue template (the team's or a shared one)                                           |
+| `--no-default-template`     | do not apply the team's default issue template                                                       |
+| `--start`                   | then start work: check out the branch, move to the first 'started' state (or --state), assign to you |
 
 ### `linear issue delete`
 
