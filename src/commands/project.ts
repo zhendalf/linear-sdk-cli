@@ -33,14 +33,21 @@ export function registerProject(program: Command): void {
   const list = project
     .command("list")
     .alias("ls")
-    .description("List projects with filters")
+    .description("List projects with filters (the default team's unless --all-teams)")
     .option("--state <name>", "filter by status name or type (e.g. 'In QA', started)")
+    .option("--all-teams", "every team's projects, ignoring the default team")
     .action(
       action(async (ctx: Context, opts) => {
+        // `--team` here is the global; passing it alongside `--all-teams` asks
+        // for two different scopes at once.
+        if (opts.allTeams && opts.team !== undefined) {
+          throw usageError("Pass either --team or --all-teams, not both.");
+        }
         const rows = await svc.listProjects(
           ctx.client,
           {
-            team: opts.team ?? ctx.defaultTeam,
+            team: opts.allTeams ? undefined : (opts.team ?? ctx.defaultTeam),
+            allTeams: !!opts.allTeams,
             state: readAlias(opts, "--state", "--status"),
           },
           ctx.limit,

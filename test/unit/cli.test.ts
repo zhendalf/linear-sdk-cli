@@ -598,3 +598,34 @@ describe("lifecycle commands (TES-644)", () => {
     );
   });
 });
+
+describe("flag gaps closed (TES-642)", () => {
+  const program = createProgram();
+  const find = (path: string[]): Command | undefined =>
+    path.reduce<Command | undefined>(
+      (cmd, name) => cmd?.commands.find((c) => c.name() === name || c.aliases().includes(name)),
+      program,
+    );
+  const visibleLongs = (cmd: Command) => cmd.options.filter((o: any) => !o.hidden).map((o) => o.long);
+
+  it("`project list --all-teams`, `team create --private`, `initiative list` filters", () => {
+    expect(visibleLongs(find(["project", "list"])!)).toContain("--all-teams");
+    expect(visibleLongs(find(["team", "create"])!)).toContain("--private");
+    expect(visibleLongs(find(["initiative", "list"])!)).toEqual(
+      expect.arrayContaining(["--status", "--owner", "--archived"]),
+    );
+    // The reference CLI's `--all-statuses` is accepted (hidden) as a no-op.
+    const allStatuses = find(["initiative", "list"])!.options.find((o) => o.long === "--all-statuses") as any;
+    expect(allStatuses?.hidden).toBe(true);
+    for (const verb of ["create", "update"]) {
+      expect(visibleLongs(find(["initiative", verb])!)).toEqual(expect.arrayContaining(["--icon", "--color"]));
+    }
+  });
+
+  it("initiative add-project/remove-project/unarchive are registered", () => {
+    expect(find(["initiative", "add-project"])).toBeDefined();
+    expect(visibleLongs(find(["initiative", "add-project"])!)).toContain("--sort-order");
+    expect(find(["initiative", "remove-project"])).toBeDefined();
+    expect(find(["initiative", "unarchive"])).toBeDefined();
+  });
+});

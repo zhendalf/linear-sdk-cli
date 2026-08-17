@@ -140,6 +140,7 @@ export function registerTeam(program: Command): void {
     .option("--name <name>", "team name")
     .option("--key <key>", "team key (e.g. ENG); generated from the name if omitted")
     .option("-d, --description <text>", "team description")
+    .option("--private", "make the team private (members only)")
     .action(
       action(async (ctx: Context, opts) => {
         let name: string | undefined = opts.name;
@@ -148,6 +149,7 @@ export function registerTeam(program: Command): void {
           name,
           key: opts.key,
           description: opts.description,
+          private: !!opts.private,
         });
         ctx.output.emit({ id: created.id, key: created.key, name: created.name }, () =>
           ctx.output.success(`Created team ${created.key} (${created.name})`),

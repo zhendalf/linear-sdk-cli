@@ -61,6 +61,15 @@ describe("project buildFilter", () => {
     const f = await buildFilter(client, { team: "abc" }, "ENG");
     expect(f.accessibleTeams).toEqual({ some: { key: { eq: "ABC" } } });
   });
+
+  // TES-642: the list is scoped to the default team, and the only way out used
+  // to be `--team ''`. `--all-teams` drops the team clause entirely.
+  it("--all-teams drops the team clause even with a default team configured", async () => {
+    expect(await buildFilter(client, { allTeams: true }, "ENG")).toEqual({});
+    expect(await buildFilter(client, { allTeams: true, state: "started" }, "ENG")).toEqual({
+      status: { or: [{ name: { eqIgnoreCase: "started" } }, { type: { eqIgnoreCase: "started" } }] },
+    });
+  });
 });
 
 describe("createProject / updateProject (input building)", () => {

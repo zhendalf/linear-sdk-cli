@@ -10,7 +10,7 @@ import {
   deleteTeam,
 } from "../../src/services/team.js";
 import { CliError } from "../../src/lib/errors.js";
-import { connection, okPayload, failedPayload } from "./_fakes.js";
+import { connection, okPayload, failedPayload, payload } from "./_fakes.js";
 
 // A faithful SDK connection (see _fakes.ts): fetchNext() mutates and returns
 // `this`, which is what the real one does and what an ad-hoc literal did not.
@@ -125,6 +125,19 @@ describe("updateTeam", () => {
 });
 
 describe("createTeam", () => {
+  // TES-642: `--private`. Sent only when asked for; Linear's default is public,
+  // and a plan without private teams refuses it (feature_not_accessible).
+  it("sends private: true only when asked", async () => {
+    const inputs: any[] = [];
+    const client = {
+      createTeam: async (input: any) => (inputs.push(input), payload("team", { id: "t", key: "K", name: "N" })),
+    } as any;
+    await createTeam(client, { name: "N" });
+    await createTeam(client, { name: "N", private: false });
+    await createTeam(client, { name: "N", private: true });
+    expect(inputs).toEqual([{ name: "N" }, { name: "N" }, { name: "N", private: true }]);
+  });
+
   it("requires only name and unwraps the created team", async () => {
     let captured: any;
     const client = {

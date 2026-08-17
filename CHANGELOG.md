@@ -25,6 +25,13 @@ All notable changes to this project are documented here. The format is based on
   the reference CLI's `--all-statuses` is accepted as the no-op it is here. `initiative
   create/update` take `--icon`/`--color`, and `initiative view` shows `icon`, `archivedAt` and
   the linked `projects` (`{id, name, status}`).
+- **`project list --all-teams`, `team create --private`, health-only status updates (TES-642).**
+  `project list` is scoped to the default team and the only way out was the accidental
+  `--team ''`; `--all-teams` drops the team clause (and refuses to be combined with `--team`).
+  `team create --private` sends `private: true` (a plan without private teams refuses it as
+  `feature_not_accessible`). `project-update create` / `initiative-update create` accept `--health`
+  with no body — the UI's "mark on track" — posting the empty body the API stores for it; a
+  create with neither body nor health is still a usage error.
 - **Credentials in the OS keyring, and schpet/linear-cli's found without a re-login.**
   `auth login` now stores the API key in the macOS Keychain (or Linux `secret-tool`) under service
   `linear-cli` / account `<workspace slug>` — the reference CLI's exact convention — and writes only

@@ -32,6 +32,8 @@ export interface ProjectRow {
 
 export interface ListFilters {
   team?: string;
+  /** Every team's projects: no team clause at all, and the default team is not applied. */
+  allTeams?: boolean;
   state?: string;
 }
 
@@ -54,7 +56,10 @@ export async function buildFilter(
   defaultTeamKey: string | undefined,
 ): Promise<Record<string, unknown>> {
   const filter: Record<string, any> = {};
-  const teamKey = f.team ?? defaultTeamKey;
+  // Without a team the list is scoped to the configured default, so a project
+  // in another team is invisible unless `--all-teams` says the whole workspace
+  // (the only other way out used to be the accidental `--team ''`).
+  const teamKey = f.allTeams ? undefined : (f.team ?? defaultTeamKey);
   if (teamKey) {
     filter.accessibleTeams = { some: { key: { eq: teamKey.toUpperCase() } } };
   }
