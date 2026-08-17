@@ -110,6 +110,8 @@ Everything with no row is spelled identically.
 | `--cycle active` | `current` | anywhere; `now`/`next`/`previous`/`+1` also work |
 | `-U/--unassigned`, `--created-after`, `--updated-after`, `--project-label`, `--milestone`, `--search-comments`, repeatable `--team`/`--state` | same | issue queries |
 | `--add-label`, `--remove-label`, `--unassign`, `--clear-cycle` | same | issue update |
+| `--no-use-default-template` | `--no-default-template` | issue create — the team default is applied unless you say so, as there |
+| `--start`, `--parent` (child joins the parent's project) | same | issue create |
 
 Passing both spellings at once (`--due` *and* `--due-date`) is a usage error, not a coin flip.
 

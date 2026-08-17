@@ -5,7 +5,7 @@
  * single `view` and all mutations use the typed SDK models.
  */
 
-import type { LinearClient } from "@linear/sdk";
+import type { LinearClient, Issue } from "@linear/sdk";
 import type { ResolvedConfig } from "../config.js";
 import { withRetry } from "../client.js";
 import { collect, collectRawQuery } from "../lib/pagination.js";
@@ -20,6 +20,7 @@ import {
   resolveMilestoneId,
   resolveTeam,
   resolveIssue,
+  resolveTemplateId,
   firstStateOfType,
   isUuid,
   STATE_TYPES,
@@ -555,6 +556,16 @@ export interface CreateOptions {
   estimate?: number;
   parent?: string;
   dueDate?: string;
+  /** An issue template, by name or id (`templateId`). Wins over the team default. */
+  template?: string;
+  /**
+   * Apply the team's default issue template (`useDefaultTemplate`). On by
+   * default: the API applies a team's default template ONLY when asked —
+   * verified live, a plain `issueCreate` on a team with a default template
+   * comes back with no description — and both Linear's own new-issue form and
+   * the reference CLI ask. `false` is `--no-default-template`.
+   */
+  useDefaultTemplate?: boolean;
 }
 
 /** Build an IssueCreateInput, resolving every human reference to an id. */
@@ -573,13 +584,27 @@ export async function createIssue(
   if (opts.state) input.stateId = await resolveStateId(client, team.id, opts.state);
   if (opts.label?.length) input.labelIds = await resolveLabelIds(client, opts.label, team.id);
   if (opts.project) input.projectId = await resolveProjectId(client, opts.project);
+  if (opts.parent) {
+    const parent = await resolveIssue(client, opts.parent);
+    input.parentId = parent.id;
+    // A sub-issue lands in its parent's project unless told otherwise — what
+    // Linear's UI does, and what the reference CLI does. Without this, every
+    // `--parent` child sat outside the project its parent belongs to.
+    if (!input.projectId) {
+      const parentProject = await parent.project;
+      if (parentProject) input.projectId = parentProject.id;
+    }
+  }
   if (opts.milestone) {
-    const projectId = input.projectId ?? (opts.project ? await resolveProjectId(client, opts.project) : undefined);
-    if (!projectId) throw usageError("A milestone requires --project.");
-    input.projectMilestoneId = await resolveMilestoneId(client, projectId, opts.milestone);
+    // Resolved after the parent so a milestone can name one in the inherited project.
+    if (!input.projectId) throw usageError("A milestone requires --project (or a --parent in a project).");
+    input.projectMilestoneId = await resolveMilestoneId(client, input.projectId, opts.milestone);
   }
   if (opts.cycle) input.cycleId = await resolveCycleId(client, team.id, opts.cycle);
-  if (opts.parent) input.parentId = (await resolveIssue(client, opts.parent)).id;
+  // An explicit template overrides the default one, so the two are never sent
+  // together. Every other value in the input overrides what the template fills.
+  if (opts.template) input.templateId = await resolveTemplateId(client, team.id, opts.template);
+  else if (opts.useDefaultTemplate !== false) input.useDefaultTemplate = true;
 
   return unwrapMutation(
     withRetry(() => client.createIssue(input as any)),
@@ -716,27 +741,33 @@ export async function listComments(client: LinearClient, idArg: string, limit: n
   );
 }
 
+/** The state change `issue start` makes; see `moveIssueState`. */
+export interface StartMove {
+  /** Move to this state (name or type) instead of the first `started` one. */
+  stateInput?: string;
+  /** Move to the team's first `started`-type state. */
+  move?: boolean;
+}
+
 /**
- * Move an issue's state for `start`. `move` (--move) selects the team's first
- * `started`-type state; an explicit `stateInput` is resolved by name/type.
+ * Move an issue's state for `start` (and `create --start`). `move` selects the
+ * team's first `started`-type state; an explicit `stateInput` is resolved by
+ * name/type. Neither → no request. Takes an already-resolved issue so a freshly
+ * created one is not looked up a second time.
  */
-export async function startIssue(
-  client: LinearClient,
-  idArg: string,
-  opts: { stateInput?: string; move?: boolean },
-) {
+export async function moveIssueState(client: LinearClient, issue: Issue, opts: StartMove) {
+  if (!opts.stateInput && !opts.move) return;
+  const teamId = (await issue.team)?.id;
+  if (!teamId) throw usageError("Cannot resolve team for state change.");
+  const stateId = opts.stateInput
+    ? await resolveStateId(client, teamId, opts.stateInput)
+    : await firstStateOfType(client, teamId, "started");
+  await assertMutation(withRetry(() => client.updateIssue(issue.id, { stateId })), "Issue update");
+}
+
+export async function startIssue(client: LinearClient, idArg: string, opts: StartMove) {
   const issue = await resolveIssue(client, idArg);
-  if (opts.stateInput || opts.move) {
-    const teamId = (await issue.team)?.id;
-    if (!teamId) throw usageError("Cannot resolve team for state change.");
-    const stateId = opts.stateInput
-      ? await resolveStateId(client, teamId, opts.stateInput)
-      : await firstStateOfType(client, teamId, "started");
-    await assertMutation(
-      withRetry(() => client.updateIssue(issue.id, { stateId })),
-      "Issue update",
-    );
-  }
+  await moveIssueState(client, issue, opts);
   return issue;
 }
 

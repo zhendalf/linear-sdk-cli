@@ -33,6 +33,7 @@ import { execFileSync } from "node:child_process";
 import { CliError } from "../lib/errors.js";
 import type { Context } from "../context.js";
 import * as svc from "../services/issue.js";
+import { isSelf } from "../lib/resolve.js";
 import type { Column } from "../output/table.js";
 
 /** Resolve the target issue id from an argument or the current git branch. */
@@ -282,8 +283,14 @@ export function registerIssue(program: Command): void {
     .option("--milestone <name>", "project milestone (requires --project)")
     .option(CYCLE_FLAG, CYCLE_DESC)
     .option("--estimate <n>", "estimate points", parseIntOption)
-    .option("--parent <id>", "parent issue id")
+    .option("--parent <id>", "parent issue id (the sub-issue joins the parent's project unless --project says otherwise)")
     .option("--due <date>", "due date (YYYY-MM-DD)")
+    .option("--template <name|id>", "create from an issue template (the team's or a shared one)")
+    .option("--no-default-template", "do not apply the team's default issue template")
+    .option(
+      "--start",
+      "then start work: check out the branch, move to the first 'started' state (or --state), assign to you",
+    )
     .addHelpText(
       "after",
       [
@@ -292,11 +299,21 @@ export function registerIssue(program: Command): void {
         "  linear issue create --title 'Fix login' --team TES --assignee me",
         "  linear issue create --title 'Bug' -l bug -l urgent --priority 1",
         "  linear issue create --title 'Sprint task' --cycle current --state 'In Progress'",
+        "  linear issue create --title 'Sub-task' --parent TES-42          # inherits TES-42's project",
+        "  linear issue create --title 'Bug report' --template 'Bug'      # from a template",
+        "  linear issue create --title 'Hotfix' --start                    # create, branch, In Progress",
         "  linear issue create --title 'API' --team TES --json | jq -r '.identifier'",
       ].join("\n"),
     )
     .action(
       action(async (ctx: Context, opts) => {
+        // `--start` means *you* are starting on it, so it assigns to you (as the
+        // reference CLI does); naming somebody else at the same time is a contradiction.
+        if (opts.start && opts.assignee && !isSelf(opts.assignee)) {
+          throw usageError(
+            "--start assigns the issue to you; pass either --start or --assignee <someone else>, not both.",
+          );
+        }
         let title: string | undefined = opts.title;
         if (!title) title = await promptInput(ctx, "Title:", { required: true });
         const description = resolveBody({
@@ -311,7 +328,7 @@ export function registerIssue(program: Command): void {
             title,
             description,
             team: opts.team ?? ctx.defaultTeam,
-            assignee: opts.assignee,
+            assignee: opts.start ? (opts.assignee ?? "me") : opts.assignee,
             state: opts.state,
             priority: opts.priority,
             label: opts.label,
@@ -321,15 +338,47 @@ export function registerIssue(program: Command): void {
             estimate: opts.estimate,
             parent: opts.parent,
             dueDate: readAlias(opts, "--due", "--due-date"),
+            template: opts.template,
+            // Both spellings: ours, and the reference CLI's `--no-use-default-template`.
+            useDefaultTemplate: opts.defaultTemplate !== false && opts.useDefaultTemplate !== false,
           },
           ctx.defaultTeam,
         );
-        ctx.output.emit({ id: created.id, identifier: created.identifier, url: created.url }, () =>
-          ctx.output.success(`Created ${created.identifier}: ${created.url}`),
+        if (!opts.start) {
+          ctx.output.emit({ id: created.id, identifier: created.identifier, url: created.url }, () =>
+            ctx.output.success(`Created ${created.identifier}: ${created.url}`),
+          );
+          return;
+        }
+        // --start: the same two steps `issue start --move` takes, on the issue
+        // just created. An explicit --state already put it where it belongs, so
+        // only the default case moves it (to the team's first `started` state).
+        const moved = !opts.state;
+        await svc.moveIssueState(ctx.client, created, { move: moved });
+        const branchResult = isGitRepo() ? checkoutBranch(created.branchName) : undefined;
+        ctx.output.emit(
+          {
+            id: created.id,
+            identifier: created.identifier,
+            url: created.url,
+            branch: branchResult?.branch ?? created.branchName,
+            checkedOut: !!branchResult,
+            stateChanged: moved,
+          },
+          () => {
+            ctx.output.success(`Created ${created.identifier}: ${created.url}`);
+            if (branchResult)
+              ctx.output.success(
+                `${branchResult.created ? "Created and checked out" : "Checked out"} ${branchResult.branch}`,
+              );
+            else ctx.output.info(`Branch name: ${created.branchName}`);
+            if (moved) ctx.output.success(`Moved ${created.identifier} → started`);
+          },
         );
       }),
     );
   addAliasOption(create, "--due-date <date>", "--due");
+  addAliasOption(create, "--no-use-default-template", "--no-default-template");
 
   // update ------------------------------------------------------------------
   const update = issue

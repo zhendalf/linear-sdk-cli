@@ -181,6 +181,22 @@ All notable changes to this project are documented here. The format is based on
 - **Help examples.** `issue create`/`list`/`update`/`start` and `project create` now include an
   Examples section in `--help` surfacing forgiving inputs (`--assignee me`, label-by-name,
   `--cycle current`, `--state "In Progress"`) and a `--json` recipe.
+- **`issue create`: templates, sub-issues in their parent's project, and `--start`** (TES-639).
+  `--template <name|id>` creates from an issue template — the team's own or a workspace-shared one,
+  resolved by name (a team template outranks a shared one of the same name; a miss lists what
+  there is), sent as `templateId`; every value you pass alongside overrides what the template
+  fills. **The team's default template is now applied**, as Linear's own new-issue form and the
+  reference CLI do: the API applies it *only when asked* (verified live — a plain `issueCreate` on
+  a team with a default template returns an issue with no description), so `useDefaultTemplate:
+  true` is sent unless `--no-default-template` (also accepted under the reference's spelling,
+  `--no-use-default-template`); an explicit `--template` replaces it rather than stacking. A
+  `--parent` child now **joins its parent's project** unless `--project` says otherwise — the
+  sub-issues we created landed outside the project their parent was in — and `--milestone` can
+  name a milestone in that inherited project. `--start` does what `issue start --move` does, on the
+  issue it just created: assigns it to you (naming somebody else at the same time is a usage
+  error, as in the reference), moves it to the team's first `started` state (an explicit `--state`
+  is respected instead), and checks out the branch when run inside a git repository; the JSON
+  gains `branch`, `checkedOut`, `stateChanged` in that case and is unchanged otherwise.
 
 ### Changed
 

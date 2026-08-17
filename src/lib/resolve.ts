@@ -106,6 +106,9 @@ export async function resolveTeam(
   return { id: team.id, key: team.key, name: team.name };
 }
 
+/** The spellings that mean "the authenticated user": ours (`me`, `@me`) and the reference CLI's (`self`). */
+export const isSelf = (input: string): boolean => input === "me" || input === "@me" || input === "self";
+
 /**
  * Resolve an assignee reference (`me`, email, name, or id) to a user id.
  *
@@ -114,7 +117,7 @@ export async function resolveTeam(
  * failing to find a user literally named "self".
  */
 export async function resolveUserId(client: LinearClient, input: string): Promise<string> {
-  if (input === "me" || input === "@me" || input === "self") {
+  if (isSelf(input)) {
     const me = await withRetry(() => client.viewer);
     return me.id;
   }
@@ -465,6 +468,49 @@ export async function resolveMilestoneId(
     );
   if (matches.length > 1) throw ambiguous(`Multiple milestones match '${input}'.`);
   return matches[0]!.id;
+}
+
+/**
+ * `templates` is a plain list in the schema (no arguments, no pages), so one
+ * request is the whole workspace: team-scoped and shared templates alike.
+ */
+const TEMPLATES_QUERY = `
+query CliTemplates {
+  templates { id name type team { id } }
+}`;
+
+/**
+ * Resolve an issue template by name or id, within a team's scope: the team's
+ * own templates plus the workspace-shared ones (`team: null`), `type: "issue"`
+ * only. A team template outranks a shared one of the same name — it is the more
+ * specific of the two, and it is what Linear's own picker offers first.
+ */
+export async function resolveTemplateId(
+  client: LinearClient,
+  teamId: string,
+  input: string,
+): Promise<string> {
+  if (isUuid(input)) return input;
+  const data: any = await withRetry(() => (client as any).client.rawRequest(TEMPLATES_QUERY, {}));
+  const all: any[] = data?.data?.templates ?? [];
+  const inScope = all.filter((t) => t.type === "issue" && (!t.team || t.team.id === teamId));
+  const lower = input.toLowerCase();
+  const byName = inScope.filter((t) => t.name.toLowerCase() === lower);
+  // Exact case first, then the team's own before the workspace's.
+  const exact = byName.filter((t) => t.name === input);
+  const candidates = exact.length ? exact : byName;
+  const teamOwned = candidates.filter((t) => t.team);
+  const finalists = teamOwned.length ? teamOwned : candidates;
+  if (finalists.length === 0)
+    throw notFound(
+      `No issue template '${input}' for this team.${available(
+        inScope.map((t) => t.name),
+        `linear api '{ templates { id name type team { key } } }'`,
+      )}`,
+    );
+  if (finalists.length > 1)
+    throw ambiguous(`Multiple issue templates named '${input}'; pass the template id instead.`);
+  return finalists[0]!.id;
 }
 
 /**

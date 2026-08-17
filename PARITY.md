@@ -31,7 +31,9 @@ names the Linear issue.
    person notices first, and we have not built it.
 2. **Keyring credential storage** with plaintext opt-out and `auth migrate`. Ours is a 0600 file.
 3. **File attachments** — upload, inline-image hints, `--attach` on comments.
-4. **Interactive `issue create`** — guided prompts, template awareness (`--no-use-default-template`).
+4. **Interactive `issue create`** — guided prompts. (Template handling — `--template`, the team
+   default applied unless `--no-default-template`, `--parent` inheriting the project, `--start` —
+   is at parity as of TES-639.)
 5. **Config generation** (`linear config` writes the toml) and config discovery in more locations.
 6. **Cycle references** — `now`/`next`/`previous`/`+1`, and a cycle column in lists.
 
