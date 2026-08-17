@@ -27,6 +27,8 @@ import {
   checkoutBranch,
   isGitRepo,
   buildTrailer,
+  buildDescription,
+  buildPrContent,
   buildPrArgs,
 } from "../git.js";
 import { execFileSync } from "node:child_process";
@@ -595,29 +597,43 @@ export function registerIssue(program: Command): void {
     );
 
   // start -------------------------------------------------------------------
+  // "Start" moves the issue: to the team's first `started` state, or to
+  // `--state`. That is what the word means, what schpet/linear-cli does
+  // unconditionally (T `src/utils/actions.ts`), and what an agent that just
+  // said "start" expects to have happened. It used to be opt-in (`--move`), so
+  // a transplanted `linear issue start TES-1` checked the branch out and left
+  // the issue in Backlog without a word (TES-637 item 4). `--no-move` is the
+  // opt-out; `--move` is still accepted (hidden) so an existing script keeps
+  // working. Both the state change and the checkout are reported, so neither
+  // is a surprise.
   issue
     .command("start [id]")
-    .description("Checkout the issue's git branch (and optionally move its state)")
-    .option("--state <name>", "also move the issue to this state")
-    .option("--move", "move the issue to the first 'started' state")
+    .description("Start work on an issue: check out its branch and move it to the first 'started' state")
+    .option("--state <name>", "move to this state instead of the first 'started' one")
+    .option("--no-move", "do not change the state; only check out the branch")
+    .addOption(new Option("--move", "accepted for compatibility: moving is the default").hideHelp())
     .option("--no-checkout", "do not touch git; only update state")
     .addHelpText(
       "after",
       [
         "",
         "Examples:",
-        "  linear issue start TES-42            # checkout the issue's branch",
-        "  linear issue start TES-42 --move     # branch + move to first 'started' state",
-        "  linear issue start TES-42 --state 'In Progress' --no-checkout",
+        "  linear issue start TES-42                     # branch + first 'started' state",
+        "  linear issue start TES-42 --no-move           # branch only",
+        "  linear issue start TES-42 --state 'In Review' --no-checkout",
         "  linear issue start --json | jq -r '.branch'   # id from branch",
       ].join("\n"),
     )
     .action(
       action(async (ctx: Context, opts, idArg?: string) => {
-        const moved = !!opts.state || !!opts.move;
+        // `--state` is a move; `--no-move` says don't. Not a coin flip.
+        if (opts.state !== undefined && opts.move === false) {
+          throw usageError("Pass either --state or --no-move, not both.");
+        }
+        const moved = opts.state !== undefined || opts.move !== false;
         const issueModel = await svc.startIssue(ctx.client, requireId(idArg), {
           stateInput: opts.state,
-          move: opts.move,
+          move: moved,
         });
         let branchResult: { branch: string; created: boolean } | undefined;
         if (opts.checkout !== false && isGitRepo()) {
@@ -644,19 +660,33 @@ export function registerIssue(program: Command): void {
     );
 
   // describe ----------------------------------------------------------------
+  // The output is a whole commit message — `git commit -m "$(linear issue
+  // describe)"` — in schpet/linear-cli's exact shape (`ID Title`, blank line,
+  // `Linear-issue:` / `Linear-issue-url:` trailers; see `buildDescription` in
+  // git.ts). It used to be `Title` + a bare `Fixes ID` line, so the same
+  // pipeline produced a different commit (TES-637 item 5).
   issue
     .command("describe [id]")
-    .description("Print the issue title and a commit-message trailer (Fixes <ID>)")
-    .option("-r, --references", "use a 'References <ID>' trailer instead of 'Fixes <ID>'")
+    .description("Print a commit message for the issue: 'ID Title' plus Linear-issue trailers")
+    .option("-r, --references", "link without closing: 'References <ID>' instead of 'Fixes <ID>'")
     .action(
       action(async (ctx: Context, opts, idArg?: string) => {
         const detail = await svc.getIssueDetail(ctx.client, requireId(idArg));
-        const trailer = buildTrailer(detail.identifier, { references: opts.references });
-        ctx.output.emit({ identifier: detail.identifier, title: detail.title, trailer }, () => {
-          ctx.output.line(detail.title);
-          ctx.output.line();
-          ctx.output.line(trailer);
-        });
+        const references = opts.references === true;
+        const trailer = buildTrailer(detail.identifier, { references });
+        const message = buildDescription(detail.identifier, detail.title, detail.url, { references });
+        ctx.output.emit(
+          {
+            identifier: detail.identifier,
+            title: detail.title,
+            url: detail.url,
+            /** The magic-word phrase (`Fixes TES-1`); the trailers are `Linear-issue: <trailer>` + `Linear-issue-url: <url>`. */
+            trailer,
+            /** The full message, exactly as the human output prints it. */
+            message,
+          },
+          () => ctx.output.line(message),
+        );
       }),
     );
 
@@ -668,7 +698,7 @@ export function registerIssue(program: Command): void {
     .option("--base <branch>", "base branch for the PR")
     .option("--head <branch>", "head branch for the PR")
     .option("--draft", "create the PR as a draft")
-    .option("--title <title>", "PR title (defaults to the issue title)")
+    .option("--title <title>", "PR title after the issue id (default: the issue title)")
     .option("-w, --web", "open the PR creation page in the browser")
     .action(
       action(async (ctx: Context, opts, idArg?: string) => {
@@ -676,12 +706,12 @@ export function registerIssue(program: Command): void {
           throw usageError("`issue pr` must be run inside a git repository.");
         }
         const detail = await svc.getIssueDetail(ctx.client, requireId(idArg));
-        const title = opts.title ?? detail.title;
-        // Body = issue description (may be empty), then a trailer linking Linear
-        // both ways: the magic word closes the issue on merge, the URL backlinks.
-        const description = detail.description?.trim();
-        const trailerBlock = `${buildTrailer(detail.identifier)}\n${detail.url}`;
-        const body = description ? `${description}\n\n${trailerBlock}` : trailerBlock;
+        // Title `ID Title` (a custom --title is prefixed the same way), body the
+        // two Linear-issue trailers — schpet/linear-cli's PR, plus the magic word
+        // (`buildPrContent`). The issue's *description* is no longer copied in
+        // (TES-637 item 5): a GitHub PR body is a wider audience than a Linear
+        // issue, and Linear links the PR from the trailer, not from the prose.
+        const { title, body } = buildPrContent(detail, opts.title);
         const args = buildPrArgs({
           title,
           body,
