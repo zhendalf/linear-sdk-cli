@@ -257,7 +257,10 @@ function globalOptions(): Option[] {
       parsePositiveInt,
     ),
     new Option("--all", "fetch all results (exhaust pagination)"),
-    new Option("-f, --fields <a,b,c>", "select columns for human table output").argParser(parseList),
+    new Option(
+      "-f, --fields <a,b,c>",
+      "select fields: table columns or detail lines (human), top-level keys (--json)",
+    ).argParser(parseList),
     new Option("-y, --yes", "skip confirmation prompts"),
     new Option("-q, --quiet", "suppress status output"),
     new NoFlagOption("--no-input", "never prompt; fail instead"),

@@ -11,7 +11,14 @@
 
 import pc from "picocolors";
 import type { CliError } from "../lib/errors.js";
-import { renderTable, renderDetail, selectColumns, type Column } from "./table.js";
+import {
+  renderTable,
+  renderDetail,
+  selectColumns,
+  selectPairs,
+  projectFields,
+  type Column,
+} from "./table.js";
 import { sanitizeForTerminal } from "./sanitize.js";
 
 export interface OutputOptions {
@@ -19,7 +26,7 @@ export interface OutputOptions {
   color: boolean;
   quiet: boolean;
   debug: boolean;
-  /** --fields selection applied to table/detail output. */
+  /** `--fields`: table columns / detail lines (human), top-level keys (json). */
   fields?: string[];
 }
 
@@ -43,23 +50,30 @@ export class Output {
     }
   }
 
-  /** Emit a list as a table (human) or bare array (json). */
+  /**
+   * Emit a list as a table (human) or bare array (json). `--fields` narrows
+   * both: the table's columns (or any row key), and the JSON objects' keys.
+   */
   list<T>(rows: T[], columns: Column<T>[], jsonRows?: unknown[]): void {
     if (this.opts.json) {
-      this.writeJson(jsonRows ?? rows);
+      this.writeJson(projectFields(jsonRows ?? rows, this.opts.fields));
       return;
     }
-    const cols = selectColumns(columns, this.opts.fields);
+    const cols = selectColumns(columns, this.opts.fields, rows[0]);
     process.stdout.write(renderTable(rows, cols, { color: this.opts.color }) + "\n");
   }
 
-  /** Emit a single record as a detail block (human) or bare object (json). */
+  /**
+   * Emit a single record as a detail block (human) or bare object (json).
+   * `--fields` narrows both: the block's labelled lines, and the JSON keys.
+   */
   detail(jsonValue: unknown, pairs: Array<[string, unknown]>): void {
     if (this.opts.json) {
-      this.writeJson(jsonValue);
+      this.writeJson(projectFields(jsonValue, this.opts.fields));
       return;
     }
-    process.stdout.write(renderDetail(pairs, { color: this.opts.color }) + "\n");
+    const shown = selectPairs(pairs, this.opts.fields);
+    process.stdout.write(renderDetail(shown, { color: this.opts.color }) + "\n");
   }
 
   /**

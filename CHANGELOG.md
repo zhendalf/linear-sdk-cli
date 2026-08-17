@@ -184,6 +184,20 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- **`--fields` is one projection, applied and validated in both modes** (TES-635 (1)). It was
+  validated only in human list mode — `--fields nope --json` exited 0 with every key while
+  `--fields nope` exited 2 — ignored on detail views entirely, and able to pick only among the
+  table's default columns although the row carried more (`issue list --fields id,title,labels` was
+  `Unknown field 'labels'`). Now: on a human table, a field is a column key/header **or any row
+  key** (`labels`, `project`, `url`, `updatedAt`, …), rendered readably (arrays comma-joined, a
+  relation object by its name); on a human detail block, a field is one of its labelled lines
+  (`--fields state,url`); under `--json`, a field is a top-level key of the object(s), kept in the
+  order asked (`issue list --fields identifier,state --json` → `[{identifier, state}]`) — smaller
+  payloads for an agent that wants three keys of fifty rows. Unknown fields are a usage error in
+  every mode, listing what there is. **The one behaviour change for scripts:** `--fields` under
+  `--json` used to be a no-op; a script that passed it and relied on getting every key back will now
+  get only the keys it named. Note the human `id` column shows the identifier (`TES-42`) while the
+  JSON `id` key is the UUID, as it always has been.
 - **Detail JSON carries relations as objects, not display strings** (TES-627 — a deliberate
   JSON-contract change). `issue view --json` used to flatten every relation:
   `team: "TES Test-workspace-bla"` (not even parseable — team names contain spaces),
@@ -278,6 +292,12 @@ All notable changes to this project are documented here. The format is based on
   option. The contract suite now spawns the real binary against an isolated, key-less config and
   asserts the envelope under `--json`, `-j`, `-jq` and `linear -j issue …`; before, it exercised
   only the `Output` class, which is how this slipped past 600 tests.
+- **`linear schema | head` no longer dumps an EPIPE stack** (TES-635 (7)). A reader that stops
+  early closes stdout under us; without a listener Bun surfaced the resulting EPIPE as an unhandled
+  stream error — a raw `EPIPE: broken pipe, write … fd: 5` on stderr and exit 1. The binary now
+  listens for it on stdout and stderr and exits quietly (0), as any Unix filter does. Also fixed in
+  passing: `project milestones` printed milestone progress ×100 like the two `milestone`
+  renderers (TES-648).
 - **An unknown command is reported as one, with a guess; usage errors point at the right
   `--help`; a bare group shows its help** (TES-633). The root has an action (bare `linear` shows the
   branch's issue) and `issue` has a default subcommand (`view`), so commander's own "unknown

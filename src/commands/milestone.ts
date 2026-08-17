@@ -29,7 +29,8 @@ const ROW_COLUMNS: Column<svc.MilestoneRow>[] = [
  * (verified live) — unlike `Project.progress`, which is a fraction. Multiplying
  * it by 100 as the project renderer does printed `3846%`. Exported for tests.
  */
-export function formatMilestoneProgress(progress: number): string {
+export function formatMilestoneProgress(progress: number | null): string {
+  if (progress === null || progress === undefined) return "—";
   return `${Math.round(progress)}%`;
 }
 

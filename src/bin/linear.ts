@@ -11,6 +11,17 @@ import { Output } from "../output/format.js";
 import { CliError, ExitCode, normalizeError } from "../lib/errors.js";
 import { commandPath } from "../lib/options.js";
 
+// `linear schema | head -2` is a reader that stops early, and stdout closing
+// under us is that reader's business, not an error: exit quietly, as every
+// well-behaved Unix filter does. Without a listener Bun surfaces the EPIPE as
+// an unhandled stream error — a raw stack dump on stderr and exit 1.
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EPIPE") process.exit(0);
+    throw err;
+  });
+}
+
 const program = createProgram();
 
 program.parseAsync(process.argv).catch((err) => {

@@ -139,6 +139,44 @@ describe("JSON envelope contract", () => {
     });
   });
 
+  /**
+   * `--fields` under --json is a projection of top-level keys (TES-635). It
+   * used to be ignored there — and validated only in human list mode, so
+   * `--fields nope --json` exited 0 with every key.
+   */
+  describe("--fields under --json", () => {
+    const withFields = (fields: string[]) =>
+      new Output({ json: true, color: false, quiet: false, debug: false, fields });
+    const cols: Column<{ id: string; name: string; url: string }>[] = [
+      { key: "id", value: (r) => r.id },
+    ];
+
+    it("list → each row keeps only the named keys, in that order", () => {
+      const { out } = capture(() =>
+        withFields(["name", "id"]).list([{ id: "1", name: "a", url: "u" }], cols),
+      );
+      expect(JSON.parse(out)).toEqual([{ name: "a", id: "1" }]);
+    });
+
+    it("detail → the object keeps only the named keys", () => {
+      const { out } = capture(() =>
+        withFields(["url"]).detail({ id: "1", name: "a", url: "u" }, [["Name", "a"]]),
+      );
+      expect(JSON.parse(out)).toEqual({ url: "u" });
+    });
+
+    it("an unknown key is a usage error, and nothing reaches stdout", () => {
+      expect(() =>
+        capture(() => withFields(["nope"]).list([{ id: "1", name: "a", url: "u" }], cols)),
+      ).toThrow(/Unknown field 'nope'/);
+    });
+
+    it("an empty list stays an empty list", () => {
+      const { out } = capture(() => withFields(["nope"]).list([], cols));
+      expect(JSON.parse(out)).toEqual([]);
+    });
+  });
+
   it("status output (info/success) never pollutes stdout in json mode", () => {
     const { out, err } = capture(() => {
       const o = jsonOutput();

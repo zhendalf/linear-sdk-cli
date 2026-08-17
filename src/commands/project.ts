@@ -10,6 +10,7 @@ import { resolveBody } from "../lib/body.js";
 import { confirmDestructive, promptInput } from "../lib/prompt.js";
 import type { Context } from "../context.js";
 import * as svc from "../services/project.js";
+import { formatMilestoneProgress } from "./milestone.js";
 import type { Column } from "../output/table.js";
 
 const ROW_COLUMNS: Column<svc.ProjectRow>[] = [
@@ -254,7 +255,8 @@ export function registerProject(program: Command): void {
           [
             { key: "name", header: "Name", value: (m) => m.name, max: 40 },
             { key: "target", header: "Target", value: (m) => m.targetDate ?? "—" },
-            { key: "progress", header: "Progress", value: (m) => formatProgress(m.progress) },
+            // A milestone's progress is already a percentage (TES-648), unlike a project's.
+            { key: "progress", header: "Progress", value: (m) => formatMilestoneProgress(m.progress) },
           ],
           rows,
         );

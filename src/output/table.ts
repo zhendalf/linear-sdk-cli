@@ -40,35 +40,107 @@ function sliceToWidth(s: string, width: number): string {
 /**
  * A value as a human cell. Every string that reaches a table or a detail block
  * passes through here, and this is where terminal escapes in API data die.
+ *
+ * A relation object (`{id, name}`, `{displayName}`, `{identifier}`) shows its
+ * human name, so `--fields project,assignee` on a row that carries objects
+ * reads as a table and not as `[object Object]`.
  */
-function cell(v: unknown): string {
+export function cell(v: unknown): string {
   if (v === null || v === undefined) return "";
   if (Array.isArray(v)) return v.map(cell).join(", ");
   if (v instanceof Date) return v.toISOString();
+  if (typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    const name = o.name ?? o.displayName ?? o.identifier ?? o.key ?? o.id;
+    return name === undefined ? sanitizeForTerminal(JSON.stringify(v)) : cell(name);
+  }
   return sanitizeForTerminal(String(v));
 }
 
 /**
  * Filter columns to a requested subset (by key or header, case-insensitive),
- * preserving requested order. An unknown field is a usage error rather than a
- * silent fall-through to all columns.
+ * preserving requested order. A field that names no column but IS a key on the
+ * rows becomes a column of that key's value — `issue list --fields id,title,
+ * labels` used to be `Unknown field 'labels'` while every row carried labels,
+ * project, url, updatedAt and estimate. An unknown field is a usage error
+ * rather than a silent fall-through to all columns, and it lists both kinds.
  */
-export function selectColumns<T>(columns: Column<T>[], fields?: string[]): Column<T>[] {
+export function selectColumns<T>(columns: Column<T>[], fields?: string[], sample?: T): Column<T>[] {
   if (!fields || fields.length === 0) return columns;
   const byName = new Map<string, Column<T>>();
   for (const c of columns) {
     byName.set(c.key.toLowerCase(), c);
     if (c.header) byName.set(c.header.toLowerCase(), c);
   }
+  const rowKeys = sample && typeof sample === "object" ? Object.keys(sample as object) : [];
   const picked: Column<T>[] = [];
   for (const f of fields) {
     const col = byName.get(f.toLowerCase());
-    if (!col) {
+    if (col) {
+      picked.push(col);
+      continue;
+    }
+    const key = rowKeys.find((k) => k.toLowerCase() === f.toLowerCase());
+    if (key === undefined) {
+      const extra = rowKeys.filter((k) => !byName.has(k.toLowerCase()));
       throw usageError(
-        `Unknown field '${f}'. Available: ${columns.map((c) => c.key).join(", ")}.`,
+        `Unknown field '${f}'. Available: ${columns.map((c) => c.key).join(", ")}${
+          extra.length ? `; also any row key: ${extra.join(", ")}` : ""
+        }.`,
       );
     }
-    picked.push(col);
+    picked.push({ key, header: key, value: (row) => (row as Record<string, unknown>)[key] });
+  }
+  return picked;
+}
+
+/**
+ * `--fields` under `--json`: keep only the named top-level keys of each object,
+ * in the order asked. Keys are matched exactly (JSON is case-sensitive), and an
+ * unknown key is a usage error naming the real ones — it used to be silently
+ * ignored, so `--fields nope --json` exited 0 with every key while
+ * `--fields nope` exited 2. An empty list has nothing to check and stays `[]`.
+ */
+export function projectFields<T>(value: T, fields?: string[]): T {
+  if (!fields || fields.length === 0) return value;
+  const pick = (obj: Record<string, unknown>): Record<string, unknown> => {
+    const out: Record<string, unknown> = {};
+    for (const f of fields) {
+      if (!(f in obj)) {
+        throw usageError(`Unknown field '${f}'. Available: ${Object.keys(obj).join(", ")}.`);
+      }
+      out[f] = obj[f];
+    }
+    return out;
+  };
+  if (Array.isArray(value)) {
+    return value.map((row) =>
+      row && typeof row === "object" ? pick(row as Record<string, unknown>) : row,
+    ) as T;
+  }
+  if (value && typeof value === "object") return pick(value as Record<string, unknown>) as T;
+  return value;
+}
+
+/**
+ * `--fields` on a human detail block: keep the pairs whose label matches
+ * (case-insensitively), in the order asked. Unknown → usage error naming the
+ * labels there are.
+ */
+export function selectPairs(
+  pairs: Array<[string, unknown]>,
+  fields?: string[],
+): Array<[string, unknown]> {
+  if (!fields || fields.length === 0) return pairs;
+  const picked: Array<[string, unknown]> = [];
+  for (const f of fields) {
+    const pair = pairs.find(([label]) => label.toLowerCase() === f.toLowerCase());
+    if (!pair) {
+      throw usageError(
+        `Unknown field '${f}'. Available: ${pairs.map(([label]) => label).join(", ")}.`,
+      );
+    }
+    picked.push(pair);
   }
   return picked;
 }
