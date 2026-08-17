@@ -38,6 +38,13 @@ export interface IssueRow {
   state: { name: string; type: string } | null;
   assignee: { displayName: string } | null;
   project: { name: string } | null;
+  /**
+   * The same object shapes `IssueDetail` uses, so `.milestone.name` reads the
+   * same on a list row and on `view`. They were missing here (TES-652): a
+   * `--json | jq 'group_by(.milestone.name)'` put every issue in the null bucket.
+   */
+  milestone: { id: string; name: string } | null;
+  cycle: { id: string; number: number; name: string | null } | null;
   labels: string[];
   /**
    * Lifecycle. `--include-archived` used to list archived and trashed issues
@@ -52,6 +59,17 @@ export interface IssueRow {
 
 /** The lifecycle fields every issue query selects, so row and detail agree. */
 const LIFECYCLE_FIELDS = "archivedAt trashed startedAt completedAt canceledAt";
+
+/**
+ * The relations a list/search row selects — one string, so `LIST_QUERY` and
+ * `SEARCH_QUERY` cannot drift apart (they did once: search hardcoded `labels: []`).
+ */
+const ROW_RELATIONS = `state { name type }
+      assignee { displayName }
+      project { name }
+      projectMilestone { id name }
+      cycle { id number name }
+      labels(first: 20) { nodes { name } }`;
 
 export interface ListFilters {
   /** One team key, or several (`--team` is repeatable on the issue queries). */
@@ -145,10 +163,7 @@ query CliIssues($filter: IssueFilter, $first: Int!, $after: String, $sort: [Issu
   issues(filter: $filter, first: $first, after: $after, sort: $sort, includeArchived: $includeArchived) {
     nodes {
       id identifier title priority priorityLabel estimate url updatedAt ${LIFECYCLE_FIELDS}
-      state { name type }
-      assignee { displayName }
-      project { name }
-      labels(first: 20) { nodes { name } }
+      ${ROW_RELATIONS}
     }
     pageInfo { hasNextPage endCursor }
   }
@@ -355,10 +370,7 @@ query CliSearchIssues($term: String!, $filter: IssueFilter, $first: Int!, $after
   searchIssues(term: $term, filter: $filter, first: $first, after: $after, includeArchived: $includeArchived, includeComments: $includeComments) {
     nodes {
       id identifier title priority priorityLabel estimate url updatedAt ${LIFECYCLE_FIELDS}
-      state { name type }
-      assignee { displayName }
-      project { name }
-      labels(first: 20) { nodes { name } }
+      ${ROW_RELATIONS}
     }
     pageInfo { hasNextPage endCursor }
   }
@@ -415,9 +427,16 @@ function toIssueRow(n: any): IssueRow {
     state: n.state ?? null,
     assignee: n.assignee ?? null,
     project: n.project ?? null,
+    milestone: n.projectMilestone ?? null,
+    cycle: cycleRef(n.cycle),
     labels: (n.labels?.nodes ?? []).map((l: any) => l.name),
     ...lifecycle(n),
   };
+}
+
+/** A `cycle { id number name }` selection as the row/detail object; a cycle's name is optional upstream. */
+function cycleRef(c: any): IssueRow["cycle"] {
+  return c ? { id: c.id, number: c.number, name: c.name ?? null } : null;
 }
 
 /** The lifecycle fields off a raw issue node. `trashed` is nullable upstream; null means no. */
@@ -535,7 +554,7 @@ export async function getIssueDetail(client: LinearClient, idArg: string): Promi
     team: n.team ?? null,
     project: n.project ?? null,
     milestone: n.projectMilestone ?? null,
-    cycle: n.cycle ? { id: n.cycle.id, number: n.cycle.number, name: n.cycle.name ?? null } : null,
+    cycle: cycleRef(n.cycle),
     parent: n.parent ?? null,
     labels: n.labels?.nodes ?? [],
     subscribers: n.subscribers?.nodes ?? [],

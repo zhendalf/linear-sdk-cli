@@ -336,6 +336,14 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- **`issue list`/`mine`/`search` rows omitted `milestone` and `cycle`** (TES-652). The list
+  query selected project and labels but neither relation, so `issue list --project X --json | jq
+  'group_by(.milestone.name)'` put every issue in the null bucket while `issue view` showed the
+  milestone. Rows now carry `milestone: {id, name} | null` and `cycle: {id, number, name} | null`
+  — the detail's exact object shapes, from the one existing query (two selections, no extra
+  request; `LIST_QUERY` and `SEARCH_QUERY` share the relation block so they cannot drift again).
+  The human table does not grow (it is wide already): `--fields id,milestone,cycle` selects the
+  new columns by name, an unnamed cycle shows as `#n`, and the "Unknown field" message lists them.
 - **`$EDITOR` with arguments (`code --wait`, `subl -w`, `vim -f`, `emacsclient -t`) broke the
   editor path with a raw ENOENT** (TES-631). `openEditor` ran the whole `$EDITOR` string as the
   executable name. It is now split shell-style — quotes and backslashes honoured, nothing

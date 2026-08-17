@@ -1,4 +1,6 @@
-import { describe, it, expect, vi } from "bun:test";
+import { describe, it, expect, vi, beforeEach, afterEach } from "bun:test";
+import { createProgram } from "../../src/cli.js";
+import { Context } from "../../src/context.js";
 import { getIssueDetail, listIssues } from "../../src/services/issue.js";
 import { renderIssueDetail } from "../../src/commands/issue.js";
 import { Output } from "../../src/output/format.js";
@@ -241,6 +243,43 @@ describe("archived / trashed (TES-624)", () => {
       canceledAt: null,
     });
   });
+
+  /**
+   * TES-652: list rows selected project and labels but not projectMilestone or
+   * cycle, so `issue list --json | jq 'group_by(.milestone.name)'` put every
+   * issue in the null bucket while `issue view` showed the milestone.
+   */
+  it("list rows carry milestone and cycle in the detail's object shape, from the same query", async () => {
+    let sentQuery = "";
+    const client = {
+      client: {
+        rawRequest: async (query: string) => {
+          sentQuery = query;
+          return {
+            data: {
+              issues: {
+                nodes: [
+                  { ...node, labels: { nodes: [{ name: "parity" }] } },
+                  { ...node, identifier: "TES-602", projectMilestone: null, cycle: null },
+                ],
+                pageInfo: { hasNextPage: false },
+              },
+            },
+          };
+        },
+      },
+    } as any;
+    const rows = await listIssues(client, {}, 50, undefined);
+    // Two fields on the one existing query — no extra request.
+    expect(sentQuery).toContain("projectMilestone { id name }");
+    expect(sentQuery).toContain("cycle { id number name }");
+    expect(rows[0]!.milestone).toEqual({ id: "m-1", name: "Parity" });
+    expect(rows[0]!.cycle).toEqual({ id: "c-1", number: 3, name: null });
+    // Absent relations are null, not undefined, so the key is always present in JSON.
+    expect(rows[1]!.milestone).toBeNull();
+    expect(rows[1]!.cycle).toBeNull();
+    expect(Object.keys(rows[1]!)).toEqual(expect.arrayContaining(["milestone", "cycle"]));
+  });
 });
 
 /** The human `issue view`, rendered from the structured detail. */
@@ -294,5 +333,76 @@ describe("renderIssueDetail (human view)", () => {
     expect(parsed.team).toEqual({ id: "team-1", key: "TES", name: "Test workspace" });
     expect(parsed.id).toBe(UUID);
     expect(parsed.trashed).toBe(false);
+  });
+});
+
+/**
+ * TES-652: `milestone` and `cycle` are `--fields`-selectable columns on the
+ * list table (not defaults — it is wide already). A cycle shows its name, or
+ * `#n` when unnamed; the generic row-key fallback would have printed its id.
+ */
+describe("issue list --fields milestone,cycle (human table)", () => {
+  let clientDescriptor: PropertyDescriptor | undefined;
+  let savedKey: string | undefined;
+
+  const listClient = () => ({
+    client: {
+      rawRequest: async () => ({
+        data: {
+          issues: {
+            nodes: [
+              { ...node, labels: { nodes: [] } },
+              { ...node, identifier: "TES-602", projectMilestone: null, cycle: { id: "c-2", number: 4, name: "Sprint 4" } },
+            ],
+            pageInfo: { hasNextPage: false },
+          },
+        },
+      }),
+    },
+  });
+
+  beforeEach(() => {
+    savedKey = process.env.LINEAR_API_KEY;
+    process.env.LINEAR_API_KEY = "lin_api_test000000000000";
+    clientDescriptor = Object.getOwnPropertyDescriptor(Context.prototype, "client");
+    Object.defineProperty(Context.prototype, "client", { get: () => listClient(), configurable: true });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (clientDescriptor) Object.defineProperty(Context.prototype, "client", clientDescriptor);
+    if (savedKey === undefined) delete process.env.LINEAR_API_KEY;
+    else process.env.LINEAR_API_KEY = savedKey;
+  });
+
+  async function run(args: string[]): Promise<string> {
+    let out = "";
+    const spy = vi.spyOn(process.stdout, "write").mockImplementation((c: any) => {
+      out += c;
+      return true;
+    });
+    try {
+      await createProgram().parseAsync(["node", "linear", ...args]);
+    } finally {
+      spy.mockRestore();
+    }
+    return out;
+  }
+
+  it("are not default columns, but --fields selects them by name with proper headers", async () => {
+    const plain = await run(["issue", "list", "--no-ansi"]);
+    expect(plain.split("\n")[0]).not.toContain("Milestone");
+    const picked = await run(["issue", "list", "--fields", "id,milestone,cycle", "--no-ansi"]);
+    const lines = picked.split("\n");
+    expect(lines[0]!.replace(/\s+/g, " ").trim()).toBe("ID Milestone Cycle");
+    expect(lines[1]!.replace(/\s+/g, " ").trim()).toBe("TES-601 Parity #3");
+    expect(lines[2]!.replace(/\s+/g, " ").trim()).toBe("TES-602 — Sprint 4");
+  });
+
+  it("--json --fields milestone projects the object, not a display string", async () => {
+    const out = await run(["issue", "list", "--fields", "identifier,milestone", "--json"]);
+    expect(JSON.parse(out)).toEqual([
+      { identifier: "TES-601", milestone: { id: "m-1", name: "Parity" } },
+      { identifier: "TES-602", milestone: null },
+    ]);
   });
 });

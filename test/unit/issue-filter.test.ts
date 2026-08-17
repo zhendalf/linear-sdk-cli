@@ -369,6 +369,8 @@ describe("searchIssues", () => {
         state: { name: "In Progress", type: "started" },
         assignee: { displayName: "ada" },
         project: { name: "Auth" },
+        milestone: null,
+        cycle: null,
         labels: ["bug", "regression"],
         archivedAt: null,
         trashed: false,

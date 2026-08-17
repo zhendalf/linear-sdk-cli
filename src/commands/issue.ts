@@ -56,6 +56,26 @@ const ROW_COLUMNS: Column<svc.IssueRow>[] = [
   { key: "title", header: "Title", value: (r) => r.title, max: 60 },
 ];
 
+/**
+ * Columns the default table leaves out (it is wide already) but `--fields` can
+ * ask for by name: `--fields id,milestone,title`. A cycle shows its name, or
+ * `#n` when it has none — the generic row-key fallback would print its id.
+ */
+const EXTRA_COLUMNS: Column<svc.IssueRow>[] = [
+  { key: "milestone", header: "Milestone", value: (r) => r.milestone?.name ?? "—", max: 30 },
+  { key: "cycle", header: "Cycle", value: (r) => cycleLabel(r.cycle) },
+];
+
+/** The list table's columns: the defaults, plus the optional ones once `--fields` is selecting. */
+function listColumns(ctx: Context): Column<svc.IssueRow>[] {
+  return ctx.options.fields?.length ? [...ROW_COLUMNS, ...EXTRA_COLUMNS] : ROW_COLUMNS;
+}
+
+/** `Sprint 3`, or `#3` for an unnamed cycle; `—` for none. */
+function cycleLabel(c: svc.IssueRow["cycle"]): string {
+  return c ? (c.name ?? `#${c.number}`) : "—";
+}
+
 function shortPriority(p: number): string {
   return ["—", "Urgent", "High", "Med", "Low"][p] ?? String(p);
 }
@@ -166,7 +186,7 @@ export function registerIssue(program: Command): void {
           ctx.limit,
           ctx.defaultTeam,
         );
-        ctx.output.list(rows, ROW_COLUMNS, rows);
+        ctx.output.list(rows, listColumns(ctx), rows);
       }),
     );
   addFilterOptions(list).addOption(
@@ -229,7 +249,7 @@ export function registerIssue(program: Command): void {
           ctx.limit,
           ctx.defaultTeam,
         );
-        ctx.output.list(rows, ROW_COLUMNS, rows);
+        ctx.output.list(rows, listColumns(ctx), rows);
       }),
     );
   addFilterOptions(mine, { assignee: false }).addOption(
@@ -274,7 +294,7 @@ export function registerIssue(program: Command): void {
           ctx.limit,
           ctx.defaultTeam,
         );
-        ctx.output.list(rows, ROW_COLUMNS, rows);
+        ctx.output.list(rows, listColumns(ctx), rows);
       }),
     );
   // Search-only: the plain `issues` query has nowhere to put it, so this does
