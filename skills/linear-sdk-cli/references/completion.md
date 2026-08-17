@@ -13,3 +13,5 @@ Output a shell completion script (bash|zsh|fish)
 ```
 linear completion [options] <shell>
 ```
+
+**Output (`--json`)**: none — never prints JSON — always prints a shell script; --json has no effect

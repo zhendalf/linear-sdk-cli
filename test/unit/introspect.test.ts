@@ -49,3 +49,46 @@ describe("walkCommands", () => {
     expect(paths).toContain("api");
   });
 });
+
+/**
+ * TES-610: every node that prints JSON says what — the `output` shape from
+ * `lib/output-shapes.ts` — so an agent knows a row has `.state.name` before it
+ * runs anything. Groups that only hold subcommands carry no `output` at all.
+ */
+describe("walkCommands — output shapes", () => {
+  const nodes = walkCommands(createProgram());
+  const at = (path: string) => nodes.find((n) => n.path === path)!;
+
+  it("attaches the declared --json shape to a list command", () => {
+    const list = at("issue list");
+    expect(list.output?.kind).toBe("list");
+    expect(list.output?.fields?.state).toEqual({ nullable: { name: "string", type: "string" } });
+    expect(list.output?.fields?.milestone).toEqual({ nullable: { id: "string", name: "string" } });
+  });
+
+  it("a view is an object with the detail's fields; a mutation is a receipt", () => {
+    expect(at("issue view").output?.kind).toBe("object");
+    expect(at("issue view").output?.fields?.team).toEqual({
+      nullable: { id: "string", key: "string", name: "string" },
+    });
+    expect(at("comment reply").output).toEqual({
+      kind: "receipt",
+      fields: { id: "string", parent: "string", issue: "string|null", url: "string" },
+    });
+  });
+
+  it("raw pass-through and no-JSON commands say so; a bare group has no output", () => {
+    expect(at("api").output?.kind).toBe("raw");
+    expect(at("completion").output?.kind).toBe("none");
+    expect("output" in at("cycle")).toBe(false);
+    // A group with a default subcommand prints that subcommand's shape.
+    expect(at("issue").output?.kind).toBe("object");
+    expect(at("issue").output?.note).toContain("runs `issue view` by default");
+  });
+
+  it("a synthetic tree (no registry entry) simply has no output", () => {
+    const root = new Command();
+    root.command("grp").command("do");
+    expect(walkCommands(root).every((n) => !("output" in n))).toBe(true);
+  });
+});

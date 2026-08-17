@@ -8,6 +8,7 @@
 import type { LinearClient, Issue } from "@linear/sdk";
 import type { ResolvedConfig } from "../config.js";
 import { withRetry } from "../client.js";
+import { shape } from "../lib/shape.js";
 import { collect, collectRawQuery } from "../lib/pagination.js";
 import { usageError, notFound } from "../lib/errors.js";
 import { assertMutation, unwrapMutation } from "../lib/mutation.js";
@@ -56,6 +57,32 @@ export interface IssueRow {
   completedAt: string | null;
   canceledAt: string | null;
 }
+
+/**
+ * The row's shape as `linear commands` advertises it (TES-610). `shape<IssueRow>`
+ * is checked against the interface above, so the two cannot disagree.
+ */
+export const ISSUE_ROW_SHAPE = shape<IssueRow>({
+  id: "string",
+  identifier: "string",
+  title: "string",
+  priority: "number",
+  priorityLabel: "string",
+  estimate: "number|null",
+  url: "string",
+  updatedAt: "string",
+  state: { nullable: { name: "string", type: "string" } },
+  assignee: { nullable: { displayName: "string" } },
+  project: { nullable: { name: "string" } },
+  milestone: { nullable: { id: "string", name: "string" } },
+  cycle: { nullable: { id: "string", number: "number", name: "string|null" } },
+  labels: ["string"],
+  archivedAt: "string|null",
+  trashed: "boolean",
+  startedAt: "string|null",
+  completedAt: "string|null",
+  canceledAt: "string|null",
+});
 
 /** The lifecycle fields every issue query selects, so row and detail agree. */
 const LIFECYCLE_FIELDS = "archivedAt trashed startedAt completedAt canceledAt";
@@ -487,6 +514,36 @@ export interface IssueDetail {
   labels: Array<{ id: string; name: string }>;
   subscribers: Array<{ id: string; displayName: string }>;
 }
+
+/** The detail's shape as `linear commands` advertises it; checked against `IssueDetail`. */
+export const ISSUE_DETAIL_SHAPE = shape<IssueDetail>({
+  id: "string",
+  identifier: "string",
+  title: "string",
+  description: "string|null",
+  priority: "number",
+  priorityLabel: "string",
+  estimate: "number|null",
+  url: "string",
+  branchName: "string",
+  dueDate: "string|null",
+  createdAt: "string",
+  updatedAt: "string",
+  archivedAt: "string|null",
+  trashed: "boolean",
+  startedAt: "string|null",
+  completedAt: "string|null",
+  canceledAt: "string|null",
+  state: { nullable: { id: "string", name: "string", type: "string" } },
+  assignee: { nullable: { id: "string", displayName: "string", email: "string" } },
+  team: { nullable: { id: "string", key: "string", name: "string" } },
+  project: { nullable: { id: "string", name: "string" } },
+  milestone: { nullable: { id: "string", name: "string" } },
+  cycle: { nullable: { id: "string", number: "number", name: "string|null" } },
+  parent: { nullable: { id: "string", identifier: "string" } },
+  labels: [{ id: "string", name: "string" }],
+  subscribers: [{ id: "string", displayName: "string" }],
+});
 
 /**
  * Everything `issue view` shows, in one round-trip. Selecting the relations in

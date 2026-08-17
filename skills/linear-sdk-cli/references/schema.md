@@ -17,3 +17,5 @@ linear schema [options]
 | Option                | Description                       |
 | --------------------- | --------------------------------- |
 | `-o, --output <file>` | write to a file instead of stdout |
+
+**Output (`--json`)**: raw JSON (keys depend on the request) — the GraphQL introspection result ({__schema: …}); with -o <file> it is written there and stdout stays empty

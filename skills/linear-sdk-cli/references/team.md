@@ -35,12 +35,30 @@ linear team create [options]
 | `-d, --description <text>` | team description                                        |
 | `--private`                | make the team private (members only)                    |
 
+**Output (`--json`)**: a receipt object
+
+```text
+id: string
+key: string
+name: string
+```
+
 ### `linear team cycles`
 
 List a team's cycles
 
 ```
 linear team cycles [options] [key]
+```
+
+**Output (`--json`)**: a bare array of objects
+
+```text
+id: string
+number: number
+name: string | null
+startsAt: string | null
+endsAt: string | null
 ```
 
 ### `linear team delete`
@@ -57,12 +75,31 @@ linear team delete [options] <key>
 | ---------------------- | -------------------------------------------- |
 | `--move-issues <team>` | move the team's issues to another team first |
 
+**Output (`--json`)**: a receipt object
+
+```text
+id: string
+key: string
+name: string
+deleted: boolean
+movedIssues: number
+movedTo: {id: string, key: string, name: string} | null
+```
+
 ### `linear team labels`
 
 List a team's labels
 
 ```
 linear team labels [options] [key]
+```
+
+**Output (`--json`)**: a bare array of objects
+
+```text
+id: string
+name: string
+color: string
 ```
 
 ### `linear team list`
@@ -73,6 +110,14 @@ Aliases: `ls`
 
 ```
 linear team list [options]
+```
+
+**Output (`--json`)**: a bare array of objects
+
+```text
+id: string
+key: string
+name: string
 ```
 
 ### `linear team members`
@@ -87,12 +132,32 @@ linear team members [options] [key]
 | -------------------- | ----------------------------------------------- |
 | `--include-disabled` | include deactivated users (excluded by default) |
 
+**Output (`--json`)**: a bare array of objects
+
+```text
+id: string
+displayName: string
+name: string
+email: string
+active: boolean
+```
+
 ### `linear team states`
 
 List a team's workflow states
 
 ```
 linear team states [options] [key]
+```
+
+**Output (`--json`)**: a bare array of objects
+
+```text
+id: string
+name: string
+type: string
+color: string
+position: number
 ```
 
 ### `linear team update`
@@ -111,10 +176,36 @@ linear team update [options] [key]
 | `--key <key>`              | new team key         |
 | `-d, --description <text>` | new team description |
 
+**Output (`--json`)**: a receipt object
+
+```text
+id: string
+key: string
+name: string
+```
+
 ### `linear team view`
 
 Show a team (defaults to the configured team)
 
 ```
 linear team view [options] [key]
+```
+
+**Output (`--json`)**: a bare object
+
+```text
+id: string
+key: string
+name: string
+description: string | null
+private: boolean
+cyclesEnabled: boolean
+timezone: string | null
+color: string | null
+icon: string | null
+issueCount: number
+memberCount: number
+createdAt: string
+updatedAt: string
 ```

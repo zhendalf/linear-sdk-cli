@@ -9,6 +9,7 @@
 
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
+import { shape } from "../lib/shape.js";
 import { collect, collectRawQuery } from "../lib/pagination.js";
 import { usageError, notFound, ambiguous } from "../lib/errors.js";
 import { assertMutation, unwrapMutation } from "../lib/mutation.js";
@@ -51,6 +52,17 @@ export interface InitiativeRow {
   health: string | null;
   url: string;
 }
+
+/** The row's shape as `linear commands` advertises it (TES-610); checked against the interface. */
+export const INITIATIVE_ROW_SHAPE = shape<InitiativeRow>({
+  id: "string",
+  name: "string",
+  status: "string|null",
+  priority: "number",
+  targetDate: "string|null",
+  health: "string|null",
+  url: "string",
+});
 
 const LIST_QUERY = `
 query CliInitiatives($filter: InitiativeFilter, $first: Int!, $after: String, $includeArchived: Boolean) {
@@ -130,6 +142,30 @@ export interface InitiativeDetail {
   /** The projects linked to the initiative (`initiative add-project`), API order. */
   projects: Array<{ id: string; name: string; status: { name: string; type: string } | null }>;
 }
+
+/** The detail's shape; checked against `InitiativeDetail`. */
+export const INITIATIVE_DETAIL_SHAPE = shape<InitiativeDetail>({
+  id: "string",
+  name: "string",
+  description: "string|null",
+  status: "string|null",
+  priority: "number",
+  priorityLabel: "string",
+  labels: ["string"],
+  health: "string|null",
+  targetDate: "string|null",
+  color: "string|null",
+  icon: "string|null",
+  url: "string",
+  createdAt: "string",
+  updatedAt: "string",
+  startedAt: "string|null",
+  completedAt: "string|null",
+  archivedAt: "string|null",
+  owner: "string|null",
+  creator: "string|null",
+  projects: [{ id: "string", name: "string", status: { nullable: { name: "string", type: "string" } } }],
+});
 
 /** How many linked projects `view` reads; more than this is unusual and shows a truncation note. */
 const PROJECTS_PAGE = 100;
@@ -290,6 +326,13 @@ export interface ProjectLink {
   initiative: { id: string; name: string };
   project: { id: string; name: string };
 }
+
+/** The `add-project`/`remove-project` receipt body; checked against `ProjectLink`. */
+export const PROJECT_LINK_SHAPE = shape<ProjectLink>({
+  id: "string",
+  initiative: { id: "string", name: "string" },
+  project: { id: "string", name: "string" },
+});
 
 /**
  * Link a project to an initiative (`initiativeToProjectCreate`). Linear allows

@@ -390,3 +390,49 @@ Kept here so the report is not read as uniformly authoritative:
    the matrix and the `commands --json` exposure are on TES-596.
 7. Mask the API-key prompt (#9).
 8. Rewrite `PARITY.md` against source rather than against memory.
+
+## Dogfooding round 2 — the JSON that could not be read without the source (TES-610, TES-652)
+
+Two false bug reports in ten minutes came from *guessing* key names — `comment list` rows carry
+`author` (they carry `user`); `comment reply` returns `parentId` (it returns `parent`) — and a
+third came from a row that was simply incomplete: `issue list --json | jq
+'group_by(.milestone.name)'` put every issue in the null bucket while `issue view` showed the
+milestone, because the list query selected project and labels but neither `projectMilestone` nor
+`cycle`. Both are the same class of defect: what a command prints under `--json` was knowable only
+by reading `src/`, so nothing outside `src/` could notice when it was wrong.
+
+**Fixed, structurally.** Every command now declares its `--json` output — `kind` (`list` /
+`object` / `receipt` / `raw` / `none`), `fields` (key → type, `|null`, `{nullable: …}`, `[…]`,
+`key?`), `variants` (`--web`, `--start`, `op=list`) — and `linear commands <path>` prints it, in
+JSON (`.output`) and as one `key: type` line per field for a human; the skill's per-command
+references carry the same block, generated from it. Rows carry `milestone: {id, name} | null` and
+`cycle: {id, number, name} | null` in the detail's exact object shapes, from the one existing query.
+
+**Why the description cannot drift** — the question the fix stands or falls on:
+
+- The row/detail shapes are declared *beside the interfaces they describe*, through
+  `shape<IssueRow>({…})` ([lib/shape.ts](src/lib/shape.ts)), whose parameter type `ShapeOf<T>` is
+  computed from the interface. A field renamed, added, removed, re-typed, de-nulled or made optional
+  in `IssueRow` is a **compile error** in `ISSUE_ROW_SHAPE`. This was chosen over generating the
+  shapes from the interfaces at `skill:docs` time because generation would leave the CLI itself
+  (`linear commands --json`) unable to answer without a checked-in artifact that could go stale,
+  and because a mapper can return the interface's keys with the *wrong contents* (a query that
+  stopped selecting a field), which no reading of the interface can see.
+- That second failure is caught at run time. Mutation receipts are object literals at each emit
+  site with no type of their own — a shape for one is a second copy of its keys, and only running
+  the command can keep the copy honest — so [output-shapes.test.ts](test/unit/output-shapes.test.ts)
+  drives **every** command that prints JSON through the real program against an "everything
+  succeeds" client ([_omni.ts](test/unit/_omni.ts): SDK models by one recursive Proxy, tailored
+  queries answered from their own selection set) and holds what it printed against the declared
+  shape: every key present, none undeclared, every type right, and — because that client answers
+  every relation — a relation that still comes back null is reported as "not selected or not
+  mapped". Deleting `projectMilestone { id name }` from the list query fails `issue list`, `issue
+  mine` and `issue search` with `$[0].milestone: null, although the source answers every relation`.
+  The same file refuses a command with no entry in the table, so a new command cannot ship
+  undocumented; three are driven only by their reasons for not being driven (`auth login` builds
+  its own client; `issue pull-request` spawns `gh`, which Bun resolves from the launch-time PATH; the
+  two `raw` commands).
+- `commands --json` describes itself: its rows are checked against `COMMAND_NODE_SHAPE`.
+
+**Not done here:** the shapes describe *keys and types*, not values (an enum's members, an id's
+format); `note` carries the few that matter (`issue id` prints the identifier, not the UUID).

@@ -7,6 +7,7 @@
 
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
+import { shape } from "../lib/shape.js";
 import { collect, pageSize } from "../lib/pagination.js";
 import { usageError, notFound } from "../lib/errors.js";
 import { unwrapMutation } from "../lib/mutation.js";
@@ -21,6 +22,17 @@ export interface CycleRow {
   progress: number;
   completedAt: string | null;
 }
+
+/** The row's shape as `linear commands` advertises it (TES-610); checked against the interface. */
+export const CYCLE_ROW_SHAPE = shape<CycleRow>({
+  id: "string",
+  number: "number",
+  name: "string|null",
+  startsAt: "string",
+  endsAt: "string",
+  progress: "number",
+  completedAt: "string|null",
+});
 
 /** List a team's cycles, newest (highest number) first. */
 export async function listCycles(
@@ -63,6 +75,19 @@ export interface CycleDetail {
   progress: number;
   team: string | null;
 }
+
+/** The detail's shape; checked against `CycleDetail`. */
+export const CYCLE_DETAIL_SHAPE = shape<CycleDetail>({
+  id: "string",
+  number: "number",
+  name: "string|null",
+  description: "string|null",
+  startsAt: "string",
+  endsAt: "string",
+  completedAt: "string|null",
+  progress: "number",
+  team: "string|null",
+});
 
 /**
  * Resolve a cycle id from `idArg`. A UUID is taken directly; a number or

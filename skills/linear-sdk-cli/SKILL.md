@@ -96,6 +96,33 @@ linear issue view TES-42 --json | jq -r '.state.type, .team.key, .assignee.id'
 ID=$(linear issue create --title "Fix" --team TES --json | jq -r '.id')
 ```
 
+### Know the keys before you run anything
+
+**Do not guess field names** (`comment list` rows carry `author`? No — `user`; `comment reply`
+returns `parentId`? No — `parent`). Every command's `--json` shape is declared and testable, and
+`linear commands <path>` prints it — the same text the per-command reference files carry:
+
+```bash
+linear commands issue list                          # options, then "Output (--json): array of objects:" + one `key: type` per line
+linear commands comment reply --json | jq '.output' # {"kind":"receipt","fields":{"id":"string","parent":"string","issue":"string|null","url":"string"}}
+linear commands --json | jq -r '.[] | select(.output.kind=="list") | .path'   # every command that prints an array
+```
+
+`output` reads as:
+
+- `kind` — `list` (bare array of `fields`-shaped rows), `object` (a `view`, `whoami`, …), `receipt`
+  (a mutation: ids plus what happened), `raw` (`api`, `schema`: keys depend on the request), `none`
+  (`completion` never prints JSON). A group that only holds subcommands has no `output`.
+- `fields` — key → type. Scalars are `"string"`, `"number"`, `"boolean"` (`"string|null"` when the
+  value may be null); an object is nested `{…}`; an array is `[<type>]`; a relation that may be
+  null is `{"nullable": {…}}`; a key spelled `"comments?"` is present only sometimes (its `note`
+  or `variants` say when).
+- `variants` — a different output under a flag or argument (`"--web"`, `"--start"`, `"op=list"`),
+  each a whole shape of its own.
+
+The shapes cannot lie: each is checked against the TypeScript type the service returns at
+compile time, and a test runs every command and compares what it printed to what it declared.
+
 ### Fail fast, never prompt
 
 - **`--no-input`** — never prompt. Anything that would be prompted for becomes a usage
@@ -175,11 +202,14 @@ the positional `[body]` arg (comments: `linear comment add TES-42 "lgtm"`), or
 Lead with these two machine-readable commands:
 
 - **`linear commands --json`** — the full command tree as a bare array of
-  `{ path, description, aliases, arguments, options }`. Enumerate everything callable:
+  `{ path, description, aliases, arguments, options, output }`; `linear commands <path> --json`
+  is one command as a bare object. `output` is what that command prints under `--json` (see
+  "Know the keys before you run anything" above). Enumerate everything callable:
 
   ```bash
   linear commands --json | jq -r '.[].path'                      # every command path
-  linear commands --json | jq '.[] | select(.path=="issue create").options'
+  linear commands issue create --json | jq '.options'            # one command's flags
+  linear commands issue create --json | jq '.output.fields'      # …and its --json keys
   ```
 
 - **`linear schema -o <file>`** — dump the Linear GraphQL schema as SDL to a file, then
@@ -382,8 +412,9 @@ linear whoami
 
 ## Reference documentation
 
-One file per command group, generated from `linear commands --json`. These are
-supplementary — `--help` on any command is authoritative.
+One file per command group, generated from `linear commands --json`: every command's options
+and, under **Output (`--json`)**, the exact keys and types it prints (`linear commands <path>`
+prints the same). These are supplementary — `--help` on any command is authoritative.
 
 - [api](references/api.md) — Run a raw GraphQL query or mutation against the Linear API
 - [attachment](references/attachment.md) — Work with issue attachments

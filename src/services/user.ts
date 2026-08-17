@@ -8,6 +8,7 @@
 
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
+import { shape } from "../lib/shape.js";
 import { collect, pageSize } from "../lib/pagination.js";
 import { resolveUserId } from "../lib/resolve.js";
 
@@ -20,6 +21,17 @@ export interface UserRow {
   admin: boolean;
   guest: boolean;
 }
+
+/** The row's shape as `linear commands` advertises it (TES-610); checked against the interface. */
+export const USER_ROW_SHAPE = shape<UserRow>({
+  id: "string",
+  displayName: "string",
+  name: "string",
+  email: "string",
+  active: "boolean",
+  admin: "boolean",
+  guest: "boolean",
+});
 
 /**
  * List the workspace's users. Linear defaults `includeDisabled` to false, so
@@ -54,6 +66,26 @@ export interface UserDetail {
   createdAt: string;
   updatedAt: string;
 }
+
+/** The detail's shape; checked against `UserDetail`. */
+export const USER_DETAIL_SHAPE = shape<UserDetail>({
+  id: "string",
+  displayName: "string",
+  name: "string",
+  email: "string",
+  active: "boolean",
+  admin: "boolean",
+  guest: "boolean",
+  isMe: "boolean",
+  description: "string|null",
+  statusLabel: "string|null",
+  timezone: "string|null",
+  url: "string",
+  avatarUrl: "string|null",
+  lastSeen: "string|null",
+  createdAt: "string",
+  updatedAt: "string",
+});
 
 /**
  * Resolve a user reference (`me`, email, name, or id) and return its detail.

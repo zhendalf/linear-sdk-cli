@@ -10,6 +10,7 @@
 
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
+import { shape } from "../lib/shape.js";
 import { collect, pageSize } from "../lib/pagination.js";
 import { notFound, usageError } from "../lib/errors.js";
 import { assertMutation, unwrapMutation } from "../lib/mutation.js";
@@ -24,6 +25,16 @@ export interface AttachmentRow {
   source: string | null;
   createdAt: string;
 }
+
+/** The row's shape as `linear commands` advertises it (TES-610); checked against the interface. */
+export const ATTACHMENT_ROW_SHAPE = shape<AttachmentRow>({
+  id: "string",
+  title: "string",
+  subtitle: "string|null",
+  url: "string",
+  source: "string|null",
+  createdAt: "string",
+});
 
 /** Derive a human-friendly source label from the Attachment's source/sourceType. */
 export function sourceLabel(a: any): string | null {

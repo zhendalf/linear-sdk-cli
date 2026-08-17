@@ -14,6 +14,22 @@ Show the resolved configuration, or write a project config
 linear config [options]
 ```
 
+**Output (`--json`)**: a bare object — runs `config show` by default
+
+```text
+apiKey: string
+apiKeySource: string
+credentialWorkspace: string | null
+team: string | null
+workspace: string | null
+sort: string
+vcs: string
+origins: {team: {source: string, path?: string}, workspace: {source: string, path?: string}, sort: {source: string, path?: string}, vcs: {source: string, path?: string}}
+userConfigPath: string
+projectConfigPath: string | null
+globalConfigPath: string | null
+```
+
 ### `linear config init`
 
 Write a project .linear.toml (at the git root, or here outside a repository)
@@ -29,6 +45,15 @@ linear config init [options]
 | `--path <file>`  | write this file instead of <git root>/.linear.toml       |
 | `--force`        | overwrite an existing file                               |
 
+**Output (`--json`)**: a receipt object
+
+```text
+success: boolean
+path: string
+team: string
+sort?: string
+```
+
 ### `linear config set`
 
 Set one project setting (team, workspace, sort, vcs) in the project config
@@ -42,10 +67,35 @@ linear config set [options] <key> <value>
 | `--user`        | write the user config (~/.config/linear/config.toml) instead |
 | `--path <file>` | write this file instead of the project config in effect      |
 
+**Output (`--json`)**: a receipt object
+
+```text
+success: boolean
+path: string
+key: string
+value: string
+```
+
 ### `linear config show`
 
 Show the resolved configuration and where each value came from (secrets redacted)
 
 ```
 linear config show [options]
+```
+
+**Output (`--json`)**: a bare object
+
+```text
+apiKey: string
+apiKeySource: string
+credentialWorkspace: string | null
+team: string | null
+workspace: string | null
+sort: string
+vcs: string
+origins: {team: {source: string, path?: string}, workspace: {source: string, path?: string}, sort: {source: string, path?: string}, vcs: {source: string, path?: string}}
+userConfigPath: string
+projectConfigPath: string | null
+globalConfigPath: string | null
 ```

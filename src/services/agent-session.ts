@@ -13,6 +13,7 @@
 
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
+import { shape } from "../lib/shape.js";
 import { collectRawQuery } from "../lib/pagination.js";
 import { notFound } from "../lib/errors.js";
 
@@ -34,6 +35,8 @@ export interface SessionUser {
   displayName: string;
 }
 
+const SESSION_USER_SHAPE = shape<SessionUser>({ id: "string", name: "string", displayName: "string" });
+
 export interface AgentSessionRow {
   id: string;
   status: string;
@@ -50,6 +53,21 @@ export interface AgentSessionRow {
   /** The human who started the session; null when an automation or another agent did. */
   creator: SessionUser | null;
 }
+
+/** The row's shape as `linear commands` advertises it (TES-610); checked against the interface. */
+export const AGENT_SESSION_ROW_SHAPE = shape<AgentSessionRow>({
+  id: "string",
+  status: "string",
+  type: "string|null",
+  summary: "string|null",
+  createdAt: "string",
+  startedAt: "string|null",
+  endedAt: "string|null",
+  url: "string|null",
+  issue: { nullable: { id: "string", identifier: "string", title: "string" } },
+  agent: { nullable: SESSION_USER_SHAPE },
+  creator: { nullable: SESSION_USER_SHAPE },
+});
 
 const ROW_FIELDS = `
   id status type summary createdAt startedAt endedAt url
@@ -169,6 +187,16 @@ export interface AgentActivityRow {
   result: string | null;
 }
 
+export const AGENT_ACTIVITY_ROW_SHAPE = shape<AgentActivityRow>({
+  id: "string",
+  createdAt: "string",
+  type: "string",
+  body: "string|null",
+  action: "string|null",
+  parameter: "string|null",
+  result: "string|null",
+});
+
 export interface AgentSessionDetail extends AgentSessionRow {
   updatedAt: string;
   dismissedAt: string | null;
@@ -178,6 +206,17 @@ export interface AgentSessionDetail extends AgentSessionRow {
   activities: AgentActivityRow[];
   activitiesTruncated: boolean;
 }
+
+/** The detail's shape; checked against `AgentSessionDetail` (the row, plus the transcript). */
+export const AGENT_SESSION_DETAIL_SHAPE = shape<AgentSessionDetail>({
+  ...AGENT_SESSION_ROW_SHAPE,
+  updatedAt: "string",
+  dismissedAt: "string|null",
+  dismissedBy: { nullable: SESSION_USER_SHAPE },
+  externalLink: "string|null",
+  activities: [AGENT_ACTIVITY_ROW_SHAPE],
+  activitiesTruncated: "boolean",
+});
 
 /** How many activities `view` fetches — a session is short, and the API prices nested lists by their worst case. */
 const ACTIVITY_LIMIT = 100;

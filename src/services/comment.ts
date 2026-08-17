@@ -20,6 +20,7 @@
 
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
+import { shape } from "../lib/shape.js";
 import { collectRawQuery } from "../lib/pagination.js";
 import { usageError, notFound } from "../lib/errors.js";
 import { assertMutation, unwrapMutation } from "../lib/mutation.js";
@@ -40,6 +41,18 @@ export interface CommentRow {
   parent: { id: string } | null;
   url: string;
 }
+
+/** The row's shape as `linear commands` advertises it (TES-610); checked against the interface. */
+export const COMMENT_ROW_SHAPE = shape<CommentRow>({
+  id: "string",
+  body: "string",
+  user: { nullable: { id: "string", displayName: "string" } },
+  createdAt: "string",
+  editedAt: "string|null",
+  resolvedAt: "string|null",
+  parent: { nullable: { id: "string" } },
+  url: "string",
+});
 
 const LIST_QUERY = `
 query CliComments($id: String!, $first: Int!, $after: String) {

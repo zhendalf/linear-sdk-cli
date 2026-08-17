@@ -34,6 +34,14 @@ linear attachment create [options] <issue>
 | `--title <title>`   | attachment title    |
 | `--subtitle <text>` | attachment subtitle |
 
+**Output (`--json`)**: a receipt object
+
+```text
+id: string
+title: string
+url: string
+```
+
 ### `linear attachment delete`
 
 Delete an attachment by id
@@ -44,6 +52,14 @@ Aliases: `rm`
 linear attachment delete [options] <id>
 ```
 
+**Output (`--json`)**: a receipt object
+
+```text
+id: string
+title: string
+deleted: boolean
+```
+
 ### `linear attachment list`
 
 List the attachments on an issue
@@ -52,4 +68,15 @@ Aliases: `ls`
 
 ```
 linear attachment list [options] <issue>
+```
+
+**Output (`--json`)**: a bare array of objects
+
+```text
+id: string
+title: string
+subtitle: string | null
+url: string
+source: string | null
+createdAt: string
 ```

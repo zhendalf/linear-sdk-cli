@@ -18,6 +18,22 @@ Aliases: `rm`
 linear roadmap [options]
 ```
 
+**Output (`--json`)**: a bare object — runs `roadmap view` by default
+
+```text
+id: string
+name: string
+description: string | null
+color: string | null
+url: string
+slugId: string
+owner: string | null
+creator: string | null
+createdAt: string
+updatedAt: string
+projects: string[]
+```
+
 ### `linear roadmap create`
 
 Create a new roadmap
@@ -36,6 +52,14 @@ linear roadmap create [options]
 | `--owner <who>`             | roadmap owner (me\|email\|name\|id)        |
 | `--color <hex>`             | roadmap color (e.g. #5e6ad2)               |
 
+**Output (`--json`)**: a receipt object
+
+```text
+id: string
+name: string
+url: string
+```
+
 ### `linear roadmap delete`
 
 Delete a roadmap
@@ -46,6 +70,14 @@ Aliases: `rm`
 linear roadmap delete [options] <id>
 ```
 
+**Output (`--json`)**: a receipt object
+
+```text
+id: string
+name: string
+deleted: boolean
+```
+
 ### `linear roadmap list`
 
 List roadmaps
@@ -54,6 +86,15 @@ Aliases: `ls`
 
 ```
 linear roadmap list [options]
+```
+
+**Output (`--json`)**: a bare array of objects
+
+```text
+id: string
+name: string
+description: string | null
+url: string
 ```
 
 ### `linear roadmap update`
@@ -74,6 +115,14 @@ linear roadmap update [options] <id>
 | `--owner <who>`             | roadmap owner (me\|email\|name\|id)        |
 | `--color <hex>`             | roadmap color (e.g. #5e6ad2)               |
 
+**Output (`--json`)**: a receipt object
+
+```text
+id: string
+name: string
+url: string
+```
+
 ### `linear roadmap view`
 
 Show a roadmap (by name or id)
@@ -82,4 +131,20 @@ Aliases: `show`
 
 ```
 linear roadmap view [options] <id>
+```
+
+**Output (`--json`)**: a bare object
+
+```text
+id: string
+name: string
+description: string | null
+color: string | null
+url: string
+slugId: string
+owner: string | null
+creator: string | null
+createdAt: string
+updatedAt: string
+projects: string[]
 ```

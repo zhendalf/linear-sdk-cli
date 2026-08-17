@@ -13,43 +13,98 @@ import { buildClientSchema, getIntrospectionQuery, printSchema } from "graphql";
 import { action } from "../lib/action.js";
 import { withRetry } from "../client.js";
 import { walkCommands, type CommandNode } from "../lib/introspect.js";
-import { usageError, CliError } from "../lib/errors.js";
+import { renderOutputShape } from "../lib/shape.js";
+import { usageError, notFound, CliError } from "../lib/errors.js";
 import type { Context } from "../context.js";
 
-/** `linear commands` — emit the command tree (bare array in --json). */
+/**
+ * `linear commands [path...]` — the command tree (bare array in --json), or one
+ * command by path (bare object) with its options and, since TES-610, the shape
+ * of what it prints under `--json`: `linear commands issue list --json | jq
+ * .output.fields` says a row has `.state.name` before anything is run.
+ */
 export function registerCommands(program: Command): void {
   program
-    .command("commands")
-    .description("List every command in a machine-readable tree (for scripts/agents)")
+    .command("commands [path...]")
+    .description("List every command in a machine-readable tree, or describe one (for scripts/agents)")
     .addHelpText(
       "after",
       [
         "",
         "Examples:",
         "  linear commands --json | jq -r '.[].path'",
-        "  linear commands",
+        "  linear commands issue list                       # options + the --json row shape",
+        "  linear commands issue view --json | jq '.output.fields'",
+        "  linear commands --json | jq '.[] | select(.output.kind==\"list\") | .path'",
       ].join("\n"),
     )
     .action(
-      action(async (ctx: Context) => {
+      action(async (ctx: Context, _opts, pathWords: string[] = []) => {
         const nodes = walkCommands(program);
-        // Bare array in --json; a compact indented listing otherwise.
-        ctx.output.emit(nodes, () => renderHuman(ctx, nodes));
+        if (pathWords.length === 0) {
+          // Bare array in --json; a compact indented listing otherwise.
+          ctx.output.emit(nodes, () => renderTree(ctx, nodes));
+          return;
+        }
+        const path = pathWords.join(" ");
+        const node = nodes.find((n) => n.path === path);
+        if (!node) {
+          const near = nodes.filter((n) => n.path.startsWith(path)).map((n) => n.path);
+          throw notFound(
+            `No command '${path}'.${near.length ? ` Did you mean: ${near.slice(0, 5).join(", ")}?` : " Try 'linear commands' for the list."}`,
+          );
+        }
+        // One command → a bare object in --json (its `output` is the shape a
+        // script wants), a full description otherwise.
+        ctx.output.emit(node, () => {
+          renderOne(ctx, node);
+          const children = nodes.filter((n) => n.path.startsWith(`${path} `));
+          if (children.length) {
+            ctx.output.line();
+            ctx.output.line("Subcommands:");
+            renderTree(ctx, children, path.split(" ").length);
+          }
+        });
       }),
     );
 }
 
-function renderHuman(ctx: Context, nodes: CommandNode[]): void {
+/** `<id> [extra...]` from a node's arguments. */
+function usageArgs(n: CommandNode): string {
+  return n.arguments
+    .map((a) => (a.required ? `<${a.name}>` : `[${a.name}]`) + (a.variadic ? "..." : ""))
+    .join(" ");
+}
+
+function renderTree(ctx: Context, nodes: CommandNode[], baseDepth = 0): void {
   for (const n of nodes) {
-    const depth = n.path.split(" ").length - 1;
+    const depth = n.path.split(" ").length - 1 - baseDepth;
     const indent = "  ".repeat(depth);
-    const argStr = n.arguments
-      .map((a) => (a.required ? `<${a.name}>` : `[${a.name}]`) + (a.variadic ? "..." : ""))
-      .join(" ");
-    const head = [n.path, argStr].filter(Boolean).join(" ");
+    const head = [n.path, usageArgs(n)].filter(Boolean).join(" ");
     const alias = n.aliases.length ? ` (${n.aliases.join(", ")})` : "";
     ctx.output.line(`${indent}${head}${alias}`);
     if (n.description) ctx.output.line(`${indent}  ${n.description}`);
+  }
+}
+
+/** One command in full: usage, aliases, options, and the `--json` output shape. */
+function renderOne(ctx: Context, n: CommandNode): void {
+  ctx.output.line(`Usage: linear ${[n.path, n.options.length ? "[options]" : "", usageArgs(n)].filter(Boolean).join(" ")}`);
+  if (n.description) ctx.output.line(`  ${n.description}`);
+  if (n.aliases.length) ctx.output.line(`Aliases: ${n.aliases.join(", ")}`);
+  if (n.options.length) {
+    ctx.output.line();
+    ctx.output.line("Options:");
+    const width = Math.max(...n.options.map((o) => o.flags.length));
+    for (const o of n.options) ctx.output.line(`  ${o.flags.padEnd(width)}  ${o.description}`);
+  }
+  ctx.output.line();
+  if (n.output) {
+    const [head, ...rest] = renderOutputShape(n.output);
+    ctx.output.line(`Output (--json): ${head}`);
+    for (const line of rest) ctx.output.line(line);
+  } else {
+    ctx.output.line("Output (--json): none of its own (see its subcommands)");
   }
 }
 

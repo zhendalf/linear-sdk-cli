@@ -10,6 +10,7 @@
 
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
+import { shape } from "../lib/shape.js";
 import { collect, pageSizeForMore } from "../lib/pagination.js";
 import { usageError, notFound } from "../lib/errors.js";
 import { assertMutation, unwrapMutation } from "../lib/mutation.js";
@@ -23,6 +24,16 @@ export interface MilestoneRow {
   status: string;
   description: string | null;
 }
+
+/** The row's shape as `linear commands` advertises it (TES-610); checked against the interface. */
+export const MILESTONE_ROW_SHAPE = shape<MilestoneRow>({
+  id: "string",
+  name: "string",
+  targetDate: "string|null",
+  progress: "number",
+  status: "string",
+  description: "string|null",
+});
 
 /** Project a ProjectMilestone (SDK model or raw node) to a table row. Exported for tests. */
 export function toRow(m: any): MilestoneRow {
@@ -70,6 +81,28 @@ export interface MilestoneDetail {
   /** True when the cap hid some issues, so the caller can say so out loud. */
   issuesTruncated: boolean;
 }
+
+/** The detail's shape; checked against `MilestoneDetail`. */
+export const MILESTONE_DETAIL_SHAPE = shape<MilestoneDetail>({
+  id: "string",
+  name: "string",
+  description: "string|null",
+  targetDate: "string|null",
+  progress: "number",
+  status: "string",
+  project: { nullable: { id: "string", name: "string" } },
+  createdAt: "string",
+  updatedAt: "string",
+  issues: [
+    {
+      id: "string",
+      identifier: "string",
+      title: "string",
+      state: { nullable: { id: "string", name: "string", type: "string" } },
+    },
+  ],
+  issuesTruncated: "boolean",
+});
 
 /**
  * The milestone, its project and one page of its issues — with each issue's

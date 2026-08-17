@@ -18,6 +18,21 @@ Aliases: `wh`
 linear webhook [options]
 ```
 
+**Output (`--json`)**: a bare object — runs `webhook view` by default
+
+```text
+id: string
+url: string | null
+enabled: boolean
+resourceTypes: string[]
+label: string | null
+allPublicTeams: boolean
+team: string | null
+creator: string | null
+createdAt: string
+updatedAt: string
+```
+
 ### `linear webhook create`
 
 Create a webhook (scope to the global --team, or --all-public)
@@ -36,6 +51,15 @@ linear webhook create [options]
 | `--all-public`         | subscribe to all public teams in the workspace |
 | `--secret <secret>`    | secret used to sign webhook payloads           |
 
+**Output (`--json`)**: a receipt object
+
+```text
+id: string
+url: string | null
+enabled: boolean
+resourceTypes: string[]
+```
+
 ### `linear webhook delete`
 
 Delete a webhook
@@ -46,6 +70,13 @@ Aliases: `rm`
 linear webhook delete [options] <id>
 ```
 
+**Output (`--json`)**: a receipt object
+
+```text
+id: string
+deleted: boolean
+```
+
 ### `linear webhook list`
 
 List webhooks
@@ -54,6 +85,16 @@ Aliases: `ls`
 
 ```
 linear webhook list [options]
+```
+
+**Output (`--json`)**: a bare array of objects
+
+```text
+id: string
+url: string | null
+enabled: boolean
+resourceTypes: string[]
+label: string | null
 ```
 
 ### `linear webhook update`
@@ -75,6 +116,15 @@ linear webhook update [options] <id>
 | `--label <label>`      | new label                       |
 | `--secret <secret>`    | new signing secret              |
 
+**Output (`--json`)**: a receipt object
+
+```text
+id: string
+url: string | null
+enabled: boolean
+resourceTypes: string[]
+```
+
 ### `linear webhook view`
 
 Show a webhook
@@ -83,4 +133,19 @@ Aliases: `show`
 
 ```
 linear webhook view [options] <id>
+```
+
+**Output (`--json`)**: a bare object
+
+```text
+id: string
+url: string | null
+enabled: boolean
+resourceTypes: string[]
+label: string | null
+allPublicTeams: boolean
+team: string | null
+creator: string | null
+createdAt: string
+updatedAt: string
 ```

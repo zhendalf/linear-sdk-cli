@@ -12,6 +12,7 @@
 
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
+import { shape } from "../lib/shape.js";
 import { collect } from "../lib/pagination.js";
 import { usageError, notFound, ambiguous } from "../lib/errors.js";
 import { assertMutation, unwrapMutation } from "../lib/mutation.js";
@@ -23,6 +24,14 @@ export interface RoadmapRow {
   description: string | null;
   url: string;
 }
+
+/** The row's shape as `linear commands` advertises it (TES-610); checked against the interface. */
+export const ROADMAP_ROW_SHAPE = shape<RoadmapRow>({
+  id: "string",
+  name: "string",
+  description: "string|null",
+  url: "string",
+});
 
 /** Project a Roadmap SDK model to a table row. Exported for tests. */
 export function toRow(r: any): RoadmapRow {
@@ -55,6 +64,21 @@ export interface RoadmapDetail {
   updatedAt: string;
   projects: string[];
 }
+
+/** The detail's shape; checked against `RoadmapDetail`. */
+export const ROADMAP_DETAIL_SHAPE = shape<RoadmapDetail>({
+  id: "string",
+  name: "string",
+  description: "string|null",
+  color: "string|null",
+  url: "string",
+  slugId: "string",
+  owner: "string|null",
+  creator: "string|null",
+  createdAt: "string",
+  updatedAt: "string",
+  projects: ["string"],
+});
 
 export async function getRoadmapDetail(
   client: LinearClient,

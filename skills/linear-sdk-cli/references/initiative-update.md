@@ -35,6 +35,17 @@ linear initiative-update create [options] <initiative>
 | `--editor`           | compose the body in $EDITOR         |
 | `--health <state>`   | status health                       |
 
+**Output (`--json`)**: a receipt object
+
+```text
+id: string
+createdAt: string
+user: string
+body: string
+health: string | null
+url: string
+```
+
 ### `linear initiative-update list`
 
 List an initiative's status updates
@@ -43,4 +54,14 @@ Aliases: `ls`
 
 ```
 linear initiative-update list [options] <initiative>
+```
+
+**Output (`--json`)**: a bare array of objects
+
+```text
+id: string
+createdAt: string
+user: string
+body: string
+health: string | null
 ```

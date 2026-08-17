@@ -8,6 +8,26 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Every command declares its `--json` output, and `linear commands <path>` prints it (TES-610).**
+  An agent driving the CLI cold guessed key names and filed false bugs (`.user` read as `.author`,
+  `.parent` as `.parentId`); the field names were knowable only from the source. Each node of
+  `linear commands --json` now carries `output`: `kind` (`list` — bare array of rows; `object` — a
+  view; `receipt` — a mutation's ids and what happened; `raw` — `api`/`schema`; `none` —
+  `completion`), `fields` (key → `"string"`, `"number|null"`, `["string"]`, nested `{…}`,
+  `{nullable: {…}}` for a relation that may be null, `"comments?"` for a key present only
+  sometimes) and `variants` (the whole shape under `--web`, `--start`, `op=list`, …). New `linear
+  commands <path...>` describes one command — a bare object under `--json` (`.output.fields`),
+  or usage, options and one `key: type` line per field for a human, plus its subcommands for a
+  group; an unknown path is `not_found` (exit 3) with the nearest paths. The shapes are declared
+  beside the interfaces they describe (`shape<IssueRow>({…})`, `src/lib/shape.ts`), where a field
+  renamed, added, removed, re-typed or de-nulled in the interface is a compile error in the shape;
+  the receipts live in `src/lib/output-shapes.ts`, one table keyed by command path; and a test
+  drives every JSON-printing command through the real program against an everything-succeeds
+  client and holds what it printed against what it declared — every key, no extra key, every type,
+  and a relation still null after a source that answers every relation ("not selected or not
+  mapped"). A command missing from the table fails the same test, so a new command cannot ship
+  undocumented. The skill's per-command references (`bun run skill:docs`) carry the same
+  **Output (`--json`)** block, and `SKILL.md` tells an agent to read it before guessing.
 - **File uploads: `issue attach <issue> <file...>` and `comment add --attach <file>`, private by
   default (TES-602).** `issue attach` uploads each file to Linear's storage (`fileUpload` for a
   signed URL, then an HTTP `PUT` of the bytes with exactly the headers Linear returned plus the

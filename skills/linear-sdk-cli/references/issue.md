@@ -49,35 +49,9 @@ labels: Array<{id: string, name: string}>
 subscribers: Array<{id: string, displayName: string}>
 ```
 
-With `--comments`: a bare object
+With `--comments`: the same, plus:
 
 ```text
-id: string
-identifier: string
-title: string
-description: string | null
-priority: number
-priorityLabel: string
-estimate: number | null
-url: string
-branchName: string
-dueDate: string | null
-createdAt: string
-updatedAt: string
-archivedAt: string | null
-trashed: boolean
-startedAt: string | null
-completedAt: string | null
-canceledAt: string | null
-state: {id: string, name: string, type: string} | null
-assignee: {id: string, displayName: string, email: string} | null
-team: {id: string, key: string, name: string} | null
-project: {id: string, name: string} | null
-milestone: {id: string, name: string} | null
-cycle: {id: string, number: number, name: string | null} | null
-parent: {id: string, identifier: string} | null
-labels: Array<{id: string, name: string}>
-subscribers: Array<{id: string, displayName: string}>
 comments: Array<{id: string, body: string, user: {id: string, displayName: string} | null, createdAt: string, editedAt: string | null, resolvedAt: string | null, parent: {id: string} | null, url: string}>
 ```
 
@@ -388,12 +362,9 @@ identifier: string
 url: string
 ```
 
-With `--start`: a receipt object
+With `--start`: the same, plus:
 
 ```text
-id: string
-identifier: string
-url: string
 branch: string
 checkedOut: boolean
 stateChanged: boolean
@@ -890,35 +861,9 @@ labels: Array<{id: string, name: string}>
 subscribers: Array<{id: string, displayName: string}>
 ```
 
-With `--comments`: a bare object
+With `--comments`: the same, plus:
 
 ```text
-id: string
-identifier: string
-title: string
-description: string | null
-priority: number
-priorityLabel: string
-estimate: number | null
-url: string
-branchName: string
-dueDate: string | null
-createdAt: string
-updatedAt: string
-archivedAt: string | null
-trashed: boolean
-startedAt: string | null
-completedAt: string | null
-canceledAt: string | null
-state: {id: string, name: string, type: string} | null
-assignee: {id: string, displayName: string, email: string} | null
-team: {id: string, key: string, name: string} | null
-project: {id: string, name: string} | null
-milestone: {id: string, name: string} | null
-cycle: {id: string, number: number, name: string | null} | null
-parent: {id: string, identifier: string} | null
-labels: Array<{id: string, name: string}>
-subscribers: Array<{id: string, displayName: string}>
 comments: Array<{id: string, body: string, user: {id: string, displayName: string} | null, createdAt: string, editedAt: string | null, resolvedAt: string | null, parent: {id: string} | null, url: string}>
 ```
 

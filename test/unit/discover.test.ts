@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildSchema, introspectionFromSchema } from "graphql";
 import { runSchema } from "../../src/commands/discover.js";
+import { createProgram } from "../../src/cli.js";
 import { Output } from "../../src/output/format.js";
 
 // A miniature schema stands in for Linear's, so the SDL path is exercised for
@@ -89,5 +90,68 @@ describe("schema: format and destination are independent", () => {
     await expect(runSchema(harness(false), { output: file })).rejects.toThrow(
       /Cannot write to '.*schema\.graphql'/,
     );
+  });
+});
+
+/**
+ * TES-610: `linear commands <path>` describes one command — a bare object in
+ * --json whose `output` is the shape a script wants; usage, options and the
+ * shape spelled out for a human — and an unknown path is not_found, exit 3.
+ */
+describe("commands [path...]", () => {
+  let savedKey: string | undefined;
+  beforeEach(() => {
+    savedKey = process.env.LINEAR_API_KEY;
+    process.env.LINEAR_API_KEY = "lin_api_test000000000000";
+  });
+  afterEach(() => {
+    if (savedKey === undefined) delete process.env.LINEAR_API_KEY;
+    else process.env.LINEAR_API_KEY = savedKey;
+  });
+
+  async function run(args: string[]): Promise<string> {
+    let out = "";
+    const spy = vi.spyOn(process.stdout, "write").mockImplementation((c: any) => {
+      out += c;
+      return true;
+    });
+    try {
+      await createProgram().parseAsync(["node", "linear", "commands", ...args]);
+    } finally {
+      spy.mockRestore();
+    }
+    return out;
+  }
+
+  it("--json with no path is the whole tree (bare array); with a path, that one node (bare object)", async () => {
+    const all = JSON.parse(await run(["--json"]));
+    expect(Array.isArray(all)).toBe(true);
+    const one = JSON.parse(await run(["issue", "list", "--json"]));
+    expect(one.path).toBe("issue list");
+    expect(one.output.kind).toBe("list");
+    expect(Object.keys(one.output.fields)).toEqual(expect.arrayContaining(["id", "identifier", "state", "milestone"]));
+  });
+
+  it("human: usage, options, then the --json output shape one field per line, with variants", async () => {
+    const out = await run(["issue", "view", "--no-ansi"]);
+    expect(out).toContain("Usage: linear issue view [options] [id]");
+    expect(out).toContain("-w, --web");
+    expect(out).toContain("Output (--json): object:");
+    expect(out).toContain("  state: {id: string, name: string, type: string} | null");
+    expect(out).toContain("  labels: Array<{id: string, name: string}>");
+    expect(out).toContain("  with --web: receipt object:");
+    expect(out).toContain("    opened: boolean");
+  });
+
+  it("human: a group lists its subcommands under the description", async () => {
+    const out = await run(["cycle"]);
+    expect(out).toContain("Output (--json): none of its own (see its subcommands)");
+    expect(out).toContain("Subcommands:");
+    expect(out).toContain("cycle list [team] (ls)");
+  });
+
+  it("an unknown path is not_found and suggests near paths", async () => {
+    await expect(run(["issue", "lst"])).rejects.toMatchObject({ code: "not_found" });
+    await expect(run(["issue", "l"])).rejects.toThrow(/Did you mean: issue label, issue list/);
   });
 });

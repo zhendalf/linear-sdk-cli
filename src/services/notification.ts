@@ -11,6 +11,7 @@
 
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
+import { shape } from "../lib/shape.js";
 import { collectRawQuery } from "../lib/pagination.js";
 import { assertMutation } from "../lib/mutation.js";
 import { normalizeError } from "../lib/errors.js";
@@ -25,6 +26,18 @@ export interface NotificationRow {
   archivedAt: string | null;
   createdAt: string;
 }
+
+/** The row's shape as `linear commands` advertises it (TES-610); checked against the interface. */
+export const NOTIFICATION_ROW_SHAPE = shape<NotificationRow>({
+  id: "string",
+  type: "string",
+  subject: "string|null",
+  read: "boolean",
+  readAt: "string|null",
+  snoozedUntilAt: "string|null",
+  archivedAt: "string|null",
+  createdAt: "string",
+});
 
 const LIST_QUERY = `
 query CliNotifications($first: Int!, $after: String, $includeArchived: Boolean) {
@@ -108,6 +121,8 @@ export interface MarkAllItem {
   read: boolean;
   error?: string;
 }
+
+export const MARK_ALL_ITEM_SHAPE = shape<MarkAllItem>({ id: "string", read: "boolean", "error?": "string" });
 
 /**
  * Mark all of the viewer's unread notifications as read. The SDK's

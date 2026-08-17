@@ -43,8 +43,13 @@ export interface OutputShape {
    */
   kind: "list" | "object" | "receipt" | "raw" | "none";
   fields?: Record<string, FieldShape>;
-  /** What the fields cannot say: variants under a flag, conditional keys. */
+  /** What the fields cannot say. */
   note?: string;
+  /**
+   * A different output under a flag or argument, keyed by what selects it
+   * (`"--web"`, `"op=list"`, `"[path]"`): the whole shape printed in that case.
+   */
+  variants?: Record<string, OutputShape>;
 }
 
 // ---------------------------------------------------------------------------
@@ -127,8 +132,18 @@ function isNullableWrapper(s: FieldShape): s is { readonly nullable: FieldShape 
  * is as much a drift as a missing one (it is a key the docs do not mention),
  * and a missing non-optional key is a drift even when its type allows null —
  * `undefined` vanishes from JSON, so the documented key would not be there.
+ *
+ * `strictNullable` also flags a `{ nullable: … }` field that IS null. The
+ * sweep uses it: its fake answers every relation, so a relation that still
+ * comes out null was not selected or not mapped — a `?? null` in a mapper hides
+ * exactly the drift TES-652 was.
  */
-export function matchesShape(value: unknown, shape: FieldShape, path = "$"): string[] {
+export function matchesShape(
+  value: unknown,
+  shape: FieldShape,
+  path = "$",
+  strictNullable = false,
+): string[] {
   if (typeof shape === "string") {
     const [base, nullable] = shape.endsWith("|null")
       ? [shape.slice(0, -"|null".length) as ScalarShape, true]
@@ -145,12 +160,14 @@ export function matchesShape(value: unknown, shape: FieldShape, path = "$"): str
   }
   if (Array.isArray(shape)) {
     if (!Array.isArray(value)) return [`${path}: expected an array, got ${describe(value)}`];
-    return value.flatMap((item, i) => matchesShape(item, shape[0], `${path}[${i}]`));
+    return value.flatMap((item, i) => matchesShape(item, shape[0], `${path}[${i}]`, strictNullable));
   }
   if (isNullableWrapper(shape)) {
     if (value === undefined) return [`${path}: expected an object or null, got undefined`];
-    if (value === null) return [];
-    return matchesShape(value, shape.nullable, path);
+    if (value === null) {
+      return strictNullable ? [`${path}: null, although the source answers every relation`] : [];
+    }
+    return matchesShape(value, shape.nullable, path, strictNullable);
   }
   // A plain object shape.
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -164,7 +181,7 @@ export function matchesShape(value: unknown, shape: FieldShape, path = "$"): str
     const key = optional ? spelled.slice(0, -1) : spelled;
     declared.add(key);
     if (optional && record[key] === undefined) continue;
-    problems.push(...matchesShape(record[key], sub, `${path}.${key}`));
+    problems.push(...matchesShape(record[key], sub, `${path}.${key}`, strictNullable));
   }
   for (const key of Object.keys(record)) {
     if (!declared.has(key) && record[key] !== undefined) problems.push(`${path}.${key}: not in the declared shape`);
@@ -193,8 +210,33 @@ export function renderShape(shape: FieldShape): string {
   return `{${parts.join(", ")}}`;
 }
 
+/**
+ * A variant that is its base plus some keys (`issue view --comments`, `issue
+ * create --start`) is best shown as the difference: the keys it adds or
+ * re-types, and whether it drops any. Returns null when the two are unrelated
+ * (a different kind, or fewer than half the base keys kept), in which case the
+ * variant is shown in full.
+ */
+export function variantDelta(
+  base: OutputShape,
+  variant: OutputShape,
+): { added: Record<string, FieldShape>; dropped: string[] } | null {
+  if (base.kind !== variant.kind || !base.fields || !variant.fields) return null;
+  const same = (a: FieldShape, b: FieldShape) => JSON.stringify(a) === JSON.stringify(b);
+  const kept = Object.keys(base.fields).filter(
+    (k) => k in variant.fields! && same(base.fields![k]!, variant.fields![k]!),
+  );
+  if (kept.length < Object.keys(base.fields).length / 2) return null;
+  const added: Record<string, FieldShape> = {};
+  for (const [k, v] of Object.entries(variant.fields)) {
+    if (!(k in base.fields) || !same(base.fields[k]!, v)) added[k] = v;
+  }
+  const dropped = Object.keys(base.fields).filter((k) => !(k in variant.fields!));
+  return { added, dropped };
+}
+
 /** The lines `linear commands <path>` prints under "Output (--json)". */
-export function renderOutputShape(out: OutputShape): string[] {
+export function renderOutputShape(out: OutputShape, indent = "  "): string[] {
   const head =
     out.kind === "list"
       ? "array of objects:"
@@ -206,7 +248,22 @@ export function renderOutputShape(out: OutputShape): string[] {
             ? "raw JSON (keys depend on the request)"
             : "none (never prints JSON)";
   const lines = [head];
-  for (const [key, sub] of Object.entries(out.fields ?? {})) lines.push(`  ${key}: ${renderShape(sub)}`);
-  if (out.note) lines.push(`  (${out.note})`);
+  for (const [key, sub] of Object.entries(out.fields ?? {})) {
+    lines.push(`${indent}${key}: ${renderShape(sub)}`);
+  }
+  if (out.note) lines.push(`${indent}(${out.note})`);
+  for (const [when, variant] of Object.entries(out.variants ?? {})) {
+    const delta = variantDelta(out, variant);
+    if (delta) {
+      const drop = delta.dropped.length ? `, without ${delta.dropped.join(", ")}` : "";
+      lines.push(`${indent}with ${when}: the same${drop}, plus:`);
+      for (const [key, sub] of Object.entries(delta.added)) {
+        lines.push(`${indent}  ${key}: ${renderShape(sub)}`);
+      }
+      continue;
+    }
+    const [vHead, ...vRest] = renderOutputShape(variant, indent + "  ");
+    lines.push(`${indent}with ${when}: ${vHead}`, ...vRest);
+  }
   return lines;
 }

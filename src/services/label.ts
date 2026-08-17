@@ -9,6 +9,7 @@
 
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
+import { shape } from "../lib/shape.js";
 import { collectRawQuery } from "../lib/pagination.js";
 import { usageError, notFound, ambiguous } from "../lib/errors.js";
 import { assertMutation, unwrapMutation } from "../lib/mutation.js";
@@ -22,6 +23,16 @@ export interface LabelRow {
   team: { key: string; name: string } | null;
   parent: { name: string } | null;
 }
+
+/** The row's shape as `linear commands` advertises it (TES-610); checked against the interface. */
+export const LABEL_ROW_SHAPE = shape<LabelRow>({
+  id: "string",
+  name: "string",
+  color: "string",
+  isGroup: "boolean",
+  team: { nullable: { key: "string", name: "string" } },
+  parent: { nullable: { name: "string" } },
+});
 
 const LIST_QUERY = `
 query CliIssueLabels($filter: IssueLabelFilter, $first: Int!, $after: String) {

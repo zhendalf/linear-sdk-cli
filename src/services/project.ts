@@ -7,6 +7,7 @@
 
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
+import { shape } from "../lib/shape.js";
 import { collect, collectRawQuery } from "../lib/pagination.js";
 import { usageError, notFound, ambiguous } from "../lib/errors.js";
 import { assertMutation, unwrapMutation } from "../lib/mutation.js";
@@ -29,6 +30,19 @@ export interface ProjectRow {
   status: { name: string } | null;
   lead: { displayName: string } | null;
 }
+
+/** The row's shape as `linear commands` advertises it (TES-610); checked against the interface. */
+export const PROJECT_ROW_SHAPE = shape<ProjectRow>({
+  id: "string",
+  name: "string",
+  state: "string|null",
+  progress: "number|null",
+  url: "string",
+  startDate: "string|null",
+  targetDate: "string|null",
+  status: { nullable: { name: "string" } },
+  lead: { nullable: { displayName: "string" } },
+});
 
 export interface ListFilters {
   team?: string;
@@ -136,6 +150,31 @@ export interface ProjectDetail {
   teams: Array<{ id: string; key: string; name: string }>;
   members: Array<{ id: string; displayName: string; email: string }>;
 }
+
+/** The detail's shape; checked against `ProjectDetail`. */
+export const PROJECT_DETAIL_SHAPE = shape<ProjectDetail>({
+  id: "string",
+  name: "string",
+  description: "string|null",
+  content: "string|null",
+  labels: [{ id: "string", name: "string" }],
+  state: "string|null",
+  status: { nullable: { id: "string", name: "string", type: "string" } },
+  health: "string|null",
+  progress: "number|null",
+  priority: "number",
+  priorityLabel: "string",
+  url: "string",
+  startDate: "string|null",
+  targetDate: "string|null",
+  createdAt: "string",
+  updatedAt: "string",
+  completedAt: "string|null",
+  archivedAt: "string|null",
+  lead: { nullable: { id: "string", displayName: "string", email: "string" } },
+  teams: [{ id: "string", key: "string", name: "string" }],
+  members: [{ id: "string", displayName: "string", email: "string" }],
+});
 
 /**
  * Everything `project view` shows, in one round-trip: the name lookup, the
@@ -321,6 +360,14 @@ export interface MilestoneRow {
   targetDate: string | null;
   progress: number | null;
 }
+
+/** `project milestones` rows; checked against this file's `MilestoneRow`. */
+export const PROJECT_MILESTONE_ROW_SHAPE = shape<MilestoneRow>({
+  id: "string",
+  name: "string",
+  targetDate: "string|null",
+  progress: "number|null",
+});
 
 export async function listMilestones(
   client: LinearClient,

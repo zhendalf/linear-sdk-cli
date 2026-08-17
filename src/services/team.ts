@@ -8,6 +8,7 @@
 
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
+import { shape } from "../lib/shape.js";
 import { collect, pageSize } from "../lib/pagination.js";
 import { usageError } from "../lib/errors.js";
 import { assertMutation, unwrapMutation } from "../lib/mutation.js";
@@ -18,6 +19,9 @@ export interface TeamRow {
   key: string;
   name: string;
 }
+
+/** The row's shape as `linear commands` advertises it (TES-610); checked against the interface. */
+export const TEAM_ROW_SHAPE = shape<TeamRow>({ id: "string", key: "string", name: "string" });
 
 /** All teams (key, name, id). */
 export async function listTeams(client: LinearClient, limit: number): Promise<TeamRow[]> {
@@ -41,6 +45,23 @@ export interface TeamDetail {
   createdAt: string;
   updatedAt: string;
 }
+
+/** The detail's shape; checked against `TeamDetail`. */
+export const TEAM_DETAIL_SHAPE = shape<TeamDetail>({
+  id: "string",
+  key: "string",
+  name: "string",
+  description: "string|null",
+  private: "boolean",
+  cyclesEnabled: "boolean",
+  timezone: "string|null",
+  color: "string|null",
+  icon: "string|null",
+  issueCount: "number",
+  memberCount: "number",
+  createdAt: "string",
+  updatedAt: "string",
+});
 
 export async function getTeamDetail(
   client: LinearClient,
@@ -81,6 +102,14 @@ export interface MemberRow {
   active: boolean;
 }
 
+export const TEAM_MEMBER_ROW_SHAPE = shape<MemberRow>({
+  id: "string",
+  displayName: "string",
+  name: "string",
+  email: "string",
+  active: "boolean",
+});
+
 /**
  * List a team's members. Linear defaults `includeDisabled` to false, so
  * deactivated users are invisible (and the `active` column constantly true)
@@ -116,6 +145,14 @@ export interface StateRow {
   position: number;
 }
 
+export const TEAM_STATE_ROW_SHAPE = shape<StateRow>({
+  id: "string",
+  name: "string",
+  type: "string",
+  color: "string",
+  position: "number",
+});
+
 export async function listStates(
   client: LinearClient,
   keyArg: string | undefined,
@@ -142,6 +179,8 @@ export interface LabelRow {
   color: string;
 }
 
+export const TEAM_LABEL_ROW_SHAPE = shape<LabelRow>({ id: "string", name: "string", color: "string" });
+
 export async function listLabels(
   client: LinearClient,
   keyArg: string | undefined,
@@ -161,6 +200,14 @@ export interface CycleRow {
   startsAt: string | null;
   endsAt: string | null;
 }
+
+export const TEAM_CYCLE_ROW_SHAPE = shape<CycleRow>({
+  id: "string",
+  number: "number",
+  name: "string|null",
+  startsAt: "string|null",
+  endsAt: "string|null",
+});
 
 export async function listCycles(
   client: LinearClient,

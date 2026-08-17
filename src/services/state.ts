@@ -9,6 +9,7 @@
 
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
+import { shape } from "../lib/shape.js";
 import { collect, pageSize } from "../lib/pagination.js";
 import { usageError } from "../lib/errors.js";
 import { resolveTeam, resolveStateId, isUuid } from "../lib/resolve.js";
@@ -20,6 +21,15 @@ export interface StateRow {
   position: number;
   color: string;
 }
+
+/** The row's shape as `linear commands` advertises it (TES-610); checked against the interface. */
+export const STATE_ROW_SHAPE = shape<StateRow>({
+  id: "string",
+  name: "string",
+  type: "string",
+  position: "number",
+  color: "string",
+});
 
 /** List a team's workflow states, sorted by position (ascending). */
 export async function listStates(
@@ -46,6 +56,19 @@ export interface StateDetail {
   createdAt: string;
   updatedAt: string;
 }
+
+/** The detail's shape; checked against `StateDetail`. */
+export const STATE_DETAIL_SHAPE = shape<StateDetail>({
+  id: "string",
+  name: "string",
+  type: "string",
+  position: "number",
+  color: "string",
+  description: "string|null",
+  team: "string|null",
+  createdAt: "string",
+  updatedAt: "string",
+});
 
 /**
  * A single workflow state, by id or by name/type within a team.

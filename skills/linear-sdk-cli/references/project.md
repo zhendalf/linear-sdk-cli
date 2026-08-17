@@ -18,12 +18,46 @@ Aliases: `p`
 linear project [options]
 ```
 
+**Output (`--json`)**: a bare object — runs `project view` by default
+
+```text
+id: string
+name: string
+description: string | null
+content: string | null
+labels: Array<{id: string, name: string}>
+state: string | null
+status: {id: string, name: string, type: string} | null
+health: string | null
+progress: number | null
+priority: number
+priorityLabel: string
+url: string
+startDate: string | null
+targetDate: string | null
+createdAt: string
+updatedAt: string
+completedAt: string | null
+archivedAt: string | null
+lead: {id: string, displayName: string, email: string} | null
+teams: Array<{id: string, key: string, name: string}>
+members: Array<{id: string, displayName: string, email: string}>
+```
+
 ### `linear project archive`
 
 Archive a project
 
 ```
 linear project archive [options] <id>
+```
+
+**Output (`--json`)**: a receipt object
+
+```text
+id: string
+name: string
+archived: boolean
 ```
 
 ### `linear project create`
@@ -55,6 +89,14 @@ linear project create [options]
 | `--icon <name>`             | Linear icon name, capitalized (e.g. Rocket)    |
 | `--color <hex>`             | project color (e.g. #EB5757)                   |
 
+**Output (`--json`)**: a receipt object
+
+```text
+id: string
+name: string
+url: string
+```
+
 ### `linear project delete`
 
 Delete (trash) a project — `archive` keeps it, read-only
@@ -63,6 +105,14 @@ Aliases: `rm`
 
 ```
 linear project delete [options] <id>
+```
+
+**Output (`--json`)**: a receipt object
+
+```text
+id: string
+name: string
+deleted: boolean
 ```
 
 ### `linear project list`
@@ -80,12 +130,35 @@ linear project list [options]
 | `--state <name>` | filter by status name or type (e.g. 'In QA', started) |
 | `--all-teams`    | every team's projects, ignoring the default team      |
 
+**Output (`--json`)**: a bare array of objects
+
+```text
+id: string
+name: string
+state: string | null
+progress: number | null
+url: string
+startDate: string | null
+targetDate: string | null
+status: {name: string} | null
+lead: {displayName: string} | null
+```
+
 ### `linear project milestones`
 
 List a project's milestones
 
 ```
 linear project milestones [options] <id>
+```
+
+**Output (`--json`)**: a bare array of objects
+
+```text
+id: string
+name: string
+targetDate: string | null
+progress: number | null
 ```
 
 ### `linear project update`
@@ -116,6 +189,14 @@ linear project update [options] <id>
 | `--icon <name>`             | Linear icon name, capitalized (e.g. Rocket)        |
 | `--color <hex>`             | project color (e.g. #EB5757)                       |
 
+**Output (`--json`)**: a receipt object
+
+```text
+id: string
+name: string
+url: string
+```
+
 ### `linear project view`
 
 Show a project (by name or id)
@@ -124,4 +205,30 @@ Aliases: `show`
 
 ```
 linear project view [options] <id>
+```
+
+**Output (`--json`)**: a bare object
+
+```text
+id: string
+name: string
+description: string | null
+content: string | null
+labels: Array<{id: string, name: string}>
+state: string | null
+status: {id: string, name: string, type: string} | null
+health: string | null
+progress: number | null
+priority: number
+priorityLabel: string
+url: string
+startDate: string | null
+targetDate: string | null
+createdAt: string
+updatedAt: string
+completedAt: string | null
+archivedAt: string | null
+lead: {id: string, displayName: string, email: string} | null
+teams: Array<{id: string, key: string, name: string}>
+members: Array<{id: string, displayName: string, email: string}>
 ```

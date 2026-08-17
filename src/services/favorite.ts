@@ -12,6 +12,7 @@
 
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
+import { shape } from "../lib/shape.js";
 import { collect, pageSize } from "../lib/pagination.js";
 import { usageError } from "../lib/errors.js";
 import { assertMutation, unwrapMutation } from "../lib/mutation.js";
@@ -23,6 +24,14 @@ export interface FavoriteRow {
   name: string;
   url: string | null;
 }
+
+/** The row's shape as `linear commands` advertises it (TES-610); checked against the interface. */
+export const FAVORITE_ROW_SHAPE = shape<FavoriteRow>({
+  id: "string",
+  type: "string",
+  name: "string",
+  url: "string|null",
+});
 
 /**
  * Resolve the human-facing title/name of the entity a favorite points at.

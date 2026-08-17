@@ -32,6 +32,18 @@ linear user list [options]
 | -------------------- | ----------------------------------------------- |
 | `--include-disabled` | include deactivated users (excluded by default) |
 
+**Output (`--json`)**: a bare array of objects
+
+```text
+id: string
+displayName: string
+name: string
+email: string
+active: boolean
+admin: boolean
+guest: boolean
+```
+
 ### `linear user me`
 
 Show the authenticated viewer
@@ -40,10 +52,52 @@ Show the authenticated viewer
 linear user me [options]
 ```
 
+**Output (`--json`)**: a bare object
+
+```text
+id: string
+displayName: string
+name: string
+email: string
+active: boolean
+admin: boolean
+guest: boolean
+isMe: boolean
+description: string | null
+statusLabel: string | null
+timezone: string | null
+url: string
+avatarUrl: string | null
+lastSeen: string | null
+createdAt: string
+updatedAt: string
+```
+
 ### `linear user view`
 
 Show a user (me, email, name, or id)
 
 ```
 linear user view [options] <who>
+```
+
+**Output (`--json`)**: a bare object
+
+```text
+id: string
+displayName: string
+name: string
+email: string
+active: boolean
+admin: boolean
+guest: boolean
+isMe: boolean
+description: string | null
+statusLabel: string | null
+timezone: string | null
+url: string
+avatarUrl: string | null
+lastSeen: string | null
+createdAt: string
+updatedAt: string
 ```

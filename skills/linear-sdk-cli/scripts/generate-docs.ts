@@ -19,6 +19,9 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+// The one renderer for a shape, shared with `linear commands <path>` so the
+// reference and the CLI spell a row the same way.
+import { renderShape, variantDelta, type OutputShape } from "../../../src/lib/shape.js";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const SKILL_DIR = join(SCRIPT_DIR, "..");
@@ -46,6 +49,8 @@ interface CliCommand {
   aliases: string[];
   arguments: CliArgument[];
   options: CliOption[];
+  /** What the command prints under `--json` (TES-610); absent on a bare group. */
+  output?: OutputShape;
 }
 
 /**
@@ -139,7 +144,60 @@ function formatCommand(cmd: CliCommand): string {
     lines.push("");
   }
 
+  if (cmd.output) lines.push(...formatOutput(cmd.output));
+
   return lines.join("\n");
+}
+
+/** `array of objects` / `object` / `receipt` / `raw` / `none`, as prose. */
+function kindLabel(out: OutputShape): string {
+  switch (out.kind) {
+    case "list":
+      return "a bare array of objects";
+    case "object":
+      return "a bare object";
+    case "receipt":
+      return "a receipt object";
+    case "raw":
+      return "raw JSON (keys depend on the request)";
+    default:
+      return "none — never prints JSON";
+  }
+}
+
+/**
+ * The `--json` output block of a command reference: what kind of value, then
+ * one `key: type` line per field in a text fence, then any variant the same
+ * way. Rendered with the CLI's own `renderShape`, so `linear commands <path>`
+ * and the reference agree to the character.
+ */
+function formatOutput(out: OutputShape, heading = "**Output (`--json`)**"): string[] {
+  const lines: string[] = [];
+  lines.push(`${heading}: ${kindLabel(out)}${out.note ? ` — ${out.note}` : ""}`);
+  lines.push("");
+  const fields = Object.entries(out.fields ?? {});
+  if (fields.length > 0) {
+    lines.push("```text");
+    for (const [key, shape] of fields) lines.push(`${key}: ${renderShape(shape)}`);
+    lines.push("```");
+    lines.push("");
+  }
+  for (const [when, variant] of Object.entries(out.variants ?? {})) {
+    const delta = variantDelta(out, variant);
+    if (delta) {
+      // The base plus a few keys: say only what changes.
+      const drop = delta.dropped.length ? `, without \`${delta.dropped.join("`, `")}\`` : "";
+      lines.push(`With \`${when}\`: the same${drop}, plus:`);
+      lines.push("");
+      lines.push("```text");
+      for (const [key, shape] of Object.entries(delta.added)) lines.push(`${key}: ${renderShape(shape)}`);
+      lines.push("```");
+      lines.push("");
+      continue;
+    }
+    lines.push(...formatOutput(variant, `With \`${when}\``));
+  }
+  return lines;
 }
 
 function escapePipes(text: string): string {
