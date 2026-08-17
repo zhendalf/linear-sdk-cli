@@ -1,4 +1,4 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, vi, afterEach } from "bun:test";
 import { Command } from "commander";
 import {
   collectKeyVal,
@@ -13,6 +13,7 @@ import {
 import { CliError } from "../../src/lib/errors.js";
 import { Context } from "../../src/context.js";
 import { createProgram } from "../../src/cli.js";
+import { withRetry, setRetryReporter } from "../../src/client.js";
 
 /**
  * Parse `argv` with the REAL program and hand back both the leaf command's own
@@ -363,5 +364,57 @@ describe("addAliasOption", () => {
     addAliasOption(cmd, "--due-date <date>", "--due");
     cmd.parse(["node", "demo", "--due-date", "2026-03-04"]);
     expect(readAlias<string>(cmd.opts(), "--due", "--due-date")).toBe("2026-03-04");
+  });
+});
+
+/**
+ * Rate-limit waits are announced through the Context's Output, so they obey
+ * `--quiet` and land on stderr like every other status line — never on the
+ * JSON stdout a script is parsing.
+ */
+describe("Context wires the retry reporter to Output.info", () => {
+  class Ratelimited extends Error {
+    type = "Ratelimited";
+    status = 429;
+    retryAfter = 1;
+  }
+  const flakyOnce = () => {
+    let calls = 0;
+    return async () => {
+      if (calls++ === 0) throw new Ratelimited("Ratelimited");
+      return "ok";
+    };
+  };
+  const captureStderr = () => {
+    let err = "";
+    const spy = vi.spyOn(process.stderr, "write").mockImplementation((c: any) => {
+      err += c;
+      return true;
+    });
+    return { text: () => err, restore: () => spy.mockRestore() };
+  };
+  const noSleep = { sleep: async () => {} };
+  afterEach(() => setRetryReporter(null));
+
+  it("announces the wait on stderr", async () => {
+    new Context({});
+    const cap = captureStderr();
+    try {
+      expect(await withRetry(flakyOnce(), noSleep)).toBe("ok");
+    } finally {
+      cap.restore();
+    }
+    expect(cap.text()).toMatch(/rate limited; retrying in 1s/);
+  });
+
+  it("--quiet silences it", async () => {
+    new Context({ quiet: true });
+    const cap = captureStderr();
+    try {
+      expect(await withRetry(flakyOnce(), noSleep)).toBe("ok");
+    } finally {
+      cap.restore();
+    }
+    expect(cap.text()).toBe("");
   });
 });

@@ -3,7 +3,7 @@ import { CommanderError, type Command } from "commander";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createProgram } from "../../src/cli.js";
+import { createProgram, parsedGlobalOptions } from "../../src/cli.js";
 import { userConfigPath } from "../../src/config.js";
 
 // Commander writes help/version to stdout; silence it during these tests.
@@ -43,6 +43,53 @@ describe("commander error boundary", () => {
     const program = createProgram();
     const help = program.commands.find((c) => c.name() === "config")?.helpInformation() ?? "";
     expect(help).toContain("--json");
+  });
+});
+
+/**
+ * The boundary decides the error format from what commander parsed, wherever
+ * on the command path the flag sat and under any spelling commander accepts.
+ * `argv.includes("--json")` knew one spelling; `-j` got plaintext.
+ */
+describe("parsedGlobalOptions (what the error boundary reads)", () => {
+  async function failedParse(argv: string[]) {
+    silenceStdout();
+    const program = createProgram();
+    await program.parseAsync(["node", "linear", ...argv]).catch(() => {});
+    return parsedGlobalOptions(program);
+  }
+
+  it("nothing parsed → no globals", async () => {
+    expect(await failedParse(["whoami", "--nope"])).toEqual({});
+  });
+
+  it("reads --json off the leaf after a parse-time failure", async () => {
+    expect((await failedParse(["whoami", "--nope", "--json"])).json).toBe(true);
+  });
+
+  it("reads the -j alias, and bundled short flags (-jq)", async () => {
+    expect((await failedParse(["whoami", "--nope", "-j"])).json).toBe(true);
+    const bundled = await failedParse(["whoami", "--nope", "-jq"]);
+    expect(bundled.json).toBe(true);
+    expect(bundled.quiet).toBe(true);
+  });
+
+  it("finds the flag wherever on the path it was given", async () => {
+    expect((await failedParse(["-j", "issue", "view", "--nope"])).json).toBe(true);
+    expect((await failedParse(["issue", "-j", "view", "--nope"])).json).toBe(true);
+  });
+
+  it("reads --debug and --no-ansi / --no-color the same way", async () => {
+    const g = await failedParse(["whoami", "--nope", "--debug", "--no-color"]);
+    expect(g.debug).toBe(true);
+    expect(g.noAnsi).toBe(true);
+  });
+
+  it("does not report a flag the user did not pass (no defaults leak in)", async () => {
+    const g = await failedParse(["issue", "view", "--nope"]);
+    expect(g.json).toBeUndefined();
+    expect(g.noAnsi).toBeUndefined();
+    expect(g.debug).toBeUndefined();
   });
 });
 

@@ -1,4 +1,8 @@
-import { describe, it, expect, vi, afterEach } from "bun:test";
+import { describe, it, expect, vi, afterEach, afterAll } from "bun:test";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Output } from "../../src/output/format.js";
 import { CliError } from "../../src/lib/errors.js";
 import type { Column } from "../../src/output/table.js";
@@ -152,5 +156,79 @@ describe("human mode", () => {
     const o = new Output({ json: false, color: false, quiet: false, debug: false });
     const { out } = capture(() => o.emit({ a: 1 }, () => process.stdout.write("HUMAN\n")));
     expect(out).toBe("HUMAN\n");
+  });
+});
+
+/**
+ * The tests above exercise the `Output` class. The error *boundary* in
+ * `src/bin/linear.ts` decides which mode `Output` runs in, and it used to do so
+ * by scanning argv for the literal `--json` — so `-j`, the alias the README
+ * advertises, got a plaintext error and a script got an unparseable stream.
+ * Nothing here caught it because nothing here ran the binary. These do: they
+ * spawn the real entry point with an isolated config (no key anywhere) so a
+ * failure is guaranteed without a network round-trip, and assert the envelope
+ * under every spelling of the flag.
+ */
+describe("error boundary (spawned bin)", () => {
+  const BIN = join(import.meta.dir, "..", "..", "src", "bin", "linear.ts");
+  const home = mkdtempSync(join(tmpdir(), "lincli-envelope-"));
+  afterAll(() => rmSync(home, { recursive: true, force: true }));
+
+  function run(args: string[]): { code: number; stdout: string; stderr: string } {
+    const env: NodeJS.ProcessEnv = { ...process.env, XDG_CONFIG_HOME: home, HOME: home };
+    delete env.LINEAR_API_KEY;
+    delete env.LINEAR_API_TOKEN;
+    delete env.LINEAR_WORKSPACE;
+    // `--no-env-file`: a stray .env must not re-inject a key.
+    const r = spawnSync("bun", ["--no-env-file", BIN, ...args], { encoding: "utf8", env, cwd: home });
+    return { code: r.status ?? -1, stdout: r.stdout, stderr: r.stderr };
+  }
+
+  const envelope = (stderr: string) => {
+    const parsed = JSON.parse(stderr);
+    expect(Object.keys(parsed)).toEqual(["error"]);
+    expect(typeof parsed.error.message).toBe("string");
+    expect(typeof parsed.error.code).toBe("string");
+    return parsed.error as { message: string; code: string };
+  };
+
+  it("an action failure under --json → the envelope, exit code from the error", () => {
+    const r = run(["issue", "view", "TES-1", "--json"]);
+    expect(r.stdout).toBe("");
+    expect(envelope(r.stderr).code).toBe("auth");
+    expect(r.code).toBe(4);
+  });
+
+  it("the same failure under -j → the same envelope", () => {
+    const r = run(["issue", "view", "TES-1", "-j"]);
+    expect(r.stdout).toBe("");
+    expect(envelope(r.stderr).code).toBe("auth");
+    expect(r.code).toBe(4);
+  });
+
+  it("bundled short flags (-jq) → still the envelope", () => {
+    const r = run(["issue", "view", "TES-1", "-jq"]);
+    expect(envelope(r.stderr).code).toBe("auth");
+  });
+
+  it("the flag before the subcommand (`linear -j issue …`) → still the envelope", () => {
+    const r = run(["-j", "issue", "view", "TES-1"]);
+    expect(envelope(r.stderr).code).toBe("auth");
+  });
+
+  it("a parse-time usage error under -j → the envelope with code usage, exit 2", () => {
+    const r = run(["whoami", "--definitely-not-a-flag", "-j"]);
+    expect(r.stdout).toBe("");
+    const err = envelope(r.stderr);
+    expect(err.code).toBe("usage");
+    expect(err.message).toContain("--definitely-not-a-flag");
+    expect(r.code).toBe(2);
+  });
+
+  it("without the flag, the human error line — never JSON", () => {
+    const r = run(["issue", "view", "TES-1"]);
+    expect(r.stdout).toBe("");
+    expect(r.stderr).toMatch(/^error: /);
+    expect(() => JSON.parse(r.stderr)).toThrow();
   });
 });

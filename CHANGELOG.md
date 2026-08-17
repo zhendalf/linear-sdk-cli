@@ -198,6 +198,22 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- **`-j` did not switch the error boundary to the JSON envelope** (TES-618). The boundary in
+  `src/bin/linear.ts` decided the error format by scanning `process.argv` for the literal string
+  `--json`, so the `-j` alias, bundled short flags (`-jq`) and every other spelling commander
+  accepts printed a plaintext `error: …` on stderr where a script expected
+  `{"error":{message,code}}` — an unparseable error stream for exactly the callers the envelope
+  exists for. Verified live: `linear issue view NOPE-1 -j` printed `error: No issue NOPE-1.` while
+  `--json` printed the envelope. The boundary no longer parses argv by hand: it reads the globals
+  back off the command tree commander already parsed (`parsedGlobalOptions` in `src/cli.ts`), which
+  finds `-j`/`--json`/`--debug`/`--no-ansi` wherever on the command path they sat, and works for
+  parse-time failures too because commander scans the whole argument list before reporting a bad
+  option. The contract suite now spawns the real binary against an isolated, key-less config and
+  asserts the envelope under `--json`, `-j`, `-jq` and `linear -j issue …`; before, it exercised
+  only the `Output` class, which is how this slipped past 600 tests.
+- **Rate-limit waits are announced through the Context's `Output`** rather than a bare stderr
+  writer, so the "rate limited; retrying in Ns" line honours `--quiet` like every other status line
+  and can never land on the JSON stdout a script is parsing.
 - **Mutations could report a success the API never gave** (AUDIT.md #6). Every Linear mutation
   answers with a payload carrying `success: Boolean!`, and almost nothing here read it. The
   create/update paths did have a guard, but it tested whether the *entity* came back, not whether

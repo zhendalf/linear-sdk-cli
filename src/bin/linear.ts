@@ -6,16 +6,13 @@
  */
 
 import { CommanderError } from "commander";
-import { createProgram } from "../cli.js";
+import { createProgram, parsedGlobalOptions } from "../cli.js";
 import { Output } from "../output/format.js";
 import { CliError, normalizeError } from "../lib/errors.js";
 
-async function main(): Promise<void> {
-  const program = createProgram();
-  await program.parseAsync(process.argv);
-}
+const program = createProgram();
 
-main().catch((err) => {
+program.parseAsync(process.argv).catch((err) => {
   // Help/version are normal terminations that commander already wrote to stdout.
   if (err instanceof CommanderError) {
     if (err.exitCode === 0) process.exit(0);
@@ -26,14 +23,18 @@ main().catch((err) => {
       ? new CliError(stripErrorPrefix(err.message), "usage", err.code)
       : normalizeError(err);
 
-  // Best-effort flags from argv so error formatting respects --json/--debug even
-  // when the failure happened during parsing.
-  const argv = process.argv.slice(2);
-  const json = argv.includes("--json");
-  const debug = argv.includes("--debug");
-  const noAnsi = argv.includes("--no-ansi") || argv.includes("--no-color");
-  const color = !noAnsi && process.stderr.isTTY === true && !json;
-  const out = new Output({ json, color, quiet: false, debug });
+  // Format the error the way the user asked for the output — from the globals
+  // commander parsed, so every spelling it accepts (`-j`, `-jq`, `--json`)
+  // reaches the envelope. Errors go to stderr, so that stream's TTY-ness decides
+  // colour, not stdout's.
+  const globals = parsedGlobalOptions(program);
+  const json = globals.json === true;
+  const out = new Output({
+    json,
+    color: globals.noAnsi !== true && !json && process.stderr.isTTY === true,
+    quiet: globals.quiet === true,
+    debug: globals.debug === true,
+  });
   out.error(cliError);
   process.exit(cliError.exitCode);
 });

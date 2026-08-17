@@ -205,6 +205,15 @@ function globalOptions(): Option[] {
 }
 
 /**
+ * The attribute names the globals are stored under (`json`, `noAnsi`, `limit`,
+ * …), deduplicated — `--no-color` shares `noAnsi` with `--no-ansi` by design.
+ * The error boundary reads these back off the parsed command tree.
+ */
+export function globalOptionKeys(): string[] {
+  return [...new Set(globalOptions().map((option) => option.attributeName()))];
+}
+
+/**
  * Register the global options shared by all commands, on the root program and
  * (via `applyGlobalOptionsToAll` in cli.ts) on every subcommand, so they work in
  * any position. Commander makes them inheritable via `cmd.optsWithGlobals()`.

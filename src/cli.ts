@@ -4,7 +4,7 @@
  */
 
 import { Command } from "commander";
-import { addGlobalOptions } from "./lib/options.js";
+import { addGlobalOptions, globalOptionKeys } from "./lib/options.js";
 import { registerMeta } from "./commands/meta.js";
 import { registerApi } from "./commands/api.js";
 import { registerCompletion } from "./commands/completion.js";
@@ -111,6 +111,35 @@ export function createProgram(): Command {
   configureErrorHandling(program);
 
   return program;
+}
+
+/**
+ * The global options as commander actually parsed them, read back off the
+ * command tree after `parseAsync` has thrown.
+ *
+ * The error boundary has no Context to ask — the failure may have happened
+ * before any action ran — so it used to re-parse `process.argv` by hand with
+ * `argv.includes("--json")`. That check did not know the `-j` alias, bundled
+ * short flags (`-jq`) or any other spelling commander accepts, so `linear issue
+ * view NOPE-1 -j` printed a plaintext error while `--json` printed the
+ * envelope: an unparseable error stream for exactly the callers the envelope
+ * exists for. Commander has already parsed whatever it got to before failing
+ * (a bad option is reported only after the whole argument list is scanned), so
+ * the boundary reads that instead of parsing again. Every global is registered
+ * on every command and stored under the same key, so the flag is found
+ * wherever on the command path it was given.
+ */
+export function parsedGlobalOptions(program: Command): GlobalOptions {
+  const keys = globalOptionKeys();
+  const merged: Record<string, unknown> = {};
+  const visit = (cmd: Command): void => {
+    for (const key of keys) {
+      if (cmd.getOptionValueSource(key) === "cli") merged[key] = cmd.getOptionValue(key);
+    }
+    for (const sub of cmd.commands) visit(sub);
+  };
+  visit(program);
+  return merged as GlobalOptions;
 }
 
 function applyGlobalOptionsToAll(cmd: Command): void {
