@@ -3,7 +3,9 @@ import { CommanderError, type Command } from "commander";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createProgram, parsedGlobalOptions } from "../../src/cli.js";
+import { createProgram, parsedGlobalOptions, usageHint, suppressedHelp } from "../../src/cli.js";
+import { suggestSubcommand, commandPath } from "../../src/lib/options.js";
+import { CliError } from "../../src/lib/errors.js";
 import { userConfigPath } from "../../src/config.js";
 
 // Commander writes help/version to stdout; silence it during these tests.
@@ -450,5 +452,85 @@ describe("auth commands operate in the ambiguous (multi-workspace, no default) s
     }
     expect(JSON.parse(cap.text())).toMatchObject({ success: true, default_workspace: "org-b" });
     expect(readFileSync(userConfigPath(), "utf8")).toContain('default_workspace = "org-b"');
+  });
+});
+
+/**
+ * TES-633: the root has an action (bare `linear` shows the branch's issue) and
+ * `issue` has a default subcommand (`view`), so commander's own "unknown
+ * command" never fired for either — a stray word was "too many arguments.
+ * Expected 0 arguments but got 2: issues, list." at the root and "'lst' is not
+ * a valid issue id" under `issue`. Both now say what the word probably was.
+ */
+describe("unknown commands (TES-633)", () => {
+  const parse = async (argv: string[]) => {
+    silenceStdout();
+    try {
+      await createProgram().parseAsync(["node", "linear", ...argv]);
+      throw new Error("expected a throw");
+    } catch (err) {
+      return err as any;
+    }
+  };
+
+  it("a stray word at the root is an unknown command, with a guess", async () => {
+    const err = await parse(["issues", "list"]);
+    expect(err).toBeInstanceOf(CliError);
+    expect(err.code).toBe("usage");
+    expect(err.message).toBe(
+      "Unknown command 'issues'. Did you mean 'issue'? Run 'linear --help' to see the commands.",
+    );
+  });
+
+  it("no guess when nothing is close", async () => {
+    const err = await parse(["xyzzy"]);
+    expect(err.message).toBe("Unknown command 'xyzzy'. Run 'linear --help' to see the commands.");
+  });
+
+  it("`issue <word>` that is neither an id nor a subcommand names the likely subcommand", async () => {
+    const err = await parse(["issue", "lst"]);
+    expect(err).toBeInstanceOf(CliError);
+    expect(err.code).toBe("usage");
+    expect(err.message).toContain("'lst' is not a valid issue id");
+    expect(err.message).toContain("Did you mean 'linear issue list'?");
+  });
+
+  it("suggestSubcommand: prefixes, one-edit typos, aliases — but not two-letter aliases", () => {
+    const program = createProgram();
+    expect(suggestSubcommand(program, "proj")).toBe("project");
+    expect(suggestSubcommand(program, "lable")).toBe("label");
+    expect(suggestSubcommand(program, "issues")).toBe("issue");
+    expect(suggestSubcommand(program, "docs")).toBe("document");
+    expect(suggestSubcommand(program, "notif")).toBe("notification");
+    // `ab` is one edit from the alias `lb`; that is noise, not a guess.
+    expect(suggestSubcommand(program, "ab")).toBeUndefined();
+    expect(suggestSubcommand(program, "xyzzy")).toBeUndefined();
+  });
+
+  it("commandPath spells the command the way a user types it", () => {
+    const program = createProgram();
+    const issue = program.commands.find((c) => c.name() === "issue")!;
+    const create = issue.commands.find((c) => c.name() === "create")!;
+    expect(commandPath(program)).toBe("linear");
+    expect(commandPath(create)).toBe("linear issue create");
+  });
+
+  it("usageHint names the command whose parse failed, and nothing when none did", async () => {
+    silenceStdout();
+    const program = createProgram();
+    expect(usageHint(program)).toBeUndefined();
+    await program.parseAsync(["node", "linear", "issue", "create", "--nope"]).catch(() => {});
+    expect(usageHint(program)).toBe("Run 'linear issue create --help' for usage.");
+  });
+
+  it("a bare group buffers commander's help for the boundary instead of losing it", async () => {
+    silenceStdout();
+    const program = createProgram();
+    const err = await program.parseAsync(["node", "linear", "notification"]).catch((e) => e);
+    expect(err).toBeInstanceOf(CommanderError);
+    expect(err.code).toBe("commander.help");
+    const help = suppressedHelp(program);
+    expect(help?.command.name()).toBe("notification");
+    expect(help?.text).toContain("Usage: linear notification|notif");
   });
 });

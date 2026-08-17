@@ -16,6 +16,7 @@ import {
   parseIntOption,
   CYCLE_FLAG,
   CYCLE_DESC,
+  suggestSubcommand,
 } from "../lib/options.js";
 import { registerIssueCommentGroup } from "./comment.js";
 import { resolveBody } from "../lib/body.js";
@@ -73,6 +74,16 @@ export function registerIssue(program: Command): void {
     .option("--comments", "include recent comments")
     .action(
       action(async (ctx: Context, opts, idArg?: string) => {
+        // `view` is the default subcommand, so `linear issue lst` lands here
+        // with "lst" as the id. Say what it probably was, not just what it is not.
+        if (idArg !== undefined && !ISSUE_ID_RE.test(idArg)) {
+          const guess = suggestSubcommand(issue, idArg);
+          throw usageError(
+            `'${idArg}' is not a valid issue id (expected e.g. TES-123 or a UUID).${
+              guess ? ` Did you mean 'linear issue ${guess}'?` : ""
+            }`,
+          );
+        }
         const detail = await svc.getIssueDetail(ctx.client, requireId(idArg));
         if (opts.web) {
           await openUrl(detail.url);

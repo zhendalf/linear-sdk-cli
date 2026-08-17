@@ -269,6 +269,21 @@ All notable changes to this project are documented here. The format is based on
   option. The contract suite now spawns the real binary against an isolated, key-less config and
   asserts the envelope under `--json`, `-j`, `-jq` and `linear -j issue …`; before, it exercised
   only the `Output` class, which is how this slipped past 600 tests.
+- **An unknown command is reported as one, with a guess; usage errors point at the right
+  `--help`; a bare group shows its help** (TES-633). The root has an action (bare `linear` shows the
+  branch's issue) and `issue` has a default subcommand (`view`), so commander's own "unknown
+  command" never fired for either: `linear issues list` was `too many arguments. Expected 0
+  arguments but got 2: issues, list.` and `linear issue lst` was `'lst' is not a valid issue id`.
+  Now: `Unknown command 'issues'. Did you mean 'issue'? Run 'linear --help' to see the commands.`
+  and `'lst' is not a valid issue id (…). Did you mean 'linear issue list'?` — a prefix (`proj`),
+  a small typo (`lable`, `isue`) or an alias (`docs`, `notif`) is close enough; two-letter aliases
+  are never guessed from, so `ab` does not "mean" `label`. `.showHelpAfterError()` was configured
+  and dead — the stderr it would have written was the one the boundary suppresses — so every
+  parse-time usage error now carries the hint itself, in both modes:
+  `unknown option '--nope'. Run 'linear issue create --help' for usage.` And a group invoked bare
+  (`linear notification`) printed only `error: (outputHelp)`, because commander wrote the group's
+  help to that same suppressed stderr; the boundary keeps what commander wrote and prints it (exit
+  2), or a one-line usage error under `--json`.
 - **Terminal escape sequences in Linear data no longer reach the terminal** (TES-623). API text
   was written to human output byte-for-byte: `renderTable`/`renderDetail`, the bare scalar lines
   (`issue title`), and every status/error line. Anyone who can create an issue in a workspace could

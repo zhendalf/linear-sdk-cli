@@ -4,7 +4,7 @@
  */
 
 import { Command, Option } from "commander";
-import { usageError } from "./errors.js";
+import { usageError, type CliError } from "./errors.js";
 
 /** Repeatable `--var k=v` collector → { k: v }. */
 export function collectKeyVal(value: string, previous: Record<string, string> = {}): Record<string, string> {
@@ -82,6 +82,67 @@ export function parsePositiveInt(value: string): number {
     throw usageError(`Expected --limit to be a positive integer (or 0 for all), got '${value}'.`);
   }
   return Number.parseInt(value, 10);
+}
+
+/**
+ * The subcommand of `cmd` a mistyped `word` most plausibly meant, or nothing.
+ *
+ * Commander's own "did you mean" only fires on a command with no action
+ * handler; the root has one (bare `linear` shows the branch's issue) and so does
+ * `issue` (its default subcommand is `view`), so a stray word there used to be
+ * reported as "too many arguments" or "not a valid issue id". Names and aliases
+ * both count; a prefix (`proj` → `project`) or a small edit distance
+ * (`issues` → `issue`, `lable` → `label`) is close enough, and the closest wins.
+ */
+export function suggestSubcommand(cmd: Command, word: string): string | undefined {
+  const lower = word.toLowerCase();
+  let best: { name: string; distance: number } | undefined;
+  for (const sub of cmd.commands) {
+    for (const candidate of [sub.name(), ...sub.aliases()]) {
+      const c = candidate.toLowerCase();
+      // A prefix is a match (`proj` → `project`). Otherwise up to one edit per
+      // two characters, capped at three, so `lable` finds `label` — but never
+      // against a two-letter alias, where one edit away is everything.
+      let distance: number;
+      if (lower.length >= 2 && c.startsWith(lower)) distance = 0;
+      else if (c.length < 3) continue;
+      else distance = editDistance(lower, c);
+      if (distance > Math.min(3, Math.max(1, Math.floor(lower.length / 2)))) continue;
+      if (!best || distance < best.distance) best = { name: sub.name(), distance };
+    }
+  }
+  return best?.name;
+}
+
+/** A usage error for a word that names no subcommand of `cmd`, with the closest real one. */
+export function unknownCommand(cmd: Command, word: string): CliError {
+  const path = commandPath(cmd);
+  const guess = suggestSubcommand(cmd, word);
+  return usageError(
+    `Unknown command '${word}'.${guess ? ` Did you mean '${guess}'?` : ""} Run '${path} --help' to see the commands.`,
+  );
+}
+
+/** `linear issue` for the `issue` command — the way a user would type it. */
+export function commandPath(cmd: Command): string {
+  const names: string[] = [];
+  for (let c: Command | null = cmd; c; c = c.parent) names.unshift(c.name());
+  return names.join(" ");
+}
+
+/** Levenshtein distance — small strings only (command names). */
+function editDistance(a: string, b: string): number {
+  const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let diag = prev[0]!;
+    prev[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = prev[j]!;
+      prev[j] = Math.min(prev[j]! + 1, prev[j - 1]! + 1, diag + (a[i - 1] === b[j - 1] ? 0 : 1));
+      diag = tmp;
+    }
+  }
+  return prev[b.length]!;
 }
 
 /** Shared metavar + help for the cycle option (filter + create/update). */

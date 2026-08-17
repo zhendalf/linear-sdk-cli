@@ -4,7 +4,7 @@
  */
 
 import { Command } from "commander";
-import { addGlobalOptions, globalOptionKeys } from "./lib/options.js";
+import { addGlobalOptions, globalOptionKeys, unknownCommand, commandPath } from "./lib/options.js";
 import { registerMeta } from "./commands/meta.js";
 import { registerApi } from "./commands/api.js";
 import { registerCompletion } from "./commands/completion.js";
@@ -42,8 +42,11 @@ export function createProgram(): Command {
     .name("linear")
     .description("Ergonomic command-line interface for Linear, built on @linear/sdk")
     .version(VERSION, "-V, --version", "output the version number")
-    .showHelpAfterError()
-    .enablePositionalOptions();
+    .enablePositionalOptions()
+    // A stray word at the root is an unknown command, and the root action says
+    // so (with a guess). Left to commander it was "too many arguments. Expected
+    // 0 arguments but got 2: issues, list." — true, and no help at all.
+    .allowExcessArguments();
 
   addGlobalOptions(program);
 
@@ -84,6 +87,7 @@ export function createProgram(): Command {
   // a usage error (so a bare `linear --json` never emits non-JSON to stdout).
   // When an id IS inferred, the output matches `issue view <id>` exactly.
   program.action(async (_opts: unknown, command: Command) => {
+    if (command.args.length > 0) throw unknownCommand(command, command.args[0]!);
     const ctx = new Context(command.optsWithGlobals() as GlobalOptions);
     const id = currentIssueId();
     if (!id) {
@@ -152,10 +156,67 @@ function applyGlobalOptionsToAll(cmd: Command): void {
   }
 }
 
+/**
+ * The commands whose own parse failed, so the boundary can point at the right
+ * `--help`. Commander calls `outputError` on the command that detected the
+ * problem, synchronously, just before it throws — that is the only place the
+ * failing command is known, since `CommanderError` does not carry it.
+ * `.showHelpAfterError()` used to be configured for this and did nothing: the
+ * suppressed `writeErr` below swallowed the help it would have printed.
+ */
+const failedCommands = new WeakSet<Command>();
+
+/**
+ * What commander wrote to stderr for a command — help, when a group is
+ * invoked bare. `linear notification` used to print `error: (outputHelp)` and
+ * nothing else: commander sends the group's help to `writeErr` and asks for a
+ * non-zero exit, and `writeErr` was a no-op. The boundary prints this instead.
+ */
+const suppressedStderr = new WeakMap<Command, string>();
+
 function configureErrorHandling(cmd: Command): void {
   cmd.exitOverride();
-  // Suppress commander's stderr writes (errors/usage-after-error). Help/version
-  // use writeOut (stdout) and remain intact. The boundary prints the envelope.
-  cmd.configureOutput({ writeErr: () => {} });
+  // Route commander's stderr through here rather than to the terminal: the
+  // boundary decides what to print (the envelope, or the buffered help).
+  // Help/version requested by the user use writeOut (stdout) and are intact.
+  cmd.configureOutput({
+    writeErr: (str) => {
+      suppressedStderr.set(cmd, (suppressedStderr.get(cmd) ?? "") + str);
+    },
+    outputError: () => {
+      failedCommands.add(cmd);
+    },
+  });
   for (const sub of cmd.commands) configureErrorHandling(sub);
+}
+
+/** The command that last wrote to (suppressed) stderr, and what it wrote. */
+export function suppressedHelp(program: Command): { command: Command; text: string } | undefined {
+  const find = (cmd: Command): { command: Command; text: string } | undefined => {
+    for (const sub of cmd.commands) {
+      const hit = find(sub);
+      if (hit) return hit;
+    }
+    const text = suppressedStderr.get(cmd);
+    return text ? { command: cmd, text } : undefined;
+  };
+  return find(program);
+}
+
+/**
+ * `Run 'linear issue create --help' for usage.` for the command whose parse
+ * failed, or nothing if none did (an error thrown by an action is not a parse
+ * error and needs no such hint).
+ */
+export function usageHint(program: Command): string | undefined {
+  const find = (cmd: Command): Command | undefined => {
+    if (failedCommands.has(cmd)) return cmd;
+    for (const sub of cmd.commands) {
+      const hit = find(sub);
+      if (hit) return hit;
+    }
+    return undefined;
+  };
+  const failed = find(program);
+  return failed ? `Run '${commandPath(failed)} --help' for usage.` : undefined;
 }

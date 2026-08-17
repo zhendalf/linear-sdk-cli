@@ -231,6 +231,47 @@ describe("error boundary (spawned bin)", () => {
     expect(r.stderr).toMatch(/^error: /);
     expect(() => JSON.parse(r.stderr)).toThrow();
   });
+
+  /**
+   * TES-633. `.showHelpAfterError()` was configured and dead: the stderr it
+   * would have written was the one the boundary suppresses. The hint now rides
+   * on the message; a bare group prints its help; an unknown top-level word is
+   * an unknown command, not "too many arguments".
+   */
+  describe("usage errors point at help (TES-633)", () => {
+    it("a parse failure names the failing command's --help, in both modes", () => {
+      const human = run(["issue", "create", "--nope"]);
+      expect(human.code).toBe(2);
+      expect(human.stderr.trimEnd()).toBe(
+        "error: unknown option '--nope'. Run 'linear issue create --help' for usage.",
+      );
+      const json = run(["issue", "create", "--nope", "-j"]);
+      expect(envelope(json.stderr).message).toBe(
+        "unknown option '--nope'. Run 'linear issue create --help' for usage.",
+      );
+    });
+
+    it("an unknown top-level word is an unknown command, with a guess", () => {
+      const r = run(["issues", "list", "-j"]);
+      expect(r.code).toBe(2);
+      expect(envelope(r.stderr).message).toBe(
+        "Unknown command 'issues'. Did you mean 'issue'? Run 'linear --help' to see the commands.",
+      );
+    });
+
+    it("a bare group prints that group's help to stderr and exits 2 — the JSON is a usage error", () => {
+      const human = run(["notification"]);
+      expect(human.code).toBe(2);
+      expect(human.stdout).toBe("");
+      expect(human.stderr).toContain("Usage: linear notification|notif [options] [command]");
+      expect(human.stderr).toContain("read-all");
+      const json = run(["notification", "--json"]);
+      expect(json.code).toBe(2);
+      expect(envelope(json.stderr).message).toBe(
+        "Missing subcommand. Run 'linear notification --help' to see the commands.",
+      );
+    });
+  });
 });
 
 /**
