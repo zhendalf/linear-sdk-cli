@@ -1,6 +1,6 @@
 # linear config
 
-> Show the resolved configuration (secrets redacted)
+> Show the resolved configuration, or write a project config
 
 _Generated from `linear commands --json`. `linear config --help` (or `<subcommand> --help`) is authoritative._
 
@@ -8,8 +8,44 @@ Every command also accepts the global flags `-j/--json`, `--no-input`, `-y/--yes
 
 ### `linear config`
 
-Show the resolved configuration (secrets redacted)
+Show the resolved configuration, or write a project config
 
 ```
 linear config [options]
+```
+
+### `linear config init`
+
+Write a project .linear.toml (at the git root, or here outside a repository)
+
+```
+linear config init [options]
+```
+
+| Option           | Description                                              |
+| ---------------- | -------------------------------------------------------- |
+| `--team <key>`   | default team key (otherwise chosen from a list)          |
+| `--sort <order>` | default issue-list sort (priority \| updated \| created) |
+| `--path <file>`  | write this file instead of <git root>/.linear.toml       |
+| `--force`        | overwrite an existing file                               |
+
+### `linear config set`
+
+Set one project setting (team, workspace, sort, vcs) in the project config
+
+```
+linear config set [options] <key> <value>
+```
+
+| Option          | Description                                                  |
+| --------------- | ------------------------------------------------------------ |
+| `--user`        | write the user config (~/.config/linear/config.toml) instead |
+| `--path <file>` | write this file instead of the project config in effect      |
+
+### `linear config show`
+
+Show the resolved configuration and where each value came from (secrets redacted)
+
+```
+linear config show [options]
 ```

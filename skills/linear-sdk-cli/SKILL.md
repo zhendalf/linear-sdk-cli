@@ -196,6 +196,7 @@ linear auth default
 linear auth list
 linear auth login
 linear auth logout
+linear auth migrate
 linear auth status
 linear auth token
 linear auth whoami
@@ -214,6 +215,9 @@ linear comment update
 linear completion
 
 linear config
+linear config init
+linear config set
+linear config show
 
 linear cycle
 linear cycle create

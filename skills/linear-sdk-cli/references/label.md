@@ -48,13 +48,17 @@ linear label delete [options] <id>
 
 ### `linear label list`
 
-List labels (optionally scoped to a team)
+List the labels usable in a team (its own plus workspace-level ones)
 
 Aliases: `ls`
 
 ```
 linear label list [options] [team]
 ```
+
+| Option        | Description                                                |
+| ------------- | ---------------------------------------------------------- |
+| `--all-teams` | list every label in the workspace, ignoring the team scope |
 
 ### `linear label update`
 

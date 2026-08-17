@@ -40,9 +40,10 @@ Validate and store a Linear API key for a workspace
 linear auth login [options]
 ```
 
-| Option        | Description                  |
-| ------------- | ---------------------------- |
-| `--key <key>` | API key (otherwise prompted) |
+| Option        | Description                                                           |
+| ------------- | --------------------------------------------------------------------- |
+| `--key <key>` | API key (otherwise prompted; '-' reads it from stdin)                 |
+| `--plaintext` | Store the key in the config file (0600) instead of the system keyring |
 
 ### `linear auth logout`
 
@@ -50,6 +51,14 @@ Remove a stored workspace credential (select with --workspace <slug>)
 
 ```
 linear auth logout [options]
+```
+
+### `linear auth migrate`
+
+Move plaintext credentials from the config file into the system keyring
+
+```
+linear auth migrate [options]
 ```
 
 ### `linear auth status`

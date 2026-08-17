@@ -44,7 +44,7 @@ linear issue branch [options] [id]
 
 ### `linear issue comment`
 
-Add a comment to an issue (or use the add/list/update/delete subcommands)
+Add a comment to an issue; on a matching branch, `issue comment "<body>"` is enough (or use the add/list/update/delete subcommands)
 
 ```
 linear issue comment [options] [id] [body]
