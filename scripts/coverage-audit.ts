@@ -86,6 +86,9 @@ const CURATED: Record<string, string[]> = {
     "deleteInitiative",
     "archiveInitiative",
     "unarchiveInitiative",
+    // `initiative add-project` / `remove-project` — the InitiativeToProject link.
+    "createInitiativeToProject",
+    "deleteInitiativeToProject",
     // Initiative labels went public in @linear/sdk 88.2 (previously [Internal]);
     // `initiative create/update --label` reads them to resolve names to ids.
     "initiativeLabels",

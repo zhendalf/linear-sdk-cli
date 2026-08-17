@@ -17,6 +17,14 @@ All notable changes to this project are documented here. The format is based on
   Linear's agent integrations opened on an issue (or the current branch's; `--all-issues` for the
   workspace feed, `--status` to narrow), and `view <id>` shows one with its activity transcript,
   oldest first. The row is the same whichever way a session is found.
+- **Initiative ↔ project linking, `unarchive`, list filters, `--icon`/`--color` (TES-603,
+  TES-642).** `initiative add-project <initiative> <project>` (`--sort-order`) and
+  `remove-project` (confirmed; finds the link on the project's side, so no workspace-wide paging)
+  and `initiative unarchive <id>` (resolves among archived initiatives, refuses a live one). `initiative
+  list` gains `--status`, `--owner`, `--archived` — the list stays every-status by default, and
+  the reference CLI's `--all-statuses` is accepted as the no-op it is here. `initiative
+  create/update` take `--icon`/`--color`, and `initiative view` shows `icon`, `archivedAt` and
+  the linked `projects` (`{id, name, status}`).
 - **Credentials in the OS keyring, and schpet/linear-cli's found without a re-login.**
   `auth login` now stores the API key in the macOS Keychain (or Linux `secret-tool`) under service
   `linear-cli` / account `<workspace slug>` — the reference CLI's exact convention — and writes only

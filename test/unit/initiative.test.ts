@@ -5,8 +5,15 @@ import {
   priorityLabel,
   createInitiative,
   updateInitiative,
+  buildFilter,
+  listInitiatives,
+  unarchiveInitiative,
+  addProject,
+  findProjectLink,
+  removeProjectLink,
+  resolveInitiative,
 } from "../../src/services/initiative.js";
-import { connection } from "./_fakes.js";
+import { connection, okPayload, failedPayload, payload, rawPage } from "./_fakes.js";
 
 describe("resolveStatus", () => {
   it("normalizes a lowercase status to the enum value", () => {
@@ -174,5 +181,171 @@ describe("updateInitiative (mocked client)", () => {
       status: "completed",
     });
     expect(captured).toEqual({ status: "Completed" });
+  });
+});
+
+const UUID = "00000000-0000-4000-8000-000000000000";
+const PROJ = "11111111-1111-4111-8111-111111111111";
+
+/**
+ * TES-603 / TES-642: `initiative list` filters. Ours lists every status by
+ * default (the reference CLI lists Active only); `--status`, `--owner` and
+ * `--archived` narrow or widen from there.
+ */
+describe("initiative list filters", () => {
+  const client = {
+    users: async () => connection([{ id: "u1", email: "ada@x.io" }]),
+  } as any;
+
+  it("is empty when nothing is asked for", async () => {
+    expect(await buildFilter(client, {})).toEqual({});
+  });
+
+  it("normalizes --status through the enum and resolves --owner to a user id", async () => {
+    expect(await buildFilter(client, { status: "active", owner: "ada@x.io" })).toEqual({
+      status: { eq: "Active" },
+      owner: { id: { eq: "u1" } },
+    });
+  });
+
+  it("rejects an unknown status before the round-trip", async () => {
+    await expect(buildFilter(client, { status: "sideways" })).rejects.toMatchObject({ code: "usage" });
+  });
+
+  it("passes the filter and --archived through to the query", async () => {
+    const seen: any[] = [];
+    const c = {
+      ...client,
+      client: {
+        rawRequest: async (_q: string, vars: any) => {
+          seen.push(vars);
+          return { data: { initiatives: rawPage([{ id: "i1", name: "Old", status: "Completed", url: "u" }], vars) } };
+        },
+      },
+    } as any;
+    const rows = await listInitiatives(c, 50, { status: "completed", archived: true });
+    expect(seen[0]).toMatchObject({ filter: { status: { eq: "Completed" } }, includeArchived: true });
+    expect(rows[0]).toMatchObject({ id: "i1", status: "Completed", priority: 0 });
+    // Without --archived the API default (live only) is made explicit.
+    await listInitiatives(c, 50, {});
+    expect(seen[1]).toMatchObject({ filter: {}, includeArchived: false });
+  });
+});
+
+describe("createInitiative / updateInitiative --icon/--color", () => {
+  it("forwards icon and color on create and update", async () => {
+    const inputs: any[] = [];
+    const client = {
+      initiative: async () => ({ id: UUID }),
+      createInitiative: async (input: any) => (inputs.push(input), payload("initiative", { id: "i1" })),
+      updateInitiative: async (_id: string, input: any) => (inputs.push(input), payload("initiative", { id: "i1" })),
+    } as any;
+    await createInitiative(client, { name: "N", icon: "Rocket", color: "#5E6AD2" });
+    await updateInitiative(client, UUID, { color: "#000000" });
+    expect(inputs).toEqual([
+      { name: "N", icon: "Rocket", color: "#5E6AD2" },
+      { color: "#000000" },
+    ]);
+  });
+});
+
+/**
+ * TES-603: `initiative unarchive`, `add-project`, `remove-project`. All three
+ * are direct SDK mutations; the interesting parts are that unarchive looks
+ * among archived initiatives (nothing else does), and that remove-project finds
+ * the link on the project's side instead of paging the workspace-wide feed.
+ */
+describe("initiative unarchive", () => {
+  it("resolves by name among archived initiatives, and asserts the payload", async () => {
+    const seen: any[] = [];
+    const client = {
+      initiatives: async (vars: any) => {
+        seen.push(vars);
+        return connection([{ id: "i1", name: "Old", archivedAt: new Date("2026-01-01") }]);
+      },
+      unarchiveInitiative: async (id: string) => (seen.push({ unarchive: id }), okPayload()),
+    } as any;
+    const r = await unarchiveInitiative(client, "old");
+    expect(seen[0].includeArchived).toBe(true);
+    expect(seen[1]).toEqual({ unarchive: "i1" });
+    expect(r).toMatchObject({ id: "i1", name: "Old" });
+  });
+
+  it("refuses an initiative that is not archived, before any mutation", async () => {
+    let called = false;
+    const client = {
+      initiative: async () => ({ id: UUID, name: "Live", archivedAt: null }),
+      unarchiveInitiative: async () => ((called = true), okPayload()),
+    } as any;
+    await expect(unarchiveInitiative(client, UUID)).rejects.toMatchObject({ code: "usage" });
+    expect(called).toBe(false);
+  });
+
+  it("the other resolvers still see live initiatives only", async () => {
+    const seen: any[] = [];
+    const client = {
+      initiatives: async (vars: any) => (seen.push(vars), connection([{ id: "i1", name: "Live" }])),
+    } as any;
+    await resolveInitiative(client, "live");
+    expect(seen[0].includeArchived).toBe(false);
+  });
+});
+
+describe("initiative add-project / remove-project", () => {
+  function client(overrides: any = {}) {
+    return {
+      initiative: async () => ({ id: UUID, name: "Bets" }),
+      project: async (id: string) => ({
+        id,
+        name: "API",
+        initiativeToProjects: async () =>
+          connection([
+            { id: "link-other", initiativeId: "someone-else" },
+            { id: "link-1", initiativeId: UUID },
+          ]),
+      }),
+      ...overrides,
+    } as any;
+  }
+
+  it("add-project sends both ids (and sortOrder only when given) and returns the link", async () => {
+    const inputs: any[] = [];
+    const c = client({
+      createInitiativeToProject: async (input: any) => (
+        inputs.push(input), payload("initiativeToProject", { id: "link-new" })
+      ),
+    });
+    const link = await addProject(c, UUID, PROJ);
+    expect(link).toEqual({
+      id: "link-new",
+      initiative: { id: UUID, name: "Bets" },
+      project: { id: PROJ, name: "API" },
+    });
+    await addProject(c, UUID, PROJ, { sortOrder: 3 });
+    expect(inputs).toEqual([
+      { initiativeId: UUID, projectId: PROJ },
+      { initiativeId: UUID, projectId: PROJ, sortOrder: 3 },
+    ]);
+  });
+
+  it("add-project fails when the API refuses", async () => {
+    const c = client({ createInitiativeToProject: async () => failedPayload("initiativeToProject") });
+    await expect(addProject(c, UUID, PROJ)).rejects.toMatchObject({ code: "api" });
+  });
+
+  it("finds the link on the project's side and deletes exactly that one", async () => {
+    const seen: string[] = [];
+    const c = client({ deleteInitiativeToProject: async (id: string) => (seen.push(id), okPayload()) });
+    const link = await findProjectLink(c, UUID, PROJ);
+    expect(link.id).toBe("link-1");
+    await removeProjectLink(c, link);
+    expect(seen).toEqual(["link-1"]);
+  });
+
+  it("is a not-found when the project is not in the initiative", async () => {
+    const c = client({
+      project: async (id: string) => ({ id, name: "Loose", initiativeToProjects: async () => connection([]) }),
+    });
+    await expect(findProjectLink(c, UUID, PROJ)).rejects.toMatchObject({ code: "not_found" });
   });
 });
