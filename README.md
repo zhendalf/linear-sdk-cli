@@ -332,10 +332,29 @@ from a file or stdin instead of a flag — e.g. `--body-file <path>` with `-` fo
 too, so you can pipe GraphQL straight in.
 
 **Agent skill.** This repo ships a Claude agent skill at `skills/linear-sdk-cli/` that teaches an
-agent to drive the CLI (the JSON envelope, exit codes, discovery, and forgiving inputs). Point a
-compatible agent at it to get reliable Linear automation out of the box.
+agent to drive the CLI — the JSON envelope, exit codes, discovery, forgiving inputs, and how to
+install the CLI itself if it is missing. Three ways to install it:
+
+```bash
+# Claude Code — as a plugin (the repo is its own marketplace)
+claude plugin marketplace add <owner>/linear-sdk-cli
+claude plugin install linear-sdk-cli
+
+# any agent that reads SKILL.md — the package ships skills/, so from a clone or an install:
+ln -s "$PWD/skills/linear-sdk-cli" ~/.claude/skills/linear-sdk-cli
+```
+
+The skill is self-contained: an agent that has only the skill and no CLI is told to
+`bun add -g linear-sdk-cli`, and one arriving from `schpet/linear-cli` is told not to re-enter a
+key before `linear auth status`, since existing credentials are found. `linear commands --json`
+gives it the full command surface at runtime, so the reference docs are a starting point, not a
+cage.
 
 ## Coming from linear-cli
+
+> The full guide — install without a collision, credentials found without a re-login, config
+> read from the same files, and the three places the two CLIs would silently differ — is
+> [`MIGRATING.md`](MIGRATING.md). This section is the flag-level cheat sheet.
 
 If your fingers or your scripts learned the other `linear-cli`, most of its spellings work here
 unchanged. The left column is theirs, the right is the canonical one this CLI documents and prints

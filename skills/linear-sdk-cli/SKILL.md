@@ -17,8 +17,21 @@ exception — it always prints a shell script.)
 Check the CLI is installed:
 
 ```bash
-linear --version   # or: lin --version
+linear --version   # or: lin --version — prints 0.x for this CLI
 ```
+
+If that fails, or prints `2.x` (that is `schpet/linear-cli`, a different tool that shares the
+`linear` name), install this one — it needs Bun ≥ 1.1:
+
+```bash
+bun add -g linear-sdk-cli          # installs `linear` and `lin`
+lin --version                      # `lin` never collides with the other CLI
+```
+
+`lin` is the safe spelling when both might be present. If the user is coming from
+`schpet/linear-cli`, their credentials and `.linear.toml` are picked up automatically — see
+`MIGRATING.md` in the package; do not ask them to re-enter an API key before running
+`linear auth status`.
 
 ### Authentication
 

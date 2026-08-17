@@ -28,11 +28,14 @@
   },
   "sideEffects": false,
   "files": [
-    "src",
-    "README.md",
-    "LICENSE",
+    ".claude-plugin",
     "CHANGELOG.md",
-    "COVERAGE.md"
+    "COVERAGE.md",
+    "LICENSE",
+    "MIGRATING.md",
+    "README.md",
+    "skills",
+    "src"
   ],
   "engines": {
     "bun": ">=1.1.0"
