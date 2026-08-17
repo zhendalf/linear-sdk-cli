@@ -10,6 +10,7 @@ import { action } from "../lib/action.js";
 import { confirmDestructive, promptInput } from "../lib/prompt.js";
 import type { Context } from "../context.js";
 import * as svc from "../services/team.js";
+import { noteAllIsPagination, ALL_VS_INCLUDE_DISABLED_HELP } from "./user.js";
 import type { Column } from "../output/table.js";
 
 const TEAM_COLUMNS: Column<svc.TeamRow>[] = [
@@ -86,8 +87,11 @@ export function registerTeam(program: Command): void {
     .command("members [key]")
     .description("List a team's members")
     .option("--include-disabled", "include deactivated users (excluded by default)")
+    .addHelpText("after", ALL_VS_INCLUDE_DISABLED_HELP)
     .action(
       action(async (ctx: Context, opts, keyArg?: string) => {
+        // schpet's `--all` here means "inactive too"; ours is pagination. Say so.
+        noteAllIsPagination(ctx, !!opts.includeDisabled);
         const rows = await svc.listMembers(
           ctx.client,
           keyArg,

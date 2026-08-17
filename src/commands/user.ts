@@ -18,6 +18,34 @@ const ROW_COLUMNS: Column<svc.UserRow>[] = [
   { key: "admin", header: "Admin", value: (r) => (r.admin ? "yes" : "no") },
 ];
 
+/**
+ * `--all` on a member listing, without `--include-disabled`.
+ *
+ * schpet/linear-cli spells "include inactive members" as `-a/--all` on `user
+ * list` and `team members`. Ours is the global `--all` — exhaust pagination —
+ * so a transplanted `linear user list --all` succeeds, and the deactivated
+ * users it was asking for are quietly missing (TES-637 item 1). The global
+ * keeps its one meaning (making it mean "and deactivated" here alone would be a
+ * second meaning for one flag, the thing ALIGNMENT.md refuses); instead the
+ * combination says what it did and names the flag that does the other thing.
+ * A warning, not `info`: it survives `--quiet`, because a script is exactly
+ * where a wrong result set goes unnoticed. Shared with `team members`.
+ */
+export function noteAllIsPagination(ctx: Context, includeDisabled: boolean): void {
+  if (ctx.options.all === true && !includeDisabled) {
+    ctx.output.warn(
+      "--all exhausts pagination here; deactivated users are still excluded — pass --include-disabled to list them.",
+    );
+  }
+}
+
+/** The help footer both member listings carry, so the difference is loud before it is hit. */
+export const ALL_VS_INCLUDE_DISABLED_HELP = [
+  "",
+  "Note: --all is the global 'fetch every page'. Deactivated users need --include-disabled",
+  "(schpet/linear-cli's --all).",
+].join("\n");
+
 export function registerUser(program: Command): void {
   const user = program.command("user").alias("u").description("Inspect workspace users");
 
@@ -27,8 +55,10 @@ export function registerUser(program: Command): void {
     .alias("ls")
     .description("List workspace users")
     .option("--include-disabled", "include deactivated users (excluded by default)")
+    .addHelpText("after", ALL_VS_INCLUDE_DISABLED_HELP)
     .action(
       action(async (ctx: Context, opts) => {
+        noteAllIsPagination(ctx, !!opts.includeDisabled);
         const rows = await svc.listUsers(ctx.client, ctx.limit, !!opts.includeDisabled);
         ctx.output.list(rows, ROW_COLUMNS, rows);
       }),

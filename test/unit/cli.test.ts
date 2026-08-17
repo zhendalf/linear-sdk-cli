@@ -354,7 +354,9 @@ describe("linear-cli capability gaps (phase 3)", () => {
   });
 
   it("leaves --team single-valued everywhere else", () => {
-    for (const path of [["issue", "create"], ["issue", "update"], ["project", "create"]]) {
+    // `project create` is the other exception: a project belongs to several
+    // teams, so its `--team` collects like `--teams` (TES-637 item 3).
+    for (const path of [["issue", "create"], ["issue", "update"], ["cycle", "create"], ["label", "create"]]) {
       const teamOptions = option(find(path), "--team");
       expect(teamOptions).toHaveLength(1);
       expect(teamOptions[0]!.parseArg).toBeUndefined();

@@ -101,6 +101,17 @@ export function registerProject(program: Command): void {
     .option("--content <text>", "project content (markdown body)")
     .option("--content-file <path>", "read content from a file ('-' = stdin)")
     .option("--teams <key>", "team (repeatable / comma-separated)", parseList)
+    // The global `-t/--team` is single-valued (last one wins), and on this
+    // command it named the project's team, so schpet's repeatable `--team A
+    // --team B` created the project in B alone (TES-637 item 3). Declared
+    // locally — which keeps addGlobalOptions from injecting the global — as
+    // the same repeatable list `--teams` is, so both spellings collect. Both
+    // at once is a usage error (readAlias), not a merge.
+    .addOption(
+      new Option("-t, --team <key>", "same as --teams (repeatable / comma-separated)").argParser(
+        parseList,
+      ),
+    )
     .option("--lead <who>", "project lead (me|email|name|id)")
     .option("--member <who>", "project member (repeatable / comma-separated)", parseList)
     .option("--state <name>", "initial status (name, type, or id)")
@@ -117,11 +128,18 @@ export function registerProject(program: Command): void {
         "Examples:",
         "  linear project create --name 'Q3 Launch' --teams TES --lead me",
         "  linear project create --name Roadmap --teams TES,ENG --target 2026-09-30",
+        "  linear project create --name API --team TES --team ENG   # same as --teams TES,ENG",
         "  linear project create --name API --teams TES --json | jq -r '.id'",
+        "",
+        "Files: --description-file / --content-file read from a file. -f is the global",
+        "--fields (a column selector) everywhere in this CLI and is refused here.",
       ].join("\n"),
     )
     .action(
       action(async (ctx: Context, opts) => {
+        // `--team` (local, repeatable) and `--teams` are one list under two
+        // spellings; validated before the name prompt so a bad pair fails first.
+        const teams = readAlias<string[]>(opts, "--teams", "--team");
         let name: string | undefined = opts.name;
         if (!name) name = await promptInput(ctx, "Name:", { required: true });
         const description = resolveBody({
@@ -140,7 +158,7 @@ export function registerProject(program: Command): void {
             name,
             description,
             content,
-            team: opts.teams,
+            team: teams,
             lead: opts.lead,
             member: opts.member,
             state: opts.state,

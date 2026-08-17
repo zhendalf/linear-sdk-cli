@@ -1,4 +1,6 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, vi, beforeEach, afterEach } from "bun:test";
+import { createProgram } from "../../src/cli.js";
+import { Context } from "../../src/context.js";
 import { listUsers, getUserDetail, getViewer } from "../../src/services/user.js";
 import { connection } from "./_fakes.js";
 
@@ -124,5 +126,109 @@ describe("getViewer", () => {
     expect(d.id).toBe("me-id");
     expect(d.isMe).toBe(true);
     expect(d.email).toBe("ada@example.com");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Command level: `--all` is pagination, not "include deactivated" (TES-637 #1).
+// ---------------------------------------------------------------------------
+/**
+ * schpet's `user list --all` / `team members --all` include inactive members;
+ * ours is the global "exhaust pagination", and the flag for deactivated users
+ * is `--include-disabled`. Same command line, both exit 0, different rows —
+ * the silent-divergence class. `--all` keeps its one meaning; the listing says
+ * on stderr what it did NOT do, and names the flag that does.
+ */
+describe("`user list --all` / `team members --all` warn that deactivated users are still excluded", () => {
+  let savedEnv: Record<string, string | undefined>;
+  let clientDescriptor: PropertyDescriptor | undefined;
+  let requested: any[] = [];
+
+  function fakeClient() {
+    return {
+      users: async (vars: any) => {
+        requested.push(vars);
+        return conn([fakeUser()]);
+      },
+      teams: async () => conn([{ id: "team-1", key: "TES", name: "Test" }]),
+      team: async () => ({
+        id: "team-1",
+        key: "TES",
+        name: "Test",
+        members: async (vars: any) => {
+          requested.push(vars);
+          return conn([fakeUser()]);
+        },
+      }),
+    } as any;
+  }
+
+  beforeEach(() => {
+    requested = [];
+    savedEnv = { LINEAR_API_KEY: process.env.LINEAR_API_KEY, LINEAR_TEAM: process.env.LINEAR_TEAM };
+    process.env.LINEAR_API_KEY = "lin_api_test000000000000";
+    process.env.LINEAR_TEAM = "TES";
+    clientDescriptor = Object.getOwnPropertyDescriptor(Context.prototype, "client");
+    Object.defineProperty(Context.prototype, "client", { get: () => fakeClient(), configurable: true });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (clientDescriptor) Object.defineProperty(Context.prototype, "client", clientDescriptor);
+    for (const [k, v] of Object.entries(savedEnv)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  });
+
+  /** Run through the real program (JSON on stdout, both silenced) and hand back stderr. */
+  async function run(args: string[]): Promise<string> {
+    let stderr = "";
+    const out = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const err = vi.spyOn(process.stderr, "write").mockImplementation((chunk: any) => {
+      stderr += String(chunk);
+      return true;
+    });
+    try {
+      await createProgram().parseAsync(["node", "linear", ...args, "--json"]);
+    } finally {
+      out.mockRestore();
+      err.mockRestore();
+    }
+    return stderr;
+  }
+
+  it("user list --all: exhausts pagination (as documented) AND warns, naming --include-disabled", async () => {
+    const stderr = await run(["user", "list", "--all"]);
+    expect(stderr).toMatch(/--all exhausts pagination here; deactivated users are still excluded.*--include-disabled/);
+  });
+
+  it("team members --all: the same warning", async () => {
+    const stderr = await run(["team", "members", "--all"]);
+    expect(stderr).toMatch(/deactivated users are still excluded.*--include-disabled/);
+  });
+
+  it("the warning survives --quiet: a script is where a wrong result set goes unnoticed", async () => {
+    const stderr = await run(["user", "list", "--all", "--quiet"]);
+    expect(stderr).toMatch(/--include-disabled/);
+  });
+
+  it("is silent with --include-disabled alongside, and without --all at all", async () => {
+    expect(await run(["user", "list", "--all", "--include-disabled"])).toBe("");
+    expect(await run(["user", "list"])).toBe("");
+    expect(await run(["user", "list", "--limit", "0"])).toBe(""); // --limit 0 is our own spelling, not schpet's --all
+    expect(await run(["team", "members", "--include-disabled", "--all"])).toBe("");
+  });
+
+  it("--help says it up front on both commands", () => {
+    const program = createProgram();
+    const userList = program.commands.find((c) => c.name() === "user")!.commands.find((c) => c.name() === "list")!;
+    const teamMembers = program.commands.find((c) => c.name() === "team")!.commands.find((c) => c.name() === "members")!;
+    for (const cmd of [userList, teamMembers]) {
+      // The note is `addHelpText("after")`, which only `outputHelp()` renders.
+      let help = "";
+      cmd.configureOutput({ writeOut: (s) => void (help += s) });
+      cmd.outputHelp();
+      expect(help).toMatch(/Deactivated users need --include-disabled/);
+    }
   });
 });

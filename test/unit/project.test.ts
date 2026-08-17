@@ -1,4 +1,6 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, vi, beforeEach, afterEach } from "bun:test";
+import { createProgram } from "../../src/cli.js";
+import { Context } from "../../src/context.js";
 import {
   buildFilter,
   createProject,
@@ -267,5 +269,97 @@ describe("deleteProject", () => {
 
   it("fails when the API reports success: false", async () => {
     await expect(deleteProject(stub(failedPayload()), UUID)).rejects.toMatchObject({ code: "api" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Command level: `project create --team`, repeated (TES-637 item 3).
+// ---------------------------------------------------------------------------
+/**
+ * schpet's `project create -t A -t B` collects both teams. Ours had the global,
+ * single-valued `-t/--team` there (last one wins), so the same line created the
+ * project in B alone and exited 0. `--team` on `create` is now the local,
+ * repeatable list `--teams` is — one list, two spellings, never both.
+ */
+describe("`project create --team` is repeatable, and one list with --teams", () => {
+  let savedEnv: Record<string, string | undefined>;
+  let clientDescriptor: PropertyDescriptor | undefined;
+  let created: any[] = [];
+
+  function fakeClient() {
+    return {
+      teams: async () =>
+        connection([
+          { id: "team-a", key: "AAA", name: "A" },
+          { id: "team-b", key: "BBB", name: "B" },
+          { id: "team-t", key: "TES", name: "Test" },
+        ]),
+      createProject: async (input: any) => {
+        created.push(input);
+        return { success: true, project: Promise.resolve({ id: "p1", name: input.name, url: "u" }) };
+      },
+    } as any;
+  }
+
+  beforeEach(() => {
+    created = [];
+    savedEnv = { LINEAR_API_KEY: process.env.LINEAR_API_KEY, LINEAR_TEAM: process.env.LINEAR_TEAM };
+    process.env.LINEAR_API_KEY = "lin_api_test000000000000";
+    process.env.LINEAR_TEAM = "TES";
+    clientDescriptor = Object.getOwnPropertyDescriptor(Context.prototype, "client");
+    Object.defineProperty(Context.prototype, "client", { get: () => fakeClient(), configurable: true });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (clientDescriptor) Object.defineProperty(Context.prototype, "client", clientDescriptor);
+    for (const [k, v] of Object.entries(savedEnv)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  });
+
+  async function run(args: string[]): Promise<void> {
+    const out = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const err = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      await createProgram().parseAsync(["node", "linear", ...args, "--json"]);
+    } finally {
+      out.mockRestore();
+      err.mockRestore();
+    }
+  }
+
+  it("--team A --team B creates the project in BOTH teams (it used to be B alone)", async () => {
+    await run(["project", "create", "--name", "P", "--team", "AAA", "--team", "BBB"]);
+    expect(created[0].teamIds).toEqual(["team-a", "team-b"]);
+  });
+
+  it("-t A,B (comma form) and --teams A,B are the same list", async () => {
+    await run(["project", "create", "--name", "P", "-t", "AAA,BBB"]);
+    await run(["project", "create", "--name", "P", "--teams", "AAA,BBB"]);
+    expect(created.map((c) => c.teamIds)).toEqual([
+      ["team-a", "team-b"],
+      ["team-a", "team-b"],
+    ]);
+  });
+
+  it("--team and --teams together is a usage error, not a merge", async () => {
+    await expect(
+      run(["project", "create", "--name", "P", "--team", "AAA", "--teams", "BBB"]),
+    ).rejects.toMatchObject({ code: "usage", message: expect.stringMatching(/either --teams or --team/) });
+    expect(created).toEqual([]);
+  });
+
+  it("neither flag: the configured team, as before", async () => {
+    await run(["project", "create", "--name", "P"]);
+    expect(created[0].teamIds).toEqual(["team-t"]);
+  });
+
+  it("the local --team replaces the global in --help, and says so", () => {
+    const create = createProgram()
+      .commands.find((c) => c.name() === "project")!
+      .commands.find((c) => c.name() === "create")!;
+    expect(create.options.filter((o) => o.long === "--team")).toHaveLength(1);
+    expect(create.helpInformation()).toMatch(/-t, --team <key>\s+same as --teams \(repeatable/);
   });
 });
