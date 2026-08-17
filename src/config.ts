@@ -3,10 +3,16 @@
  *
  * Two tiers with different trust boundaries:
  *  - Non-secret settings (team, workspace, sort, vcs): flag > env > project
- *    .linear.toml (cwd→ancestors) > user config.
+ *    config > user config (`~/.config/linear/config.toml`) > the reference
+ *    CLI's global config (`~/.config/linear/linear.toml`, read-only).
+ *    The project config is the first file found walking cwd → filesystem
+ *    root, checking `linear.toml`, `.linear.toml`, `.config/linear.toml` in
+ *    each directory — every location schpet/linear-cli 2.5 reads (it checks
+ *    cwd and the git root; we check every directory between, which is a
+ *    superset), in its order.
  *  - The API key has a STRICTER boundary and is never read from a project file
- *    (avoids committing secrets): flag > LINEAR_API_KEY env > user config
- *    (plaintext `api_key`) > OS keyring.
+ *    or from the reference CLI's global file (avoids committing secrets):
+ *    flag > LINEAR_API_KEY env > user config (plaintext `api_key`) > OS keyring.
  *
  * Multi-workspace credentials live under quoted `[workspaces."<slug>"]` tables
  * in the user config, with an optional top-level `default_workspace`. A table
@@ -48,10 +54,24 @@ export interface RawSettings {
   apiKey?: string;
 }
 
-export type ConfigSource = "flag" | "env" | "project" | "user" | "keychain" | "none";
+/**
+ * Where a value came from. `user` is our `~/.config/linear/config.toml`;
+ * `global` is the reference CLI's `~/.config/linear/linear.toml`, read for
+ * non-secret settings only; `keychain` is the OS keyring (API key only).
+ */
+export type ConfigSource = "flag" | "env" | "project" | "user" | "global" | "keychain" | "none";
 
 /** Where a stored workspace credential's secret lives. */
 export type CredentialStorage = "file" | "keychain";
+
+/** A setting's provenance: which tier, and (for a file) which file. */
+export interface SettingOrigin {
+  source: ConfigSource;
+  path?: string;
+}
+
+/** The non-secret settings, each with its provenance. */
+export type SettingOrigins = Record<"team" | "workspace" | "sort" | "vcs", SettingOrigin>;
 
 export interface ResolvedConfig {
   apiKey?: string;
@@ -73,10 +93,14 @@ export interface ResolvedConfig {
   /** Where `sort` came from, so an invalid value can be blamed precisely. */
   sortSource: ConfigSource;
   vcs: string;
+  /** Provenance of every non-secret setting (`linear config` shows it). */
+  origins: SettingOrigins;
   /** Absolute path of the user config file (may not exist yet). */
   userConfigPath: string;
-  /** Project .linear.toml path that was loaded, if any. */
+  /** Project config path that was loaded, if any (see `findProjectConfig`). */
   projectConfigPath?: string;
+  /** The reference CLI's global `linear.toml`, when it exists and was read. */
+  globalConfigPath?: string;
 }
 
 export interface ConfigInputs {
@@ -95,6 +119,22 @@ export function userConfigPath(env: NodeJS.ProcessEnv = process.env): string {
   const base = env.XDG_CONFIG_HOME || join(env.HOME || homedir(), ".config");
   return join(base, "linear", USER_CONFIG_FILE);
 }
+
+/**
+ * The reference CLI's global config (`$XDG_CONFIG_HOME/linear/linear.toml`),
+ * a sibling of ours. Read for non-secret settings, below our own file; its
+ * `api_key`, if any, is ignored like a project file's.
+ */
+export function globalConfigPath(env: NodeJS.ProcessEnv = process.env): string {
+  return join(dirname(userConfigPath(env)), "linear.toml");
+}
+
+/**
+ * The project config file names, in the order they are tried in each
+ * directory — the reference CLI's order, so a repo that has more than one
+ * resolves the same way under both tools.
+ */
+export const PROJECT_CONFIG_NAMES = ["linear.toml", ".linear.toml", join(".config", "linear.toml")] as const;
 
 /**
  * The reference CLI's credentials file, a sibling of our config. Its keyring
@@ -278,14 +318,23 @@ function lookupCredential(
   }
 }
 
-/** Walk from cwd up to filesystem root collecting the first `.linear.toml`. */
-function findProjectConfig(cwd: string): string | undefined {
+/**
+ * Walk from cwd up to the filesystem root and return the first project config:
+ * in each directory `linear.toml`, then `.linear.toml`, then
+ * `.config/linear.toml`. That is every file the reference CLI reads (it looks
+ * in cwd and at the git root; every directory in between is a superset that
+ * agrees with it wherever it would find something) — so a repo set up with its
+ * `linear config`, which prefers `<gitroot>/.config/linear.toml`, just works.
+ */
+export function findProjectConfig(cwd: string): string | undefined {
   let dir = cwd;
   const { root } = parsePath(dir);
   // Bound the walk so a pathological symlink loop can't spin forever.
   for (let i = 0; i < 64; i++) {
-    const candidate = join(dir, ".linear.toml");
-    if (existsSync(candidate)) return candidate;
+    for (const name of PROJECT_CONFIG_NAMES) {
+      const candidate = join(dir, name);
+      if (existsSync(candidate)) return candidate;
+    }
     if (dir === root) break;
     const parent = dirname(dir);
     if (parent === dir) break;
@@ -315,6 +364,11 @@ export function resolveConfig(inputs: ConfigInputs = {}): ResolvedConfig {
   const user = readUserConfig(userPath);
   const projectPath = findProjectConfig(cwd);
   const projectSettings = projectPath ? readTomlFile(projectPath) : {};
+  // The reference CLI's global file: same non-secret reader as a project file,
+  // so its `api_key` (it does allow one there) is never picked up.
+  const globalCandidate = globalConfigPath(env);
+  const globalPath = existsSync(globalCandidate) ? globalCandidate : undefined;
+  const globalSettings = globalPath ? readTomlFile(globalPath) : {};
 
   // ----- API key resolution (strict trust boundary) -----------------------
   // Resolution is TOTAL: selection problems are stashed in `apiKeyError` rather
@@ -378,17 +432,29 @@ export function resolveConfig(inputs: ConfigInputs = {}): ResolvedConfig {
     }
   }
 
-  // ----- Non-secret settings (project config MAY participate) -------------
-  const pick = <K extends keyof RawSettings>(key: K): string | undefined =>
-    flags[key] ?? envSettings[key] ?? projectSettings[key] ?? user.settings[key];
+  // ----- Non-secret settings (project + global config MAY participate) -----
+  // flag > env > project file > our user file > the reference CLI's global file.
+  const tiers: Array<[ConfigSource, RawSettings, string | undefined]> = [
+    ["flag", flags, undefined],
+    ["env", envSettings, undefined],
+    ["project", projectSettings, projectPath],
+    ["user", user.settings, userPath],
+    ["global", globalSettings, globalPath],
+  ];
+  const pick = <K extends "team" | "workspace" | "sort" | "vcs">(key: K): string | undefined =>
+    tiers.find(([, settings]) => settings[key] !== undefined)?.[1][key];
 
-  /** Which tier `pick` would have taken the value from. */
-  const sourceOf = <K extends keyof RawSettings>(key: K): ConfigSource => {
-    if (flags[key] !== undefined) return "flag";
-    if (envSettings[key] !== undefined) return "env";
-    if (projectSettings[key] !== undefined) return "project";
-    if (user.settings[key] !== undefined) return "user";
-    return "none";
+  /** Which tier `pick` took the value from, and which file if it was one. */
+  const originOf = (key: "team" | "workspace" | "sort" | "vcs"): SettingOrigin => {
+    const hit = tiers.find(([, settings]) => settings[key] !== undefined);
+    return hit ? { source: hit[0], path: hit[2] } : { source: "none" };
+  };
+
+  const origins: SettingOrigins = {
+    team: originOf("team"),
+    workspace: originOf("workspace"),
+    sort: originOf("sort"),
+    vcs: originOf("vcs"),
   };
 
   return {
@@ -398,13 +464,15 @@ export function resolveConfig(inputs: ConfigInputs = {}): ResolvedConfig {
     credentialWorkspace,
     team: pick("team"),
     // The display `workspace` setting is separate from credential selection:
-    // flag > env > project > user. (Credential selection ignores project.)
-    workspace: flags.workspace ?? envSettings.workspace ?? projectSettings.workspace ?? user.settings.workspace,
+    // it walks every tier. (Credential selection ignores project + global.)
+    workspace: pick("workspace"),
     sort: pick("sort") ?? "priority",
-    sortSource: sourceOf("sort"),
+    sortSource: origins.sort.source,
     vcs: pick("vcs") ?? "git",
+    origins,
     userConfigPath: userPath,
     projectConfigPath: projectPath,
+    globalConfigPath: globalPath,
   };
 }
 

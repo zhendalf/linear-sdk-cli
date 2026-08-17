@@ -278,6 +278,15 @@ export function registerMeta(program: Command): void {
             workspace: ctx.options.workspace,
           },
         });
+        // Each setting names the tier it came from — and the file, when it was
+        // one — so "why is my team X" has a one-line answer.
+        const from = (key: keyof typeof c.origins): string => {
+          const o = c.origins[key];
+          if (o.source === "none") return "default";
+          return o.path ? `${o.source}: ${o.path}` : o.source;
+        };
+        const show = (key: keyof typeof c.origins, value: string | undefined): string | undefined =>
+          value === undefined ? undefined : `${value}  (${from(key)})`;
         ctx.output.detail(
           {
             apiKey: redactKey(c.apiKey),
@@ -287,18 +296,21 @@ export function registerMeta(program: Command): void {
             workspace: c.workspace ?? null,
             sort: c.sort,
             vcs: c.vcs,
+            origins: c.origins,
             userConfigPath: c.userConfigPath,
             projectConfigPath: c.projectConfigPath ?? null,
+            globalConfigPath: c.globalConfigPath ?? null,
           },
           [
             ["API key", `${redactKey(c.apiKey)} (${c.apiKeySource})`],
             ["Credential workspace", c.credentialWorkspace ?? "(none)"],
-            ["Team", c.team],
-            ["Workspace", c.workspace],
-            ["Sort", c.sort],
-            ["VCS", c.vcs],
+            ["Team", show("team", c.team)],
+            ["Workspace", show("workspace", c.workspace)],
+            ["Sort", show("sort", c.sort)],
+            ["VCS", show("vcs", c.vcs)],
             ["User config", c.userConfigPath],
             ["Project config", c.projectConfigPath],
+            ["Global config", c.globalConfigPath],
           ],
         );
       }),

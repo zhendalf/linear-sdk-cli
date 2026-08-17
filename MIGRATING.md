@@ -46,10 +46,24 @@ gone). The API key is **never** read from a project `.linear.toml`.
 
 ## 3. Config — same files, same keys
 
-We look in every place schpet does: `.linear.toml` and `linear.toml` up the directory tree,
-`.config/linear.toml`, and `~/.config/linear/linear.toml` (plus our own `~/.config/linear/config.toml`).
-`team_id`, `issue_sort`, `default_workspace` and `[workspaces."slug"]` tables are honored.
-`linear config` shows the resolved result; `linear config init` writes one.
+We look in every place schpet does, in its order. Walking up from the working directory, each
+directory is checked for `linear.toml`, then `.linear.toml`, then `.config/linear.toml` (schpet
+checks cwd and the git root; we check every directory between, which agrees with it wherever it
+would find something). Below that, our `~/.config/linear/config.toml`, then schpet's global
+`~/.config/linear/linear.toml` — read for `team_id`, `workspace`, `issue_sort`, `vcs`; **not** for
+`api_key`, which schpet allows there and we never take from any file but our own. `linear config`
+prints each value with the file it came from, so nothing is a mystery:
+
+```
+Team:           TES  (project: /repo/.config/linear.toml)
+Sort:           priority  (global: /Users/you/.config/linear/linear.toml)
+```
+
+Two key differences to know: `issue_sort = "manual"` (schpet's board order) has no equivalent here
+and is a usage error naming the file — change it to `priority` or drop the line; and schpet's
+`issue_create_*`, `download_images`, `hyperlink_format`, `attachment_dir` keys are ignored (no
+such features yet). `linear config init` writes a `.linear.toml`; `linear config set <key>
+<value>` edits one key.
 
 ## 4. Commands — same words, or an alias
 

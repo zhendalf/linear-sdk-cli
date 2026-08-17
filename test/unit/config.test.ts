@@ -110,6 +110,91 @@ describe("resolveConfig precedence", () => {
   });
 });
 
+describe("config discovery — every place the reference CLI reads", () => {
+  const write = (rel: string, body: string) => {
+    const path = join(root, rel);
+    mkdirSync(join(path, ".."), { recursive: true });
+    writeFileSync(path, body);
+    return path;
+  };
+
+  it("reads <root>/.config/linear.toml — what schpet's `linear config` writes", () => {
+    const path = write("proj/.config/linear.toml", `team_id = "SCH"\nissue_sort = "priority"\n`);
+    const cfg = resolveConfig({ env: baseEnv(), cwd: projectDir });
+    expect(cfg.team).toBe("SCH");
+    expect(cfg.projectConfigPath).toBe(path);
+    expect(cfg.origins.team).toEqual({ source: "project", path });
+  });
+
+  it("reads an unhidden linear.toml, walking up from cwd", () => {
+    const path = write("proj/linear.toml", `team = "UNHIDDEN"\n`);
+    const cfg = resolveConfig({ env: baseEnv(), cwd: projectDir });
+    expect(cfg.team).toBe("UNHIDDEN");
+    expect(cfg.projectConfigPath).toBe(path);
+  });
+
+  it("in one directory, tries linear.toml, then .linear.toml, then .config/linear.toml (schpet's order)", () => {
+    write("proj/.config/linear.toml", `team = "DOTCONFIG"\n`);
+    write("proj/.linear.toml", `team = "DOTFILE"\n`);
+    expect(resolveConfig({ env: baseEnv(), cwd: join(root, "proj") }).team).toBe("DOTFILE");
+    write("proj/linear.toml", `team = "PLAIN"\n`);
+    expect(resolveConfig({ env: baseEnv(), cwd: join(root, "proj") }).team).toBe("PLAIN");
+  });
+
+  it("a nearer directory wins over a farther one regardless of file name", () => {
+    write("proj/linear.toml", `team = "FAR"\n`);
+    write("proj/nested/.config/linear.toml", `team = "NEAR"\n`);
+    expect(resolveConfig({ env: baseEnv(), cwd: projectDir }).team).toBe("NEAR");
+  });
+
+  it("reads the reference CLI's global ~/.config/linear/linear.toml, below our config.toml", () => {
+    const globalPath = write("xdg/linear/linear.toml", `team_id = "GLOBAL"\nissue_sort = "priority"\nvcs = "git"\n`);
+    let cfg = resolveConfig({ env: baseEnv(), cwd: root });
+    expect(cfg.team).toBe("GLOBAL");
+    expect(cfg.globalConfigPath).toBe(globalPath);
+    expect(cfg.origins.team).toEqual({ source: "global", path: globalPath });
+    expect(cfg.sortSource).toBe("global");
+    // Ours wins on the same key…
+    writeUserConfig(`team = "OURS"\n`);
+    cfg = resolveConfig({ env: baseEnv(), cwd: root });
+    expect(cfg.team).toBe("OURS");
+    expect(cfg.origins.team).toEqual({ source: "user", path: userConfigPath(baseEnv()) });
+    // …but theirs still fills a key ours does not set.
+    expect(cfg.sort).toBe("priority");
+    expect(cfg.origins.sort.source).toBe("global");
+    // and a project file beats both.
+    write("proj/nested/.linear.toml", `team = "PROJ"\n`);
+    expect(resolveConfig({ env: baseEnv(), cwd: projectDir }).origins.team.source).toBe("project");
+  });
+
+  it("NEVER takes an api_key from the reference CLI's global file (it allows one there)", () => {
+    write("xdg/linear/linear.toml", `api_key = "lin_api_globalkey00"\nteam_id = "G"\n`);
+    const cfg = resolveConfig({ env: baseEnv(), cwd: root });
+    expect(cfg.apiKey).toBeUndefined();
+    expect(cfg.apiKeySource).toBe("none");
+    expect(cfg.team).toBe("G");
+  });
+
+  it("reports globalConfigPath only when the file exists", () => {
+    expect(resolveConfig({ env: baseEnv(), cwd: root }).globalConfigPath).toBeUndefined();
+  });
+
+  it("origins name the tier for every non-secret setting, `none` for defaults", () => {
+    write("proj/nested/.linear.toml", `workspace = "acme"\n`);
+    const cfg = resolveConfig({
+      env: baseEnv({ LINEAR_ISSUE_SORT: "updated" }),
+      cwd: projectDir,
+      flags: { team: "FLAG" },
+    });
+    expect(cfg.origins).toEqual({
+      team: { source: "flag", path: undefined },
+      workspace: { source: "project", path: join(projectDir, ".linear.toml") },
+      sort: { source: "env", path: undefined },
+      vcs: { source: "none" },
+    });
+  });
+});
+
 describe("multi-workspace credential resolution", () => {
   function writeWorkspaces(body: string) {
     writeUserConfig(body);

@@ -354,9 +354,24 @@ option model, where we keep true globals.
 
 ## Configuration
 
-Non-secret defaults live in `~/.config/linear/config.toml` (user-wide) or a project-local
-`.linear.toml` (walked up from the working directory). **Secrets never go in `.linear.toml`** — the
-API key is only ever read from the user config, the env, or the flag.
+Non-secret defaults live in `~/.config/linear/config.toml` (user-wide) or a project-local config
+file. **Secrets never go in a project file** — the API key is only ever read from the flag, the
+env, the user config, or the OS keyring.
+
+Precedence, highest first — `linear config` prints each value with the tier and file it came from:
+
+1. the flag (`--team`, `--workspace`, `--sort`)
+2. the environment (`LINEAR_TEAM`/`LINEAR_TEAM_ID`, `LINEAR_WORKSPACE`, `LINEAR_ISSUE_SORT`, `LINEAR_VCS`)
+3. the **project config**: the first file found walking up from the working directory, checking in
+   each directory `linear.toml`, then `.linear.toml`, then `.config/linear.toml` — the same
+   names and order as [schpet/linear-cli](https://github.com/schpet/linear-cli), so a repo set
+   up with its `linear config` (which writes `<git root>/.config/linear.toml`) is picked up as-is
+4. the **user config**, `~/.config/linear/config.toml` (`$XDG_CONFIG_HOME` honored)
+5. schpet/linear-cli's **global config**, `~/.config/linear/linear.toml` — read for non-secret
+   settings only, so a migrating user's defaults carry over
+
+Keys: `team` (or `team_id`), `workspace`, `sort` (or `issue_sort`), `vcs`. `config init` writes a
+project file; `config set` edits one key.
 
 ```toml
 # ~/.config/linear/config.toml

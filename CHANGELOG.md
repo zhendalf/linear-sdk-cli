@@ -24,6 +24,17 @@ All notable changes to this project are documented here. The format is based on
   prompts on `/dev/tty` and hangs in a real terminal, verified), Linux through `secret-tool`'s
   stdin. `auth login --key -` reads the key from stdin; `--key <value>` warns that argv is
   visible to other processes.
+- **Config discovery now covers every file schpet/linear-cli reads.** We looked only for
+  `.linear.toml` up the tree and `~/.config/linear/config.toml`, so a repo configured with its
+  `linear config` — which prefers `<git root>/.config/linear.toml` — and a user's global
+  `~/.config/linear/linear.toml` were both invisible: `issue create` said "No team specified" and
+  every list widened to the workspace. The project walk now checks `linear.toml`, `.linear.toml`
+  and `.config/linear.toml` in each directory from cwd up, in its order (it looks at cwd and the
+  git root; every directory between is a superset that agrees wherever it would find something),
+  and its global `linear.toml` is read as the lowest tier for non-secret settings — never for the
+  `api_key` it allows there, same rule as a project file. `linear config` now prints each value with
+  the tier and file it came from (`Team: TES (project: /repo/.config/linear.toml)`), and the JSON
+  carries `origins` and `globalConfigPath`.
 
 - **The query filters a script carried over from `linear-cli` expects.** These failed loudly before
   (unknown flag), so nothing changes meaning — but they blocked real workflows, and every one of
