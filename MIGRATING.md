@@ -139,8 +139,11 @@ These are the only spots where the same command could *succeed and return differ
 ## 7. Not here yet
 
 `issue attach <file>` (file upload), `issue commits`, `team autolinks`, jj support, bulk
-`--bulk-file`, markdown rendering + pager, `issue agent-session`. Each is tracked; the raw
-`linear api` reaches all of the API surface in the meantime.
+`--bulk-file`, markdown rendering + pager. Each is tracked; the raw `linear api` reaches all of
+the API surface in the meantime. If you type one of these out of habit, the CLI says where the
+equivalent lives rather than just rejecting it: `linear issue attach x` answers "File upload is
+not available yet … To attach a URL: linear attachment create <issue> --url <url>", and
+`issue link` / `issue commits` point the same way.
 
 ## 8. What you gain
 

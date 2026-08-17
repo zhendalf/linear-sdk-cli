@@ -65,6 +65,19 @@ function lifecycleMark(r: Pick<svc.IssueRow, "trashed" | "archivedAt">): string 
   return r.trashed ? " (trashed)" : r.archivedAt ? " (archived)" : "";
 }
 
+/**
+ * schpet/linear-cli `issue` subcommands that a migrating user may type and that
+ * do not exist under that name here. Since `view` is the default subcommand,
+ * `linear issue attach x` lands in `view` with "attach" as the id; without this
+ * the error would only say it is not an issue id. Keep in step with MIGRATING.md.
+ */
+const SCHPET_ISSUE_SUBCOMMANDS: Record<string, string> = {
+  attach: "File upload is not available yet (tracked). To attach a URL: 'linear attachment create <issue> --url <url>'.",
+  link: "Use 'linear attachment create <issue> --url <url>'.",
+  commits: "'issue commits' is not available here (jj/git log integration is not adopted). Use 'git log --grep <ID>'.",
+  "agent-session": "Use 'linear issue agent-session list|view <issue>'.",
+};
+
 export function registerIssue(program: Command): void {
   const issue = program.command("issue").alias("i").description("Work with issues");
 
@@ -79,10 +92,14 @@ export function registerIssue(program: Command): void {
         // `view` is the default subcommand, so `linear issue lst` lands here
         // with "lst" as the id. Say what it probably was, not just what it is not.
         if (idArg !== undefined && !ISSUE_ID_RE.test(idArg)) {
-          const guess = suggestSubcommand(issue, idArg);
+          // A schpet/linear-cli subcommand that lives elsewhere here (or not at
+          // all) is the likeliest thing a migrating user types; name the
+          // equivalent before falling back to a spelling guess.
+          const ported = SCHPET_ISSUE_SUBCOMMANDS[idArg.toLowerCase()];
+          const guess = ported ? undefined : suggestSubcommand(issue, idArg);
           throw usageError(
             `'${idArg}' is not a valid issue id (expected e.g. TES-123 or a UUID).${
-              guess ? ` Did you mean 'linear issue ${guess}'?` : ""
+              ported ? ` ${ported}` : guess ? ` Did you mean 'linear issue ${guess}'?` : ""
             }`,
           );
         }

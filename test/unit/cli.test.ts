@@ -629,3 +629,34 @@ describe("flag gaps closed (TES-642)", () => {
     expect(find(["initiative", "unarchive"])).toBeDefined();
   });
 });
+
+// A schpet/linear-cli user typing one of its issue subcommands that lives
+// elsewhere here (or nowhere) lands in `view` — the default subcommand — with
+// the word as the id. The error must point at the equivalent, not just say it
+// is not an id. Kept in step with MIGRATING.md §4/§7.
+describe("schpet issue subcommands land in view with a pointer", () => {
+  async function errorFor(word: string): Promise<string> {
+    const program = createProgram();
+    program.exitOverride();
+    try {
+      await program.parseAsync(["node", "linear", "issue", word, "x"]);
+    } catch (err: any) {
+      return String(err?.message ?? err);
+    }
+    return "";
+  }
+  it("attach → attachment create --url, and says upload is not here", async () => {
+    const m = await errorFor("attach");
+    expect(m).toContain("attachment create");
+    expect(m).toContain("not available");
+  });
+  it("link → attachment create --url", async () => {
+    expect(await errorFor("link")).toContain("attachment create <issue> --url");
+  });
+  it("commits → says so and offers git log", async () => {
+    expect(await errorFor("commits")).toContain("git log");
+  });
+  it("still guesses a misspelled real subcommand", async () => {
+    expect(await errorFor("lst")).toContain("Did you mean 'linear issue list'");
+  });
+});
