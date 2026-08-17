@@ -90,7 +90,11 @@ such features yet). `linear config init` writes a `.linear.toml`; `linear config
 | `auth whoami` | `whoami` (also `auth whoami`) | |
 | `auth migrate` | `auth migrate` | |
 | `config` (writes toml) | `config init` / `config set` | |
-| `team states` / `team members` / `user list` | same | |
+| `team states` / `team members` / `user list` | same | `--all` there means "inactive too"; here it is pagination — use `--include-disabled` (see §6) |
+| `issue start` | same | moves the issue to the first `started` state, as there; `--no-move` to only branch |
+| `issue describe` | same | byte-identical output: `ID Title`, then `Linear-issue:` / `Linear-issue-url:` trailers |
+| `issue pull-request` | same | title `ID Title` as there; body is the two `Linear-issue` trailers (theirs: the URL alone) — the issue description is not copied into GitHub |
+| `project create -t A -t B` | same, or `--teams A,B` | collects both, as there (see §6) |
 | `document create\|list\|update --project\|--issue\|--initiative\|--team\|--cycle\|--release` | same | `update` re-points, as there; `--team` is the global flag (with `--cycle` it scopes the lookup) |
 | `initiative add-project` / `remove-project` / `unarchive` | same | |
 | `project delete` / `team delete` | same, confirmation-gated | |
@@ -121,12 +125,17 @@ Passing both spellings at once (`--due` *and* `--due-date`) is a usage error, no
 **Short flags are the one place we did not follow.** schpet 2.5's own tree assigns `-a` four
 meanings (`--app`, `--all`, `--assignee`, `--attach`), `-f` four, `-y` three, `-t` two (`--title`
 and `--team`). There is no consistent target to copy. Ours holds **one meaning per letter across
-all 141 commands**, so `-t` is always `--team`, `-p` always `--project`, `-P` always `--priority`.
-Every collision fails loudly — `-p 2` says "No project matching '2'", not "set priority 2".
+all 141 commands**, so `-t` is always `--team`, `-p` always `--project`, `-P` always `--priority`,
+`-f` always `--fields`, `-n` always `--limit`. Every collision fails loudly — `-p 2` says "No
+project matching '2'", not "set priority 2" — and the two that *used* not to are loud now: `-f`
+and `-n` are refused on any command that prints no table (`project create -f desc.md` says
+"--fields does not apply … use --description-file <path>"; `project create -n 'My Project'` says
+"--limit does not apply … the name is --name"), instead of creating the project without either.
 
-## 6. The three things that would silently differ — and how we made them loud
+## 6. What would silently differ — and how we made it loud (or the same)
 
-These are the only spots where the same command could *succeed and return different data*. Know them.
+These are the spots where the same command line could *succeed on both and mean different things*.
+Every one is now either identical, or says so on stderr, or is a usage error. Know them.
 
 1. **`issue list`** — theirs shows *your unstarted* issues; ours shows the *team's* issues.
    We did not alias `list` to `mine`: a command named "list" that hides your colleagues' work and
@@ -137,6 +146,57 @@ These are the only spots where the same command could *succeed and return differ
    work is on top. schpet hardcodes descending, which the API answers with Backlog *above* In
    Progress; a Low-priority backlog item outranks an Urgent in-progress one there. We diverge on
    purpose.
+4. **`user list --all` / `team members --all`** — theirs: include *inactive* members. Ours: `--all`
+   is the global "fetch every page" on all 141 commands, and deactivated users are
+   `--include-disabled`. We kept the one meaning; the command prints a warning on stderr (even
+   under `--quiet`) that deactivated users are still excluded and names `--include-disabled`, and
+   `--help` says so up front. Not adopted: making `--all` mean "and deactivated" on two commands
+   would give one global two meanings.
+5. **`-f <file>` on `project create/update`, `document create/update`** — theirs: `--description-file` /
+   `--content-file`. Ours: `-f` is `--fields`, and it used to be *dropped* on those commands, so
+   `project create --name X -f desc.md` created the project with no description and exited 0.
+   `--fields`, `--limit` and `--all` are now usage errors on every command that prints no table or
+   detail block, and the message names `--description-file` / `--content-file` where they exist.
+   Not adopted: a local `-f = --description-file` on four commands would be one letter meaning two
+   things (§5), and would still be `--fields` in `--help`.
+6. **`project create --team A --team B`** — theirs collects both; ours took the last one and created
+   the project in B alone. `--team` on `project create` is now the same repeatable list as
+   `--teams`; both spellings at once is a usage error. (`project update --team` stays refused,
+   pointing at `--teams`, because that list *replaces* the project's teams.)
+7. **`issue start`** — theirs always moves the issue to the first `started` state after branching;
+   ours only did with `--move`, so the transplanted command left the issue in Backlog without a
+   word. Adopted: moving is the default (that is what "start" means, and what an agent that says
+   "start" expects), `--no-move` opts out, `--move` is still accepted. Both the checkout and the
+   state change are reported.
+8. **`issue describe`** — theirs prints `ID Title`, a blank line, then `Linear-issue: Fixes ID` and
+   `Linear-issue-url: URL`; ours printed `Title` and a bare `Fixes ID`. Piped into `git commit -m`
+   that was a different commit. Adopted, byte for byte: proper trailers are what `git
+   interpret-trailers` and jj read back, and Linear reads the magic word right before the id
+   either way (linear.app/docs/github). `-r/--references` still swaps in `References`.
+9. **`issue pull-request`** — theirs titles the PR `ID Title` and sends the issue URL as the body;
+   ours titled it `Title` and pasted the issue *description* into the body. Title adopted (a custom
+   `--title` is prefixed too). Body: the same two trailers `describe` prints — the URL as there,
+   plus the magic word so the link (and auto-close) does not depend on the branch name — and the
+   description stays in Linear rather than in a GitHub PR body.
+10. **`issue list`/`mine`/`search`, `project list` with no team configured** — theirs error
+   ("No default team…"); ours list the whole workspace, on purpose (`--all-teams` explicitly). So a
+   migrating user cannot mistake that for a team's list, the command prints one stderr note ("No
+   default team configured; listing every team's…"); `--quiet` silences it.
+11. **`--cycle +1`** — active cycle plus one on both (it was cycle *#1* here once).
+12. **`document list --team X`** — filters to the team's documents on both.
+
+Loud already, listed so you are not surprised:
+
+| you type (schpet habit) | here | what happens |
+|---|---|---|
+| `issue update TES-1 -t 'New title'` (`-t` = `--title` there) | `--title` | `-t` is `--team`: "No team matching 'New title'", exit 3 — unless a team is really named that |
+| `project create -n 'My Project'` (`-n` = `--name` there) | `--name` | `-n` is `--limit`: refused on `create`, and the message says so |
+| `issue comment delete <id>` in a script | same, `--yes` | destructive actions off-TTY need `--yes` (exit 2), there it just deletes |
+| `--assignee <partial name>` (fuzzy there) | `me`, an email, an exact display/full name | "No user matching", exit 3 |
+| `issue view 123` (bare number, team from config there) | `TES-123` | rejected, exit 2 |
+| `linear config` (writes a toml there) | prints; `config init` / `config set` write | |
+| `project update <p> -t A` (replaces the teams there) | `--teams A` | `--team` refused with the reason; `--teams` replaces, as there |
+| `--all` on `user list` | see 4 above | pagination + a warning |
 
 ## 7. Not here yet
 

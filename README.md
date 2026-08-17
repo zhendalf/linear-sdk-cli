@@ -24,7 +24,7 @@ linear issue list --json | jq -r '.[].identifier'  # ready for scripts
 - **Human-first by default** — aligned tables and readable detail views, color-aware, paged sanely.
 - **Agent- and script-friendly** — every data command takes `--json` and emits a stable, documented envelope on stdout; status text stays on stderr.
 - **Git-aware** — the current issue is inferred from your branch (`tes-123-fix` → `TES-123`), so most issue commands let you drop the id.
-- **Git + GitHub workflow** — `issue start` checks out the branch, `issue describe` prints a commit trailer, `issue pr` opens a GitHub PR — all linked back to the issue.
+- **Git + GitHub workflow** — `issue start` checks out the branch and marks the issue started, `issue describe` prints a commit message with Linear-issue trailers, `issue pr` opens a GitHub PR — all linked back to the issue.
 - **Forgiving inputs** — refer to things the way you think of them: `TES-123`, team `TES`, `--assignee me`, `--cycle current`, state and label by name.
 - **Multi-workspace** — store credentials for several workspaces and switch with a global `--workspace`.
 - **Complete & honest** — first-class commands for the core resource graph, a raw `linear api` for everything else, and a [measured coverage audit](#coverage) that CI keeps honest.
@@ -91,7 +91,7 @@ linear whoami                              # confirm you're connected
 linear issue list --assignee me --state started        # my in-progress work
 linear issue view TES-42                                # full detail
 linear issue create --title "Fix login" --team TES -P 2 # new High-priority issue
-linear issue start TES-42 --move                        # check out its branch + mark started
+linear issue start TES-42                               # check out its branch + mark it started
 linear issue comment TES-42 "shipped — please review"
 ```
 
@@ -175,20 +175,24 @@ linear issue archive TES-42 --yes
 branch everywhere below.
 
 ```sh
-linear issue start TES-123 --move          # checkout tes-123-* branch and mark it started
-git commit -m "$(linear issue describe)"   # commit with a "Fixes TES-123" trailer
-linear issue pr                             # open a GitHub PR (title/body from the issue)
+linear issue start TES-123                 # checkout tes-123-* branch and mark it started (--no-move: branch only)
+git commit -m "$(linear issue describe)"   # "TES-123 Title" + Linear-issue trailers
+linear issue pr                             # open a GitHub PR titled "TES-123 Title", body = the trailers
 linear issue pr --draft --base main        # …as a draft against a specific base
 linear issue pr --json | jq -r .url        # the created PR URL is the only thing on stdout
 ```
 
-`issue describe` prints the issue title plus a commit trailer using Linear's
-[git magic words](https://linear.app/docs/github#link-prs-and-commits) (`Fixes TES-123`, or
-`References TES-123` with `-r`), so the issue is linked — and closed on merge — when the commit
-lands. `issue pull-request` (alias `pr`) opens the PR via the [`gh`](https://cli.github.com) CLI:
-the body is the issue description followed by a `Fixes <ID>` trailer and the Linear URL, so the PR
-and issue reference each other. It never pushes or creates branches for you, and fails with a
-clear error (not a stack trace) when `gh` is missing, unauthenticated, or the branch isn't pushed.
+`issue describe` prints a whole commit message — `TES-123 Title`, a blank line, then two git
+trailers, `Linear-issue: Fixes TES-123` and `Linear-issue-url: <url>` (the same text
+schpet/linear-cli prints, so `git interpret-trailers` and jj read it back). The magic word sits
+right before the id, which is where Linear's
+[git integration](https://linear.app/docs/github#link-prs-and-commits) reads it, so the issue is
+linked — and closed on merge — when the commit lands; `-r` swaps in `References` to link without
+closing. `issue pull-request` (alias `pr`) opens the PR via the [`gh`](https://cli.github.com) CLI:
+title `TES-123 Title` (a custom `--title` is prefixed the same way), body the same two trailers,
+so the PR and issue reference each other; the issue description stays in Linear. It never pushes
+or creates branches for you, and fails with a clear error (not a stack trace) when `gh` is
+missing, unauthenticated, or the branch isn't pushed.
 
 **Projects & status updates**
 
@@ -240,8 +244,8 @@ API rejects roadmap mutations with a deprecation notice. Use `initiative` for ne
 | Flag | Effect |
 | --- | --- |
 | `--json` | Emit machine JSON only on stdout (see [the contract](#scripting--agents)). |
-| `-f, --fields a,b,c` | Choose which columns to show (table output). |
-| `-n, --limit <n>` / `--all` | Cap results, or fetch every page. |
+| `-f, --fields a,b,c` | Choose which columns to show (table output), detail lines, or JSON keys. Refused on a command that prints only a receipt. |
+| `-n, --limit <n>` / `--all` | Cap results, or fetch every page. Refused on a command that pages nothing. |
 | `-t, --team <key>` | Set the default team for the command. |
 | `--workspace <slug>` | Select which stored workspace credential to use. |
 | `-y, --yes` | Skip confirmation prompts (required for destructive actions when not a TTY). |

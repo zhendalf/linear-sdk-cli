@@ -217,6 +217,20 @@ The underlying problem — every global advertised on every command — still st
 question; the injection mechanism merely skips a global a command declares for itself, which is what
 makes a per-command meaning (or refusal) like this one possible.
 
+**Update (TES-637 (2) / TES-596): the three globals whose silent no-op costs data are now refused
+where nothing reads them.** `--fields`, `--limit` and `--all` are usage errors on every command that
+renders no table/detail block or pages no query — checked by a root `preAction` hook against two
+applicability tables keyed by command path (`FIELDS_COMMANDS`, `LIMIT_COMMANDS` in
+[lib/options.ts](src/lib/options.ts)), before the action runs. The trigger was concrete: schpet's `-f`
+is `--description-file`, so `project create --name X -f desc.md` created the project with no
+description and exited 0. `project create --team` is now a local repeatable list (one with
+`--teams`), because the global's last-wins made schpet's `--team A --team B` create in B alone. The
+per-command matrix for the remaining globals is on TES-596: `--team` is *not* guarded (an
+`alias lin='linear -t TES'` must keep working on workspace-scoped commands); `--yes`/`--no-input`
+are conventional no-ops where nothing prompts; `--json`/`--quiet`/`--no-ansi`/`--debug`/`--api-key`/
+`--workspace` are honored everywhere through Context/Output. Exposing per-command applicability in
+`linear commands --json` remains the open design question.
+
 ### 9. `auth login` prompts for the API key in plain text **[verified]**
 [meta.ts:63](src/commands/meta.ts:63) → `promptInput` → `inquirerInput`, so the key echoes to the
 terminal and lands in scrollback. Theirs uses a masked prompt. **Fix:** inquirer `password`.
@@ -372,5 +386,7 @@ Kept here so the report is not read as uniformly authoritative:
 4. ~~Fix milestone truncation and the unfaithful mock (#5).~~ **Done.**
 5. Guard `api --paginate` to queries; implement or remove `--operation`; fix `schema -o` (#7, #10).
 6. Decide the global-options policy (#8) — the blanket injection is the root cause of a whole class.
+   *Partly done:* `--fields`/`--limit`/`--all` are refused where unread (TES-637 (2)); the rest of
+   the matrix and the `commands --json` exposure are on TES-596.
 7. Mask the API-key prompt (#9).
 8. Rewrite `PARITY.md` against source rather than against memory.

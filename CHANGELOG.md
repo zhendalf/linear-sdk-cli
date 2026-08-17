@@ -260,6 +260,62 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- **`--fields`, `--limit` and `--all` are refused on commands that never read them** (TES-637 (2),
+  TES-596). All twelve globals are registered on every command so they can sit anywhere on the
+  line, but `--fields` projects a *rendered* result (a table or a detail block) and `--limit`/`--all`
+  cap or exhaust a *paged* query; on the ~90 commands that print a receipt (every mutation, `issue
+  id`, `commands`, …) all three used to vanish without a word. That silence cost data: schpet's `-f`
+  is `--description-file` on `project create`, so `linear project create --name X -f desc.md`
+  parsed `-f` as *our* `--fields`, created the project with **no description**, and exited 0. Now a
+  root `preAction` hook (`assertGlobalsApply` in `lib/options.ts`, driven by two applicability
+  tables keyed by command path — `FIELDS_COMMANDS`, `LIMIT_COMMANDS`) rejects them before the
+  action runs, with a usage error that names the command and, where the command has one, the flag
+  the user was reaching for: "--fields does not apply to `linear project create` … use
+  --description-file <path> or --content-file <path> (-f is --fields here, not a file)";
+  `project create -n 5` gets "-n is --limit here; the name is --name". Every renderer and paged
+  query is unchanged; the tables are pinned against the real program tree so a rename shows up
+  in the tests, and a renderer missing from the table fails loudly (its `--fields` is refused),
+  never quietly. `--team` is deliberately *not* guarded this way: `alias lin='linear -t TES'` is a
+  real usage pattern and must keep working on workspace-scoped commands. Not adopted: a local
+  `-f = --description-file` on the four commands — one letter, two meanings (see MIGRATING.md §5).
+- **`project create -t/--team` collects, as `--teams` does** (TES-637 (3)). The global `--team` is
+  single-valued, and on `project create` it named the project's team — so schpet's repeatable
+  `--team A --team B` created the project in **B alone**. `--team` is now declared locally there,
+  repeatable and comma-separated, one list with `--teams`; both flags at once is a usage error
+  ("Pass either --teams or --team, not both"). `project update --team` stays refused (that list
+  *replaces* the project's teams; the message points at `--teams`).
+- **`user list --all` / `team members --all` say what `--all` did not do** (TES-637 (1)). schpet's
+  `--all` there means "include inactive members"; ours is the global "exhaust pagination", and
+  deactivated users are `--include-disabled`. Same line, both exit 0, different rows. `--all` keeps
+  its one meaning; the listing prints a stderr warning — even under `--quiet`, since a script is
+  where a wrong result set goes unnoticed — that deactivated users are still excluded and names
+  `--include-disabled`; silent when that flag is present; `--help` says so up front on both.
+- **`issue start` moves the issue to the first `started` state by default** (TES-637 (4)).
+  schpet/linear-cli always does after branching; ours only did with `--move`, so a transplanted
+  `linear issue start TES-1` checked the branch out and left the issue in Backlog without a word.
+  "Start" moving the issue is what the word means and what an agent that says "start" expects,
+  and the change is visible (✓ Moved … on stderr, `stateChanged` in the JSON). `--no-move` opts
+  out (branch only); `--move` is still accepted, hidden; `--state <name>` still picks the state;
+  `--state` with `--no-move` is a usage error.
+- **`issue describe` prints schpet's commit message, byte for byte; `issue pull-request` titles
+  the PR `ID Title` and stops copying the issue description into GitHub** (TES-637 (5)).
+  `describe` used to print `Title`, a blank line, `Fixes ID`; it now prints `ID Title`, a blank
+  line, `Linear-issue: Fixes ID`, `Linear-issue-url: <url>` — git trailers that `git
+  interpret-trailers` / `git log --format=%(trailers:key=Linear-issue)` and jj's `trailers`
+  template read back, while Linear still sees the magic word directly before the id
+  (linear.app/docs/github lists `fixes` and `references` among the recognized words) and links
+  and closes the issue. `-r/--references` swaps the word. `--json` gains `url` and `message` (the
+  full text as printed). `pull-request`: title `<ID> <title>` (a custom `--title` is prefixed the
+  same way, as there); body the same two trailers — schpet sends the bare URL and relies on the
+  branch name for the link, the `Fixes` line keeps the link (and auto-close) when the branch was
+  renamed. The issue *description* is no longer pasted into the PR body: a GitHub PR is a wider
+  audience than a Linear issue, and Linear links from the trailer, not the prose.
+- **A team-scoped listing with no team says it is listing every team's** (TES-637 (8)). `issue
+  list`/`mine`/`search` and `project list` with no `--team`, no configured team and no
+  `--all-teams` list the whole workspace — by design; schpet errors there ("No default team…"), so
+  someone arriving from it could read the workspace as the team. One `info` line on stderr ("No
+  default team configured; listing every team's. Pass --team <KEY> …"), silenced by `--quiet`,
+  never on `--json` stdout.
 - **`--fields` is one projection, applied and validated in both modes** (TES-635 (1)). It was
   validated only in human list mode — `--fields nope --json` exited 0 with every key while
   `--fields nope` exited 2 — ignored on detail views entirely, and able to pick only among the

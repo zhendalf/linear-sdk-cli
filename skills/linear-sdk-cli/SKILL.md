@@ -426,9 +426,12 @@ linear commands --json | jq '.[] | select(.path=="issue list")'
 
 Useful surface notes (all verified against the current CLI):
 
-- `issue describe [id]` prints the issue title plus a git-trailer line; `issue pull-request`
-  (alias `pr`) creates a GitHub PR from the issue. `issue start`/`issue branch` help with
-  branch workflows.
+- `issue describe [id]` prints a commit message (`ID Title`, then `Linear-issue: Fixes ID` /
+  `Linear-issue-url:` trailers); `issue pull-request` (alias `pr`) creates a GitHub PR titled
+  `ID Title` with those trailers as the body. `issue start` checks the branch out AND moves the
+  issue to the first `started` state (`--no-move` for branch only); `issue branch` prints the name.
+- `--fields`, `--limit`, `--all` are refused (usage error) on commands that print only a receipt
+  — every mutation, `issue id`, `commands`, … — so `-f <file>` cannot be swallowed silently.
 - `cycle create`/`cycle update` use `--start <date>` and `--end <date>` (ISO); `cycle current`
   resolves the active cycle. Issue commands take `--cycle <n|id|current>`.
 - `initiative create`/`update` use `--target <date>` for the estimated completion date,
