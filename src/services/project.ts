@@ -297,6 +297,19 @@ export async function archiveProject(client: LinearClient, idArg: string) {
   return project;
 }
 
+/**
+ * Trash a project (`projectDelete`). Distinct from `archiveProject`: an
+ * archived project stays in the workspace, read-only; a trashed one is gone
+ * from every list and is purged after Linear's grace period. Returns the
+ * project as it was, for the receipt.
+ */
+export async function deleteProject(client: LinearClient, idArg: string) {
+  const projectId = await resolveProjectId(client, idArg);
+  const project = await withRetry(() => client.project(projectId));
+  await assertMutation(withRetry(() => client.deleteProject(projectId)), "Project deletion");
+  return project;
+}
+
 export interface MilestoneRow {
   id: string;
   name: string;

@@ -9,6 +9,7 @@ import { registerMeta } from "./commands/meta.js";
 import { registerApi } from "./commands/api.js";
 import { registerCompletion } from "./commands/completion.js";
 import { registerIssue, renderIssueDetail } from "./commands/issue.js";
+import { registerAgentSession } from "./commands/agent-session.js";
 import { registerTeam } from "./commands/team.js";
 import { registerProject } from "./commands/project.js";
 import { registerProjectUpdate } from "./commands/project-update.js";
@@ -54,8 +55,10 @@ export function createProgram(): Command {
   registerMeta(program);
   registerApi(program);
   registerCompletion(program);
-  // Phase 1: issues.
+  // Phase 1: issues. Agent sessions live on issues, so their group is mounted
+  // under `issue` (`linear issue agent-session …`).
   registerIssue(program);
+  registerAgentSession(program.commands.find((c) => c.name() === "issue")!);
   // Phase 2: teams, projects, milestones, cycles.
   registerTeam(program);
   registerProject(program);

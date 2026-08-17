@@ -243,6 +243,22 @@ export function registerProject(program: Command): void {
       }),
     );
 
+  // delete ------------------------------------------------------------------
+  project
+    .command("delete <id>")
+    .alias("rm")
+    .description("Delete (trash) a project — `archive` keeps it, read-only")
+    .action(
+      action(async (ctx: Context, _opts, idArg: string) => {
+        const proj = await svc.getProjectDetail(ctx.client, idArg);
+        if (!(await confirmDestructive(ctx, `Delete project ${proj.name}?`))) return;
+        const deleted = await svc.deleteProject(ctx.client, proj.id);
+        ctx.output.emit({ id: deleted.id, name: deleted.name, deleted: true }, () =>
+          ctx.output.success(`Deleted ${deleted.name}`),
+        );
+      }),
+    );
+
   // milestones --------------------------------------------------------------
   project
     .command("milestones <id>")

@@ -8,6 +8,15 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **`project delete`, `team delete`, and `issue agent-session list/view` (TES-644).**
+  `project delete <id>` trashes a project (`projectDelete`) where `archive` keeps it read-only;
+  `team delete <key>` deletes a team, naming its issue count in the confirmation, and
+  `--move-issues <team>` moves them elsewhere first (in batches of 50 via `issueBatchUpdate`)
+  — the key is required, never the configured default. Both take the shared confirmation gate
+  (`--yes` off-TTY, exit 6 on decline). `issue agent-session list [issue]` lists the sessions
+  Linear's agent integrations opened on an issue (or the current branch's; `--all-issues` for the
+  workspace feed, `--status` to narrow), and `view <id>` shows one with its activity transcript,
+  oldest first. The row is the same whichever way a session is found.
 - **Credentials in the OS keyring, and schpet/linear-cli's found without a re-login.**
   `auth login` now stores the API key in the macOS Keychain (or Linux `secret-tool`) under service
   `linear-cli` / account `<workspace slug>` — the reference CLI's exact convention — and writes only

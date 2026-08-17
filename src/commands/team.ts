@@ -7,7 +7,7 @@
 
 import { Command } from "commander";
 import { action } from "../lib/action.js";
-import { promptInput } from "../lib/prompt.js";
+import { confirmDestructive, promptInput } from "../lib/prompt.js";
 import type { Context } from "../context.js";
 import * as svc from "../services/team.js";
 import type { Column } from "../output/table.js";
@@ -172,6 +172,52 @@ export function registerTeam(program: Command): void {
         });
         ctx.output.emit({ id: updated.id, key: updated.key, name: updated.name }, () =>
           ctx.output.success(`Updated team ${updated.key}`),
+        );
+      }),
+    );
+
+  // delete ------------------------------------------------------------------
+  // The key is required here, unlike the other team commands: a delete that
+  // silently fell back to the configured default team would be a disaster.
+  team
+    .command("delete <key>")
+    .alias("rm")
+    .description("Delete a team (admin); its issues go with it unless --move-issues")
+    .option("--move-issues <team>", "move the team's issues to another team first")
+    .addHelpText(
+      "after",
+      [
+        "",
+        "Examples:",
+        "  linear team delete OLD --move-issues ENG",
+        "  linear team delete SCRATCH --yes",
+      ].join("\n"),
+    )
+    .action(
+      action(async (ctx: Context, opts, keyArg: string) => {
+        const plan = await svc.planDeleteTeam(ctx.client, keyArg, opts.moveIssues);
+        const { team: t, issueCount, moveTo } = plan;
+        const issues = `${issueCount} issue${issueCount === 1 ? "" : "s"}`;
+        const question = moveTo
+          ? `Delete team ${t.key} (${t.name}), moving its ${issues} to ${moveTo.key} first?`
+          : `Delete team ${t.key} (${t.name}) and its ${issues}?`;
+        if (!(await confirmDestructive(ctx, question))) return;
+        let moved = 0;
+        if (moveTo && issueCount > 0) {
+          moved = await svc.moveTeamIssues(ctx.client, t, moveTo);
+          ctx.output.info(`Moved ${moved} issue${moved === 1 ? "" : "s"} to ${moveTo.key}`);
+        }
+        await svc.deleteTeam(ctx.client, t);
+        ctx.output.emit(
+          {
+            id: t.id,
+            key: t.key,
+            name: t.name,
+            deleted: true,
+            movedIssues: moved,
+            movedTo: moveTo ? { id: moveTo.id, key: moveTo.key, name: moveTo.name } : null,
+          },
+          () => ctx.output.success(`Deleted team ${t.key} (${t.name})`),
         );
       }),
     );

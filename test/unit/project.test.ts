@@ -1,6 +1,12 @@
 import { describe, it, expect } from "bun:test";
-import { buildFilter, createProject, updateProject, getProjectDetail } from "../../src/services/project.js";
-import { connection } from "./_fakes.js";
+import {
+  buildFilter,
+  createProject,
+  updateProject,
+  getProjectDetail,
+  deleteProject,
+} from "../../src/services/project.js";
+import { connection, okPayload, failedPayload } from "./_fakes.js";
 
 const client = {} as any;
 const UUID = "01234567-89ab-cdef-0123-456789abcdef";
@@ -220,5 +226,37 @@ describe("getProjectDetail (one round-trip, structured relations)", () => {
       code: "ambiguous",
       message: expect.stringContaining("Auth, Auth"),
     });
+  });
+});
+
+/**
+ * TES-644: `project delete` trashes (`projectDelete`), which is not `archive`.
+ * The service asserts the payload's `success` like every other mutation, and
+ * hands back the project it looked up for the receipt.
+ */
+describe("deleteProject", () => {
+  const UUID = "01234567-89ab-cdef-0123-456789abcdef";
+  function stub(result: any, seen: string[] = []) {
+    return {
+      project: async (id: string) => ({ id, name: "Old" }),
+      deleteProject: async (id: string) => {
+        seen.push(id);
+        return result;
+      },
+      archiveProject: async () => {
+        throw new Error("delete must not archive");
+      },
+    } as any;
+  }
+
+  it("calls deleteProject with the resolved id and returns the project", async () => {
+    const seen: string[] = [];
+    const p = await deleteProject(stub(okPayload(), seen), UUID);
+    expect(seen).toEqual([UUID]);
+    expect(p).toMatchObject({ id: UUID, name: "Old" });
+  });
+
+  it("fails when the API reports success: false", async () => {
+    await expect(deleteProject(stub(failedPayload()), UUID)).rejects.toMatchObject({ code: "api" });
   });
 });

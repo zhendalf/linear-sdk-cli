@@ -534,3 +534,67 @@ describe("unknown commands (TES-633)", () => {
     expect(help?.text).toContain("Usage: linear notification|notif");
   });
 });
+
+/**
+ * TES-644: the lifecycle commands the reference CLI has and this one lacked.
+ * These pin the surface; the services are covered in project/team/agent-session
+ * tests.
+ */
+describe("lifecycle commands (TES-644)", () => {
+  const program = createProgram();
+  const find = (path: string[]): Command | undefined =>
+    path.reduce<Command | undefined>(
+      (cmd, name) => cmd?.commands.find((c) => c.name() === name || c.aliases().includes(name)),
+      program,
+    );
+  const visibleLongs = (cmd: Command) => cmd.options.filter((o: any) => !o.hidden).map((o) => o.long);
+
+  it("`project delete` exists beside `archive`, and is not an alias of it", () => {
+    const del = find(["project", "delete"])!;
+    expect(del).toBeDefined();
+    expect(del.aliases()).toContain("rm");
+    expect(del).not.toBe(find(["project", "archive"]));
+    expect(del.description()).toMatch(/trash/i);
+  });
+
+  it("`team delete <key>` requires the key and offers --move-issues", () => {
+    const del = find(["team", "delete"])!;
+    expect(del).toBeDefined();
+    const args = (del as any).registeredArguments.map((a: any) => ({ name: a.name(), required: a.required }));
+    expect(args).toEqual([{ name: "key", required: true }]);
+    expect(visibleLongs(del)).toContain("--move-issues");
+    // Deletes take the shared confirmation gate, so `-y` is there for scripts.
+    expect(visibleLongs(del)).toContain("--yes");
+  });
+
+  it("mounts `agent-session list/view` under `issue`, with the status enum on list", () => {
+    const group = find(["issue", "agent-session"])!;
+    expect(group).toBeDefined();
+    expect(group.commands.map((c) => c.name()).sort()).toEqual(["list", "view"]);
+    const list = find(["issue", "agent-session", "list"])!;
+    expect(visibleLongs(list)).toEqual(expect.arrayContaining(["--status", "--all-issues"]));
+    const status = list.options.find((o) => o.long === "--status") as any;
+    expect(status.argChoices).toEqual(["pending", "active", "awaitingInput", "complete", "error", "stale"]);
+    const view = find(["issue", "agent-session", "view"])!;
+    expect((view as any).registeredArguments.map((a: any) => a.name())).toEqual(["id"]);
+  });
+
+  it("`commands --json` lists all of them", async () => {
+    let out = "";
+    const spy = vi.spyOn(process.stdout, "write").mockImplementation((c: any) => ((out += c), true));
+    try {
+      await createProgram().parseAsync(["node", "linear", "commands", "--json"]);
+    } finally {
+      spy.mockRestore();
+    }
+    const paths = JSON.parse(out).map((n: any) => n.path);
+    expect(paths).toEqual(
+      expect.arrayContaining([
+        "project delete",
+        "team delete",
+        "issue agent-session list",
+        "issue agent-session view",
+      ]),
+    );
+  });
+});

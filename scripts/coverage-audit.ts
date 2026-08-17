@@ -35,15 +35,20 @@ const CURATED: Record<string, string[]> = {
     "issueRelation",
     "issueRelations",
     "createComment",
+    // `issue agent-session list/view` — the sessions agents open on issues.
+    "agentSessions",
+    "agentSession",
   ],
   // phase 2 — teams, projects, milestones, cycles
-  team: ["teams", "team", "createTeam", "updateTeam"],
+  // (`updateIssueBatch` is what `team delete --move-issues` moves the issues with)
+  team: ["teams", "team", "createTeam", "updateTeam", "deleteTeam", "updateIssueBatch"],
   project: [
     "projects",
     "project",
     "createProject",
     "updateProject",
     "archiveProject",
+    "deleteProject",
     "projectStatuses",
   ],
   // phase 3 (parity) — project & initiative status updates

@@ -10,8 +10,8 @@ import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { collect, pageSize } from "../lib/pagination.js";
 import { usageError } from "../lib/errors.js";
-import { unwrapMutation } from "../lib/mutation.js";
-import { resolveTeam } from "../lib/resolve.js";
+import { assertMutation, unwrapMutation } from "../lib/mutation.js";
+import { resolveTeam, type ResolvedTeam } from "../lib/resolve.js";
 
 export interface TeamRow {
   id: string;
@@ -222,4 +222,72 @@ export async function updateTeam(
     "team",
     "Team update",
   );
+}
+
+/** What `team delete` needs to know before it asks: the team, and how much goes with it. */
+export interface DeleteTeamPlan {
+  team: ResolvedTeam;
+  /** The team's live issues — the ones a delete takes with it, or `--move-issues` rescues. */
+  issueCount: number;
+  /** Set when `--move-issues` named a (different, existing) team. */
+  moveTo?: ResolvedTeam;
+}
+
+/**
+ * Resolve everything `team delete` will act on, so the confirmation can name
+ * the team, the issue count and the destination before anything is written.
+ * The key is required — a delete must never fall through to the configured
+ * default team the way `team view` does.
+ */
+export async function planDeleteTeam(
+  client: LinearClient,
+  keyArg: string,
+  moveIssuesTo: string | undefined,
+): Promise<DeleteTeamPlan> {
+  const team = await resolveTeam(client, keyArg, undefined);
+  const model = await withRetry(() => client.team(team.id));
+  const plan: DeleteTeamPlan = { team, issueCount: model.issueCount ?? 0 };
+  if (moveIssuesTo !== undefined) {
+    const moveTo = await resolveTeam(client, moveIssuesTo, undefined);
+    if (moveTo.id === team.id) {
+      throw usageError(`--move-issues names ${team.key} itself; pick a different team.`);
+    }
+    plan.moveTo = moveTo;
+  }
+  return plan;
+}
+
+/** Linear's cap on `issueBatchUpdate` ids per call. */
+const MOVE_BATCH = 50;
+
+/**
+ * Move every live issue on `from` to `to`, in batches. Returns how many moved.
+ * Archived and trashed issues stay where they are — the API's team listing
+ * excludes them and Linear takes them along with the team.
+ */
+export async function moveTeamIssues(
+  client: LinearClient,
+  from: ResolvedTeam,
+  to: ResolvedTeam,
+): Promise<number> {
+  const team = await withRetry(() => client.team(from.id));
+  const issues = await collect((await withRetry(() => team.issues({ first: 100 }))) as any, Infinity);
+  const ids = issues.map((i: any) => i.id as string);
+  for (let i = 0; i < ids.length; i += MOVE_BATCH) {
+    const batch = ids.slice(i, i + MOVE_BATCH);
+    await assertMutation(
+      withRetry(() => client.updateIssueBatch(batch, { teamId: to.id })),
+      `Moving ${batch.length} issue(s) to ${to.key}`,
+    );
+  }
+  return ids.length;
+}
+
+/**
+ * Delete a team (`teamDelete`). Linear archives the team and everything on it;
+ * a plan that does not allow it answers with an API error, which reaches the
+ * user as `feature_not_accessible` like every other plan gate.
+ */
+export async function deleteTeam(client: LinearClient, team: ResolvedTeam): Promise<void> {
+  await assertMutation(withRetry(() => client.deleteTeam(team.id)), "Team deletion");
 }
