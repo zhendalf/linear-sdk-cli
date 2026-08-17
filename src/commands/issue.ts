@@ -19,6 +19,7 @@ import {
   suggestSubcommand,
 } from "../lib/options.js";
 import { registerIssueCommentGroup } from "./comment.js";
+import { noteWorkspaceWide } from "./project.js";
 import { resolveBody } from "../lib/body.js";
 import { confirmDestructive, promptInput } from "../lib/prompt.js";
 import { usageError } from "../lib/errors.js";
@@ -165,6 +166,7 @@ export function registerIssue(program: Command): void {
         if (opts.allStates && opts.state?.length) {
           throw usageError("Pass either --state or --all-states, not both.");
         }
+        noteWorkspaceWide(ctx, opts);
         const rows = await svc.listIssues(
           ctx.client,
           {
@@ -222,6 +224,7 @@ export function registerIssue(program: Command): void {
         if (opts.allStates && opts.state?.length) {
           throw usageError("Pass either --state or --all-states, not both.");
         }
+        noteWorkspaceWide(ctx, opts);
         const rows = await svc.listIssues(
           ctx.client,
           {
@@ -273,6 +276,7 @@ export function registerIssue(program: Command): void {
     )
     .action(
       action(async (ctx: Context, opts, text: string) => {
+        noteWorkspaceWide(ctx, opts);
         const rows = await svc.searchIssues(
           ctx.client,
           text,

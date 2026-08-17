@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "bun:test";
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createProgram } from "../../src/cli.js";
 import { Context } from "../../src/context.js";
+import { noteWorkspaceWide } from "../../src/commands/project.js";
 import {
   buildFilter,
   createProject,
@@ -361,5 +365,124 @@ describe("`project create --team` is repeatable, and one list with --teams", () 
       .commands.find((c) => c.name() === "create")!;
     expect(create.options.filter((o) => o.long === "--team")).toHaveLength(1);
     expect(create.helpInformation()).toMatch(/-t, --team <key>\s+same as --teams \(repeatable/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A team-scoped listing with no team widens to the workspace — and says so (TES-637 #8).
+// ---------------------------------------------------------------------------
+/**
+ * schpet/linear-cli errors when no team is configured (`No default team…`);
+ * ours lists the whole workspace, on purpose. The one thing that must not
+ * happen is a migrating user reading that result as the team's, so the widening
+ * is announced on stderr — `info`, so `--quiet` silences it and `--json`
+ * stdout never carries it.
+ */
+describe("noteWorkspaceWide: 'no default team; listing every team's' (TES-637 #8)", () => {
+  let root: string;
+  let savedCwd: string;
+  let savedEnv: Record<string, string | undefined>;
+  let clientDescriptor: PropertyDescriptor | undefined;
+
+  function fakeClient() {
+    return {
+      client: {
+        rawRequest: async () => ({
+          data: {
+            projects: { nodes: [], pageInfo: { hasNextPage: false } },
+            issues: { nodes: [], pageInfo: { hasNextPage: false } },
+          },
+        }),
+      },
+      teams: async () => connection([{ id: "team-t", key: "TES", name: "Test" }]),
+      viewer: Promise.resolve({ id: "me-uuid" }),
+    } as any;
+  }
+
+  beforeEach(() => {
+    // A scratch cwd with no .linear.toml, and no LINEAR_TEAM: nothing configures a team.
+    root = realpathSync(mkdtempSync(join(tmpdir(), "linnoteam-")));
+    savedCwd = process.cwd();
+    process.chdir(root);
+    savedEnv = {
+      XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+      HOME: process.env.HOME,
+      LINEAR_API_KEY: process.env.LINEAR_API_KEY,
+      LINEAR_TEAM: process.env.LINEAR_TEAM,
+    };
+    process.env.XDG_CONFIG_HOME = join(root, "xdg");
+    process.env.HOME = root;
+    process.env.LINEAR_API_KEY = "lin_api_test000000000000";
+    delete process.env.LINEAR_TEAM;
+    clientDescriptor = Object.getOwnPropertyDescriptor(Context.prototype, "client");
+    Object.defineProperty(Context.prototype, "client", { get: () => fakeClient(), configurable: true });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (clientDescriptor) Object.defineProperty(Context.prototype, "client", clientDescriptor);
+    process.chdir(savedCwd);
+    for (const [k, v] of Object.entries(savedEnv)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  /** Run through the real program; hand back stderr and stdout separately. */
+  async function run(args: string[]): Promise<{ out: string; err: string }> {
+    let out = "";
+    let err = "";
+    const o = vi.spyOn(process.stdout, "write").mockImplementation((c: any) => ((out += c), true));
+    const e = vi.spyOn(process.stderr, "write").mockImplementation((c: any) => ((err += c), true));
+    try {
+      await createProgram().parseAsync(["node", "linear", ...args]);
+    } finally {
+      o.mockRestore();
+      e.mockRestore();
+    }
+    return { out, err };
+  }
+  const NOTE = /No default team configured; listing every team's\. Pass --team <KEY>/;
+
+  it("project list with no team anywhere: the note on stderr, the JSON clean on stdout", async () => {
+    const { out, err } = await run(["project", "list", "--json"]);
+    expect(err).toMatch(NOTE);
+    expect(JSON.parse(out)).toEqual([]);
+  });
+
+  it("issue list / mine / search: the same note", async () => {
+    for (const args of [["issue", "list"], ["issue", "mine"], ["issue", "search", "x"]]) {
+      expect((await run([...args, "--json"])).err, args.join(" ")).toMatch(NOTE);
+    }
+  });
+
+  it("silent when a team IS given (flag, either position, or config), or with --all-teams, or under --quiet", async () => {
+    expect((await run(["project", "list", "--team", "TES", "--json"])).err).toBe("");
+    expect((await run(["-t", "TES", "issue", "list", "--json"])).err).toBe("");
+    expect((await run(["issue", "list", "--all-teams", "--json"])).err).toBe("");
+    expect((await run(["project", "list", "--all-teams", "--json"])).err).toBe("");
+    expect((await run(["issue", "mine", "--json", "--quiet"])).err).toBe("");
+    process.env.LINEAR_TEAM = "TES";
+    expect((await run(["issue", "list", "--json"])).err).toBe("");
+  });
+
+  it("noteWorkspaceWide itself: fires only when nothing names a team and --all-teams is off", () => {
+    let err = "";
+    const e = vi.spyOn(process.stderr, "write").mockImplementation((c: any) => ((err += c), true));
+    try {
+      noteWorkspaceWide(new Context({}), {});
+      expect(err).toMatch(NOTE);
+      err = "";
+      noteWorkspaceWide(new Context({}), { team: [] }); // an empty repeatable list names nothing
+      expect(err).toMatch(NOTE);
+      err = "";
+      noteWorkspaceWide(new Context({}), { team: ["TES"] });
+      noteWorkspaceWide(new Context({}), { team: "TES" });
+      noteWorkspaceWide(new Context({}), { allTeams: true });
+      noteWorkspaceWide(new Context({ team: "TES" }), {});
+      expect(err).toBe("");
+    } finally {
+      e.mockRestore();
+    }
   });
 });

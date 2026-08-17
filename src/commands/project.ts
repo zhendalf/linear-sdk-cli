@@ -26,6 +26,25 @@ function formatProgress(p: number | null): string {
   return `${Math.round(p * 100)}%`;
 }
 
+/**
+ * A team-scoped listing with no team to scope to — none passed, none
+ * configured, not `--all-teams` — lists the whole workspace. That is by design
+ * (a command named "list" should list; see MIGRATING.md §6). But
+ * schpet/linear-cli *errors* in that situation (`No default team…`, T
+ * `issue-mine.ts:184-193`), so someone arriving from it can read a
+ * workspace-wide result as the team's (TES-637 item 8). Say what happened, on
+ * stderr, once; `--quiet` silences it, `--json` stdout never carries it.
+ * Shared by `project list` and the issue queries.
+ */
+export function noteWorkspaceWide(ctx: Context, opts: { team?: unknown; allTeams?: boolean }): void {
+  const teamGiven = Array.isArray(opts.team) ? opts.team.length > 0 : opts.team !== undefined;
+  if (!teamGiven && !opts.allTeams && !ctx.defaultTeam) {
+    ctx.output.info(
+      "No default team configured; listing every team's. Pass --team <KEY> (or set `team` in .linear.toml) to narrow.",
+    );
+  }
+}
+
 export function registerProject(program: Command): void {
   const project = program.command("project").alias("p").description("Work with projects");
 
@@ -43,6 +62,7 @@ export function registerProject(program: Command): void {
         if (opts.allTeams && opts.team !== undefined) {
           throw usageError("Pass either --team or --all-teams, not both.");
         }
+        noteWorkspaceWide(ctx, opts);
         const rows = await svc.listProjects(
           ctx.client,
           {
