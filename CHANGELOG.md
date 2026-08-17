@@ -177,6 +177,22 @@ All notable changes to this project are documented here. The format is based on
 - **`document list --project` / `--issue`.** Documents can be narrowed to their container;
   human references (a project name, an issue identifier like `TES-1`) are resolved to ids first,
   since `DocumentFilter` matches containers by id.
+- **Documents: all six attachment targets, and `update` re-points** (TES-613). A document is
+  attached to exactly one of a project, issue, initiative, team, cycle or release
+  (`DocumentCreateInput` carries the six ids; verified live for every one the test workspace can
+  hold — releases need a Business plan, so `--release` is schema-verified and resolved by name or
+  version, not exercised). `document create` and `document list` take `--project`, `--issue`,
+  `--initiative`, `--team`, `--cycle`, `--release`; `document update` takes the same six to
+  **move a document onto another target**, which the server answers by clearing the old one
+  (`update <id> --issue TES-42` takes a project document off its project). `--team` stays the
+  global flag: alone it names the team; with `--cycle` it scopes the cycle lookup and is not a
+  second target, as on the issue commands. Two targets on any of the three is a usage error naming
+  both flags — a document has one, and a list filtered by two could never match — and `create`
+  with none falls back to the configured team, as before; `list` is never narrowed by the
+  configured team (documents are workspace-wide) and `update` never re-points on its account,
+  only on an explicit `--team`. `document list --team X`, which was accepted (global) and
+  ignored, now filters. The list's `Project` column becomes `Attached to`, typed
+  (`Issue: TES-42`, `Cycle: #4 Sprint 4`, …), and `document view` shows the same line.
 - **`milestone view` lists the milestone's issues** (identifier, state, title), capped by the
   global `-n/--limit` and with an explicit `… more (use --all)` notice when the cap hides some,
   so a partial list never reads as a complete one.
@@ -248,6 +264,16 @@ All notable changes to this project are documented here. The format is based on
   `issues[].state: {id,name,type}`, plus `issues[].id`). The human renderings are unchanged; the
   detail's top-level `id` is still the UUID. **If a script did `jq -r '.state'` or `.team` on a
   view, it now needs `.state.name` / `.team.key`.**
+- **`document view` / `document list --json` carry the target relations as objects** (TES-613,
+  the same contract change TES-627 made for issues). `document view --json` had `project`,
+  `issue`, `creator` as bare display strings; they are now `project: {id,name}`,
+  `issue: {id,identifier}`, `creator: {id,displayName}`, joined by `initiative: {id,name}`,
+  `team: {id,key,name}`, `cycle: {id,number,name}`, `release: {id,name,version}` — the one that
+  is set, the rest `null` — and a list row carries the same six keys (its `project` gains `id`).
+  The human renderings are unchanged. **If a script did `jq -r '.project'` on `document view`, it
+  now needs `.project.name`.** Both now come from one tailored request each: the SDK's `Document`
+  model has no `team`/`cycle` getter (both `[Internal]` in the schema, though they work with a
+  plain API key), and the previous view spent three lazy fetches on what one query selects.
 - **Repeating `--label` now narrows instead of broadening.** `--label bug --label regression`
   used to return issues carrying *either* label; it now returns only those carrying *both*.
   Every other repeatable filter in this CLI narrows, the reference CLI narrows, and the broadening

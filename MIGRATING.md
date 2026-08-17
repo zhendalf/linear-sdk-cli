@@ -89,6 +89,7 @@ such features yet). `linear config init` writes a `.linear.toml`; `linear config
 | `auth migrate` | `auth migrate` | |
 | `config` (writes toml) | `config init` / `config set` | |
 | `team states` / `team members` / `user list` | same | |
+| `document create\|list\|update --project\|--issue\|--initiative\|--team\|--cycle\|--release` | same | `update` re-points, as there; `--team` is the global flag (with `--cycle` it scopes the lookup) |
 | `initiative add-project` / `remove-project` / `unarchive` | same | |
 | `project delete` / `team delete` | same, confirmation-gated | |
 | `schema` / `api` | same | ours adds `--operation`, `--vars-file`, and refuses to `--paginate` a mutation |

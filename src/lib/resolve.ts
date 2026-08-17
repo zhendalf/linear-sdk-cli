@@ -471,6 +471,32 @@ export async function resolveMilestoneId(
 }
 
 /**
+ * Resolve a release by name, version, or id. Releases are workspace-scoped
+ * (under release pipelines) and matched server-side by exact name (case-
+ * insensitive) or exact version, both in one filtered request; ambiguity —
+ * the same name on two pipelines, or a name that is also another release's
+ * version — is an error rather than a guess.
+ */
+export async function resolveReleaseId(client: LinearClient, input: string): Promise<string> {
+  if (isUuid(input)) return input;
+  const conn = await withRetry(() =>
+    client.releases({
+      filter: { or: [{ name: { eqIgnoreCase: input } }, { version: { eq: input } }] } as any,
+      first: RESOLVE_PAGE,
+    }),
+  );
+  const nodes = await scanAll<any>(conn as any, "releases", "linear api '{ releases { nodes { id name version } } }'");
+  if (nodes.length === 0) throw notFound(`No release named or versioned '${input}'.`);
+  if (nodes.length > 1)
+    throw ambiguous(
+      `Multiple releases match '${input}': ${nodes
+        .map((r) => (r.version ? `${r.name} (${r.version})` : r.name))
+        .join(", ")}; pass the release id instead.`,
+    );
+  return nodes[0]!.id;
+}
+
+/**
  * `templates` is a plain list in the schema (no arguments, no pages), so one
  * request is the whole workspace: team-scoped and shared templates alike.
  */
