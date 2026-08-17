@@ -45,7 +45,9 @@ function requireId(idArg: string | undefined): string {
 
 const ROW_COLUMNS: Column<svc.IssueRow>[] = [
   { key: "id", header: "ID", value: (r) => r.identifier },
-  { key: "state", header: "State", value: (r) => r.state?.name ?? "", max: 14 },
+  // `--include-archived` mixes live, archived and trashed rows; mark the latter
+  // two so they cannot pass for live. The state name alone stays under 14.
+  { key: "state", header: "State", value: (r) => `${r.state?.name ?? ""}${lifecycleMark(r)}`, max: 26 },
   { key: "priority", header: "Pri", value: (r) => shortPriority(r.priority) },
   { key: "assignee", header: "Assignee", value: (r) => r.assignee?.displayName ?? "—", max: 16 },
   { key: "title", header: "Title", value: (r) => r.title, max: 60 },
@@ -53,6 +55,11 @@ const ROW_COLUMNS: Column<svc.IssueRow>[] = [
 
 function shortPriority(p: number): string {
   return ["—", "Urgent", "High", "Med", "Low"][p] ?? String(p);
+}
+
+/** ` (trashed)` / ` (archived)` for a row that is not live; empty otherwise. */
+function lifecycleMark(r: Pick<svc.IssueRow, "trashed" | "archivedAt">): string {
+  return r.trashed ? " (trashed)" : r.archivedAt ? " (archived)" : "";
 }
 
 export function registerIssue(program: Command): void {
@@ -720,18 +727,23 @@ export async function renderIssueDetail(
   includeComments: boolean,
 ): Promise<void> {
   const comments = includeComments ? await svc.listComments(ctx.client, detail.id, 10) : [];
+  const { cycle, team } = detail;
   ctx.output.detail({ ...detail, comments: includeComments ? comments : undefined }, [
     ["Issue", `${detail.identifier}  ${detail.title}`],
-    ["State", detail.state],
+    // A deleted issue used to view exactly like a live one. Say so first, and
+    // in capitals: an agent that deletes and re-reads must see the change.
+    ["Trashed", detail.trashed ? `YES (deleted ${detail.archivedAt ?? "at an unknown time"})` : null],
+    ["Archived", !detail.trashed && detail.archivedAt ? `YES (${detail.archivedAt})` : null],
+    ["State", detail.state?.name ?? null],
     ["Priority", detail.priorityLabel],
-    ["Assignee", detail.assignee],
-    ["Team", detail.team],
-    ["Project", detail.project],
-    ["Milestone", detail.milestone],
-    ["Cycle", detail.cycle],
-    ["Parent", detail.parent],
+    ["Assignee", detail.assignee?.displayName ?? null],
+    ["Team", team ? `${team.key} ${team.name}` : null],
+    ["Project", detail.project?.name ?? null],
+    ["Milestone", detail.milestone?.name ?? null],
+    ["Cycle", cycle ? `#${cycle.number}${cycle.name ? ` ${cycle.name}` : ""}` : null],
+    ["Parent", detail.parent?.identifier ?? null],
     ["Estimate", detail.estimate],
-    ["Labels", detail.labels.length ? detail.labels.join(", ") : null],
+    ["Labels", detail.labels.length ? detail.labels.map((l) => l.name).join(", ") : null],
     ["Due", detail.dueDate],
     ["URL", detail.url],
     ["Updated", detail.updatedAt],

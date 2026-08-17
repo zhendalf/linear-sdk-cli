@@ -48,12 +48,12 @@ export function registerMilestone(program: Command): void {
       action(async (ctx: Context, _opts, id: string) => {
         const detail = await svc.getMilestoneDetail(ctx.client, id, ctx.limit);
         const issueLines = detail.issues.map(
-          (i) => `  ${i.identifier}  ${i.state ? `[${i.state}] ` : ""}${i.title}`,
+          (i) => `  ${i.identifier}  ${i.state ? `[${i.state.name}] ` : ""}${i.title}`,
         );
         if (detail.issuesTruncated) issueLines.push("  … more (use --all)");
         ctx.output.detail(detail, [
           ["Milestone", detail.name],
-          ["Project", detail.project],
+          ["Project", detail.project?.name ?? null],
           ["Target", detail.targetDate],
           ["Progress", `${Math.round(detail.progress * 100)}%`],
           ["Status", detail.status],

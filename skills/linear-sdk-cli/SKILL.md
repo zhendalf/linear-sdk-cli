@@ -70,9 +70,16 @@ stderr), so it is always safe to pipe into `jq`. The envelope is a stable contra
   `--debug` the extra detail rides _inside_ that object as `error.detail`, so `--json --debug`
   stays parseable.
 
+Relations are **objects with ids**, on list rows and on `view` alike — `state: {id,name,type}`,
+`team: {id,key,name}`, `assignee: {id,displayName,email}`, `project`/`milestone: {id,name}`,
+`cycle: {id,number,name}`, `parent: {id,identifier}`, `labels: [{id,name}]` — so `.state.name`
+reads the same everywhere and the id you need to act on is already in hand. Issues also carry
+`archivedAt` and `trashed`; a deleted issue still views, and says so.
+
 ```bash
 linear issue list --json | jq -r '.[].identifier'
 linear issue view TES-42 --json | jq -r '.url'
+linear issue view TES-42 --json | jq -r '.state.type, .team.key, .assignee.id'
 ID=$(linear issue create --title "Fix" --team TES --json | jq -r '.id')
 ```
 

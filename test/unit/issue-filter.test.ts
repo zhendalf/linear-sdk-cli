@@ -321,6 +321,12 @@ describe("searchIssues", () => {
     assignee: { displayName: "ada" },
     project: { name: "Auth" },
     labels: { nodes: [{ name: "bug" }, { name: "regression" }] },
+    // As the API sends them for a live, in-flight issue: `trashed` is null.
+    archivedAt: null,
+    trashed: null,
+    startedAt: "2026-07-01T00:00:00.000Z",
+    completedAt: null,
+    canceledAt: null,
   };
 
   // Regression: the old SDK-model path hardcoded labels: [], so `issue search
@@ -364,6 +370,11 @@ describe("searchIssues", () => {
         assignee: { displayName: "ada" },
         project: { name: "Auth" },
         labels: ["bug", "regression"],
+        archivedAt: null,
+        trashed: false,
+        startedAt: "2026-07-01T00:00:00.000Z",
+        completedAt: null,
+        canceledAt: null,
       },
     ]);
   });

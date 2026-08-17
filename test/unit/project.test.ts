@@ -1,8 +1,9 @@
 import { describe, it, expect } from "bun:test";
-import { buildFilter, createProject, updateProject } from "../../src/services/project.js";
+import { buildFilter, createProject, updateProject, getProjectDetail } from "../../src/services/project.js";
 import { connection } from "./_fakes.js";
 
 const client = {} as any;
+const UUID = "01234567-89ab-cdef-0123-456789abcdef";
 
 describe("project buildFilter", () => {
   it("filters by accessible team key (uppercased)", async () => {
@@ -127,5 +128,97 @@ describe("createProject / updateProject (input building)", () => {
     let captured: any;
     await updateProject(stub((i) => (captured = i), "update"), UUID, { content: "new body" });
     expect(captured).toEqual({ content: "new body" });
+  });
+});
+
+/**
+ * TES-622/627: `project view` fetched the name lookup, the project and five
+ * relations one request each (7, measured), and flattened `teams` into
+ * `"KEY name"` strings and `lead` into a display name. One tailored query now
+ * carries everything, and the relations come back as objects with ids.
+ */
+describe("getProjectDetail (one round-trip, structured relations)", () => {
+  const node = {
+    id: UUID,
+    name: "Auth",
+    description: "one-liner",
+    content: "# Body",
+    state: "started",
+    health: "onTrack",
+    progress: 0.25,
+    priority: 2,
+    priorityLabel: "High",
+    url: "https://linear.app/x/project/auth",
+    startDate: "2026-01-01",
+    targetDate: "2026-03-01",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-02T00:00:00.000Z",
+    completedAt: null,
+    archivedAt: null,
+    status: { id: "ps-1", name: "In Progress", type: "started" },
+    lead: { id: "u-1", displayName: "ada", email: "ada@x.io" },
+    labels: { nodes: [{ id: "pl-1", name: "backend" }] },
+    teams: { nodes: [{ id: "team-1", key: "TES", name: "Test workspace" }] },
+    members: { nodes: [{ id: "u-1", displayName: "ada", email: "ada@x.io" }] },
+  };
+  function stub(nodes: any[], calls: Array<{ query: string; vars: any }> = []) {
+    return {
+      client: {
+        rawRequest: async (query: string, vars: any) => {
+          calls.push({ query, vars });
+          return { data: { projects: { nodes } } };
+        },
+      },
+    } as any;
+  }
+
+  it("is exactly one request, by name, selecting every relation in the query", async () => {
+    const calls: Array<{ query: string; vars: any }> = [];
+    const d = await getProjectDetail(stub([node], calls), "auth");
+    expect(calls).toHaveLength(1);
+    const { query, vars } = calls[0]!;
+    // Two, not a page: a second match is already "ambiguous", and a full page
+    // times three nested connections is over Linear's complexity cap.
+    expect(query).toContain("projects(filter: $filter, first: 2");
+    for (const sel of ["status { id name type }", "lead { id displayName email }", "teams(first: 50) { nodes { id key name } }", "members(first: 50) { nodes { id displayName email } }", "labels(first: 50) { nodes { id name } }"]) {
+      expect(query).toContain(sel);
+    }
+    // A name matches live projects only, case-insensitively — as resolveProjectId does.
+    expect(vars).toEqual({ filter: { name: { eqIgnoreCase: "auth" } }, includeArchived: false });
+    expect(d.id).toBe(UUID);
+  });
+
+  it("a UUID filters by id and reaches archived projects too", async () => {
+    const calls: Array<{ query: string; vars: any }> = [];
+    await getProjectDetail(stub([node], calls), UUID);
+    expect(calls[0]!.vars).toEqual({ filter: { id: { eq: UUID } }, includeArchived: true });
+  });
+
+  it("returns relations as objects with ids — the row shape plus more, not display strings", async () => {
+    const d = await getProjectDetail(stub([node]), "auth");
+    expect(d.status).toEqual({ id: "ps-1", name: "In Progress", type: "started" });
+    expect(d.lead).toEqual({ id: "u-1", displayName: "ada", email: "ada@x.io" });
+    expect(d.teams).toEqual([{ id: "team-1", key: "TES", name: "Test workspace" }]);
+    expect(d.members).toEqual([{ id: "u-1", displayName: "ada", email: "ada@x.io" }]);
+    expect(d.labels).toEqual([{ id: "pl-1", name: "backend" }]);
+    expect(d.archivedAt).toBeNull();
+    // Scalars keep their keys.
+    expect(d).toMatchObject({ name: "Auth", content: "# Body", state: "started", health: "onTrack", priorityLabel: "High" });
+  });
+
+  it("nulls the optional relations rather than inventing placeholders", async () => {
+    const d = await getProjectDetail(stub([{ ...node, status: null, lead: null, labels: { nodes: [] }, teams: { nodes: [] }, members: { nodes: [] }, description: "" }]), "auth");
+    expect(d.status).toBeNull();
+    expect(d.lead).toBeNull();
+    expect(d.teams).toEqual([]);
+    expect(d.description).toBeNull();
+  });
+
+  it("no match → not_found; several → ambiguous, naming them", async () => {
+    await expect(getProjectDetail(stub([]), "nope")).rejects.toMatchObject({ code: "not_found" });
+    await expect(getProjectDetail(stub([node, { ...node, id: "p2" }]), "auth")).rejects.toMatchObject({
+      code: "ambiguous",
+      message: expect.stringContaining("Auth, Auth"),
+    });
   });
 });

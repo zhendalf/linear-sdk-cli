@@ -6,7 +6,7 @@ import {
   getMilestoneDetail,
 } from "../../src/services/milestone.js";
 import { CliError } from "../../src/lib/errors.js";
-import { connection } from "./_fakes.js";
+import { rawPage } from "./_fakes.js";
 
 const UUID = "01234567-89ab-cdef-0123-456789abcdef";
 
@@ -103,47 +103,65 @@ describe("updateMilestone", () => {
 
 describe("getMilestoneDetail (issues + truncation)", () => {
   /**
-   * A milestone whose issue connection holds `total` issues.
-   *
-   * The page size is whatever the service asks for, and the connection is the
-   * faithful one from `_fakes` — `fetchNext()` appends in place and returns
-   * `this`. The previous version of this stub returned a *fresh* object from
-   * `fetchNext()`, which is what let the truncation bug (AUDIT #5) ship with a
-   * passing test: the service's post-collection read of `pageInfo.hasNextPage`
-   * landed on an object the collection loop had left behind.
+   * A milestone whose issue connection holds `total` issues, served through
+   * the tailored `CliMilestoneDetail` query — one `rawRequest` per page, with
+   * the milestone fields riding along on every page and the issues cut at the
+   * cursor. Every call is recorded (query text + variables) so the tests can
+   * assert what went over the wire, not just what came back.
    */
-  function stub(total: number, seen?: { first?: number }) {
+  function stub(total: number, calls: Array<{ query: string; vars: any }> = []) {
     const all = Array.from({ length: total }, (_, i) => ({
+      id: `issue-${i + 1}`,
       identifier: `TES-${i + 1}`,
       title: `Issue ${i + 1}`,
-      state: Promise.resolve({ name: "Todo" }),
+      state: { id: "st-todo", name: "Todo", type: "unstarted" },
     }));
     return {
-      projectMilestone: async () => ({
-        id: "m1",
-        name: "M1",
-        description: null,
-        targetDate: null,
-        progress: 0.5,
-        status: "next",
-        createdAt: new Date("2026-01-01T00:00:00.000Z"),
-        updatedAt: new Date("2026-01-02T00:00:00.000Z"),
-        project: Promise.resolve({ name: "Auth" }),
-        issues: async ({ first }: any) => {
-          if (seen) seen.first = first;
-          return connection(all, first);
+      client: {
+        rawRequest: async (query: string, vars: any) => {
+          calls.push({ query, vars });
+          return {
+            data: {
+              projectMilestone: {
+                id: "m1",
+                name: "M1",
+                description: null,
+                targetDate: null,
+                progress: 0.5,
+                status: "next",
+                createdAt: "2026-01-01T00:00:00.000Z",
+                updatedAt: "2026-01-02T00:00:00.000Z",
+                project: { id: "p1", name: "Auth" },
+                issues: rawPage(all, vars),
+              },
+            },
+          };
         },
-      }),
+      },
     } as any;
   }
 
-  it("returns the milestone's issues with their state", async () => {
+  it("returns the milestone's issues with their state — as objects, with ids", async () => {
     const d = await getMilestoneDetail(stub(2), UUID, 50);
     expect(d.issues).toEqual([
-      { identifier: "TES-1", title: "Issue 1", state: "Todo" },
-      { identifier: "TES-2", title: "Issue 2", state: "Todo" },
+      { id: "issue-1", identifier: "TES-1", title: "Issue 1", state: { id: "st-todo", name: "Todo", type: "unstarted" } },
+      { id: "issue-2", identifier: "TES-2", title: "Issue 2", state: { id: "st-todo", name: "Todo", type: "unstarted" } },
     ]);
+    expect(d.project).toEqual({ id: "p1", name: "Auth" });
     expect(d.issuesTruncated).toBe(false);
+  });
+
+  // TES-622: the SDK-model version awaited `issue.state` once per issue, so a
+  // 13-issue milestone cost 16 requests and `-n 50` on a full one ~53. Every
+  // relation is selected in the query now, so a page of issues is one request.
+  it("is ONE request for a milestone whose issues fit in a page, whatever their number", async () => {
+    const calls: Array<{ query: string; vars: any }> = [];
+    await getMilestoneDetail(stub(40, calls), UUID, 50);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.query).toContain("projectMilestone(id: $id)");
+    expect(calls[0]!.query).toContain("state { id name type }");
+    expect(calls[0]!.query).toContain("project { id name }");
+    expect(calls[0]!.vars).toEqual({ id: UUID, first: 51, after: undefined });
   });
 
   // A partial list must announce itself rather than looking complete.
@@ -154,12 +172,15 @@ describe("getMilestoneDetail (issues + truncation)", () => {
   });
 
   // AUDIT #5, exactly as reproduced: 180 issues at --limit 150. The limit is
-  // over one page, so collection has to follow `fetchNext` — and it is the
-  // multi-page path where reading the connection afterwards lies.
+  // over one page, so collection has to follow the cursor — and it is the
+  // multi-page path where reading a connection afterwards used to lie.
   it("flags truncation when the hidden issues are past the first page", async () => {
-    const d = await getMilestoneDetail(stub(180), UUID, 150);
+    const calls: Array<{ query: string; vars: any }> = [];
+    const d = await getMilestoneDetail(stub(180, calls), UUID, 150);
     expect(d.issues).toHaveLength(150);
     expect(d.issuesTruncated).toBe(true);
+    // Two pages of 100: the second one continues from the first's cursor.
+    expect(calls.map((c) => c.vars.after)).toEqual([undefined, "c100"]);
   });
 
   // Exactly `limit` issues is not truncation: the sentinel item is what
@@ -179,8 +200,14 @@ describe("getMilestoneDetail (issues + truncation)", () => {
   // The spare slot is asked for up front, so detecting truncation costs no
   // extra round-trip for a limit that fits in one page.
   it("asks for one more than the limit so the sentinel is free", async () => {
-    const seen: { first?: number } = {};
-    await getMilestoneDetail(stub(10, seen), UUID, 3);
-    expect(seen.first).toBe(4);
+    const calls: Array<{ query: string; vars: any }> = [];
+    await getMilestoneDetail(stub(10, calls), UUID, 3);
+    expect(calls[0]!.vars.first).toBe(4);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("a milestone the API does not return is not_found", async () => {
+    const client = { client: { rawRequest: async () => ({ data: { projectMilestone: null } }) } } as any;
+    await expect(getMilestoneDetail(client, UUID, 50)).rejects.toMatchObject({ code: "not_found" });
   });
 });

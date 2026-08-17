@@ -38,7 +38,19 @@ export interface IssueRow {
   assignee: { displayName: string } | null;
   project: { name: string } | null;
   labels: string[];
+  /**
+   * Lifecycle. `--include-archived` used to list archived and trashed issues
+   * indistinguishably from live ones, and a deleted issue read back as alive.
+   */
+  archivedAt: string | null;
+  trashed: boolean;
+  startedAt: string | null;
+  completedAt: string | null;
+  canceledAt: string | null;
 }
+
+/** The lifecycle fields every issue query selects, so row and detail agree. */
+const LIFECYCLE_FIELDS = "archivedAt trashed startedAt completedAt canceledAt";
 
 export interface ListFilters {
   /** One team key, or several (`--team` is repeatable on the issue queries). */
@@ -131,7 +143,7 @@ const LIST_QUERY = `
 query CliIssues($filter: IssueFilter, $first: Int!, $after: String, $sort: [IssueSortInput!], $includeArchived: Boolean) {
   issues(filter: $filter, first: $first, after: $after, sort: $sort, includeArchived: $includeArchived) {
     nodes {
-      id identifier title priority priorityLabel estimate url updatedAt
+      id identifier title priority priorityLabel estimate url updatedAt ${LIFECYCLE_FIELDS}
       state { name type }
       assignee { displayName }
       project { name }
@@ -341,7 +353,7 @@ const SEARCH_QUERY = `
 query CliSearchIssues($term: String!, $filter: IssueFilter, $first: Int!, $after: String, $includeArchived: Boolean, $includeComments: Boolean) {
   searchIssues(term: $term, filter: $filter, first: $first, after: $after, includeArchived: $includeArchived, includeComments: $includeComments) {
     nodes {
-      id identifier title priority priorityLabel estimate url updatedAt
+      id identifier title priority priorityLabel estimate url updatedAt ${LIFECYCLE_FIELDS}
       state { name type }
       assignee { displayName }
       project { name }
@@ -403,9 +415,30 @@ function toIssueRow(n: any): IssueRow {
     assignee: n.assignee ?? null,
     project: n.project ?? null,
     labels: (n.labels?.nodes ?? []).map((l: any) => l.name),
+    ...lifecycle(n),
   };
 }
 
+/** The lifecycle fields off a raw issue node. `trashed` is nullable upstream; null means no. */
+function lifecycle(n: any) {
+  return {
+    archivedAt: n.archivedAt ?? null,
+    trashed: n.trashed === true,
+    startedAt: n.startedAt ?? null,
+    completedAt: n.completedAt ?? null,
+    canceledAt: n.canceledAt ?? null,
+  };
+}
+
+/**
+ * A single issue with every relation a `view` shows.
+ *
+ * Relations are objects, not display strings — the same shape a list row uses
+ * for `state`/`assignee`/`project`, so `.state.name` reads the same on both,
+ * plus the ids a script needs to act on what it sees. (They used to be
+ * flattened to strings here: `team: "TES Test-workspace-bla"` is not even
+ * parseable, since a team name can contain spaces.)
+ */
 export interface IssueDetail {
   id: string;
   identifier: string;
@@ -419,53 +452,92 @@ export interface IssueDetail {
   dueDate: string | null;
   createdAt: string;
   updatedAt: string;
-  state: string | null;
-  assignee: string | null;
-  team: string | null;
-  project: string | null;
-  milestone: string | null;
-  cycle: string | null;
-  parent: string | null;
-  labels: string[];
-  subscribers: string[];
+  archivedAt: string | null;
+  trashed: boolean;
+  startedAt: string | null;
+  completedAt: string | null;
+  canceledAt: string | null;
+  state: { id: string; name: string; type: string } | null;
+  assignee: { id: string; displayName: string; email: string } | null;
+  team: { id: string; key: string; name: string } | null;
+  project: { id: string; name: string } | null;
+  milestone: { id: string; name: string } | null;
+  cycle: { id: string; number: number; name: string | null } | null;
+  parent: { id: string; identifier: string } | null;
+  labels: Array<{ id: string; name: string }>;
+  subscribers: Array<{ id: string; displayName: string }>;
+}
+
+/**
+ * Everything `issue view` shows, in one round-trip. Selecting the relations in
+ * the query is what makes it one: the SDK model's `issue.state`, `.assignee`,
+ * `.team`, … are each a lazy request of their own, and the previous version
+ * awaited nine of them (8 requests for TES-601, measured).
+ *
+ * `includeArchived: true` so archived and trashed issues are viewable — they
+ * carry `archivedAt`/`trashed` so the caller can say so — and the identifier
+ * route filters by team key + number, as `resolveIssue` does, so a lookup never
+ * depends on the API accepting human identifiers in `issue(id:)`.
+ */
+const DETAIL_QUERY = `
+query CliIssueDetail($filter: IssueFilter!) {
+  issues(filter: $filter, first: 1, includeArchived: true) {
+    nodes {
+      id identifier title description priority priorityLabel estimate url branchName dueDate
+      createdAt updatedAt ${LIFECYCLE_FIELDS}
+      state { id name type }
+      assignee { id displayName email }
+      team { id key name }
+      project { id name }
+      projectMilestone { id name }
+      cycle { id number name }
+      parent { id identifier }
+      labels(first: 50) { nodes { id name } }
+      subscribers(first: 50) { nodes { id displayName } }
+    }
+  }
+}`;
+
+const IDENTIFIER_RE = /^([a-zA-Z][a-zA-Z0-9]*)-(\d+)$/;
+
+/** The IssueFilter that names exactly one issue, by UUID or by `TES-123`. */
+function detailFilter(input: string): { filter: Record<string, unknown>; label: string } {
+  if (isUuid(input)) return { filter: { id: { eq: input } }, label: input };
+  const match = input.match(IDENTIFIER_RE);
+  if (!match) throw usageError(`'${input}' is not a valid issue id (expected e.g. TES-123 or a UUID).`);
+  const key = match[1]!.toUpperCase();
+  const number = Number.parseInt(match[2]!, 10);
+  return { filter: { team: { key: { eq: key } }, number: { eq: number } }, label: `${key}-${number}` };
 }
 
 export async function getIssueDetail(client: LinearClient, idArg: string): Promise<IssueDetail> {
-  const issue = await resolveIssue(client, idArg);
-  const [state, assignee, team, project, milestone, cycle, parent, labels, subscribers] =
-    await Promise.all([
-      issue.state,
-      issue.assignee,
-      issue.team,
-      issue.project,
-      issue.projectMilestone,
-      issue.cycle,
-      issue.parent,
-      issue.labels(),
-      issue.subscribers(),
-    ]);
+  const { filter, label } = detailFilter(idArg);
+  const data: any = await withRetry(() => (client as any).client.rawRequest(DETAIL_QUERY, { filter }));
+  const n = data.data?.issues?.nodes?.[0];
+  if (!n) throw notFound(`No issue ${label}.`);
   return {
-    id: issue.id,
-    identifier: issue.identifier,
-    title: issue.title,
-    description: issue.description ?? null,
-    priority: issue.priority,
-    priorityLabel: issue.priorityLabel,
-    estimate: issue.estimate ?? null,
-    url: issue.url,
-    branchName: issue.branchName,
-    dueDate: issue.dueDate ?? null,
-    createdAt: issue.createdAt.toISOString(),
-    updatedAt: issue.updatedAt.toISOString(),
-    state: state?.name ?? null,
-    assignee: assignee?.displayName ?? null,
-    team: team ? `${team.key} ${team.name}` : null,
-    project: project?.name ?? null,
-    milestone: milestone?.name ?? null,
-    cycle: cycle ? `#${cycle.number}${cycle.name ? ` ${cycle.name}` : ""}` : null,
-    parent: parent?.identifier ?? null,
-    labels: labels.nodes.map((l) => l.name),
-    subscribers: subscribers.nodes.map((s) => s.displayName),
+    id: n.id,
+    identifier: n.identifier,
+    title: n.title,
+    description: n.description ?? null,
+    priority: n.priority,
+    priorityLabel: n.priorityLabel,
+    estimate: n.estimate ?? null,
+    url: n.url,
+    branchName: n.branchName,
+    dueDate: n.dueDate ?? null,
+    createdAt: n.createdAt,
+    updatedAt: n.updatedAt,
+    ...lifecycle(n),
+    state: n.state ?? null,
+    assignee: n.assignee ?? null,
+    team: n.team ?? null,
+    project: n.project ?? null,
+    milestone: n.projectMilestone ?? null,
+    cycle: n.cycle ? { id: n.cycle.id, number: n.cycle.number, name: n.cycle.name ?? null } : null,
+    parent: n.parent ?? null,
+    labels: n.labels?.nodes ?? [],
+    subscribers: n.subscribers?.nodes ?? [],
   };
 }
 

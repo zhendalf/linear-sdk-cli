@@ -67,3 +67,23 @@ export function okPayload(): FakePayload {
 export function failedPayload(key?: string): FakePayload {
   return { success: false, lastSyncId: 1, ...(key ? { [key]: Promise.resolve(null) } : {}) };
 }
+
+/**
+ * One page of a raw GraphQL connection, as `rawRequest` returns it: `nodes`
+ * plus `pageInfo { hasNextPage endCursor }`, cut from `all` at the opaque
+ * cursor `after` (which this fake spells `c<offset>`). Fakes of the tailored
+ * detail/list queries serve pages with this so pagination is exercised against
+ * the shape the wire actually has.
+ */
+export function rawPage<T>(
+  all: T[],
+  vars: { first: number; after?: string | null },
+): { nodes: T[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } } {
+  const offset = vars.after ? Number.parseInt(String(vars.after).replace(/^c/, ""), 10) : 0;
+  const nodes = all.slice(offset, offset + vars.first);
+  const end = offset + nodes.length;
+  return {
+    nodes,
+    pageInfo: { hasNextPage: end < all.length, endCursor: nodes.length ? `c${end}` : null },
+  };
+}

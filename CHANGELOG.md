@@ -8,6 +8,23 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Credentials in the OS keyring, and schpet/linear-cli's found without a re-login.**
+  `auth login` now stores the API key in the macOS Keychain (or Linux `secret-tool`) under service
+  `linear-cli` / account `<workspace slug>` — the reference CLI's exact convention — and writes only
+  a `keyring = true` marker to `config.toml`; `--plaintext` keeps today's `0600` file behaviour,
+  and a platform with no keyring falls back to it silently (a platform is not an error). Resolution
+  falls through to the keyring after the flag, the env and a plaintext `api_key`, and `auth status`
+  reports `Source: keychain`. A user coming from schpet 2.x is authenticated before their first
+  command: their `credentials.toml` workspace list and `default` are read (never its inline keys),
+  and the Keychain item is where we look. New `auth migrate` moves every plaintext key from the
+  file into the keyring, all-or-nothing with rollback; `auth list` gains a `Storage` column;
+  `auth logout` removes the keyring entry too, and drops the slug from schpet's list so neither
+  tool advertises a workspace whose key is gone. The secret never travels on argv: macOS goes
+  through `security -i` (commands over stdin — `add-generic-password -w` as the last option
+  prompts on `/dev/tty` and hangs in a real terminal, verified), Linux through `secret-tool`'s
+  stdin. `auth login --key -` reads the key from stdin; `--key <value>` warns that argv is
+  visible to other processes.
+
 - **The query filters a script carried over from `linear-cli` expects.** These failed loudly before
   (unknown flag), so nothing changes meaning — but they blocked real workflows, and every one of
   them is now on `issue list`, `issue mine` and `issue search` alike, because all three share one
@@ -143,6 +160,23 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- **Detail JSON carries relations as objects, not display strings** (TES-627 — a deliberate
+  JSON-contract change). `issue view --json` used to flatten every relation:
+  `team: "TES Test-workspace-bla"` (not even parseable — team names contain spaces),
+  `cycle: "#3 name"`, `assignee`/`project`/`milestone`/`parent` as bare display names with no ids,
+  `labels` as names only — while `issue list --json` carried `state: {name,type}` objects, so the
+  same field had two types depending on the command. Every one of those keys **stays**, and the
+  value under it becomes the object the row already used, plus the id:
+  `state: {id,name,type}`, `assignee: {id,displayName,email}`, `team: {id,key,name}`,
+  `project: {id,name}`, `milestone: {id,name}`, `cycle: {id,number,name}`,
+  `parent: {id,identifier}`, `labels: [{id,name}]`, `subscribers: [{id,displayName}]`. So
+  `.state.name` reads the same on a list row and a detail row, and an agent that wants the team
+  key, the state type or the assignee id after a `view` no longer needs a second command. Same
+  for `project view` (`status: {id,name,type}`, `lead`/`members: {id,displayName,email}`,
+  `teams: [{id,key,name}]`, `labels: [{id,name}]`) and `milestone view` (`project: {id,name}`,
+  `issues[].state: {id,name,type}`, plus `issues[].id`). The human renderings are unchanged; the
+  detail's top-level `id` is still the UUID. **If a script did `jq -r '.state'` or `.team` on a
+  view, it now needs `.state.name` / `.team.key`.**
 - **Repeating `--label` now narrows instead of broadening.** `--label bug --label regression`
   used to return issues carrying *either* label; it now returns only those carrying *both*.
   Every other repeatable filter in this CLI narrows, the reference CLI narrows, and the broadening
@@ -211,6 +245,30 @@ All notable changes to this project are documented here. The format is based on
   option. The contract suite now spawns the real binary against an isolated, key-less config and
   asserts the envelope under `--json`, `-j`, `-jq` and `linear -j issue …`; before, it exercised
   only the `Output` class, which is how this slipped past 600 tests.
+- **Detail views are one request each, not six to sixteen** (TES-622). Lists have always used a
+  tailored GraphQL query, but every *detail* path awaited the SDK model's lazy relation getters,
+  each its own HTTP round-trip. Measured live with a fetch counter before/after:
+  `getIssueDetail(TES-601)` **8 → 1**; `getProjectDetail(linear-sdk-cli)` **7 → 1**;
+  `getMilestoneDetail` with 13 issues **16 → 1** (it awaited `issue.state` per issue, so `-n 50`
+  on a full milestone cost ~53). Each now selects its relations in one query
+  (`CliIssueDetail`/`CliProjectDetail`/`CliMilestoneDetail`, in the services), and the unit tests
+  record `rawRequest` and assert the call count and the selection, so it cannot regress quietly.
+  Two things learned on the way and now written down in the code: Linear prices a query by its
+  worst case, so a project lookup at `first: 250` × three nested 50-item connections was refused
+  as too complex (49 975 vs. a cap of 10 000) — a name match with a second hit is already
+  "ambiguous", so it asks for two; and the milestone's issue pages are followed by cursor with the
+  milestone fields riding along, read off the first page. `updateIssue` is unchanged in this pass
+  (9 requests): its cost is in the shared resolvers (`resolveLabelIds` fetching each candidate
+  label's team, `teamStates` fetching the team then its states, and the SDK payload's lazy
+  `issue`), which are a separate change.
+- **`issue view`/`issue list` show archived and trashed issues as such** (TES-624). A deleted
+  issue read back exactly like a live one — `issue delete TES-616` then `issue view TES-616 --json`
+  showed `state: Backlog`, exit 0 — and `--include-archived` mixed live, archived and trashed rows
+  indistinguishably. Both shapes now carry `archivedAt`, `trashed`, `startedAt`, `completedAt` and
+  `canceledAt` (`trashed` is nullable upstream and is normalised to a boolean). The human `view`
+  says so first and in capitals — `Trashed: YES (deleted 2026-08-16T15:41:08.952Z)` /
+  `Archived: YES (…)` right under the title — and the list table marks the state column
+  `Backlog (trashed)` / `Backlog (archived)`.
 - **Rate-limit waits are announced through the Context's `Output`** rather than a bare stderr
   writer, so the "rate limited; retrying in Ns" line honours `--quiet` like every other status line
   and can never land on the JSON stdout a script is parsing.
