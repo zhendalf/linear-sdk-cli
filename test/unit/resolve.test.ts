@@ -176,6 +176,134 @@ describe("resolveCycleId", () => {
   });
 });
 
+/**
+ * TES-621: `Number.parseInt` decided what was a number, so `3.9`/`3abc` resolved
+ * to cycle #3 (and `issue update --cycle 3.9` moved the issue there), while a
+ * cycle *named* with a leading digit was unreachable by name — `2024 Q1` parsed
+ * as #2024 first. Only a whole-token integer is a number now.
+ */
+describe("resolveCycleId — strict number token", () => {
+  function makeClient() {
+    const calls: any[] = [];
+    const cycles = [
+      { id: "c3", number: 3, name: null },
+      { id: "c-q1", number: 7, name: "2024 Q1" },
+    ];
+    const team = {
+      activeCycle: Promise.resolve(null),
+      cycles: async (args: any) => {
+        calls.push(args);
+        const num = args?.filter?.number?.eq;
+        return connection(num === undefined ? cycles : cycles.filter((c) => c.number === num));
+      },
+    };
+    return { client: { team: async () => team } as any, calls };
+  }
+
+  it("does not read '3.9' or '3abc' as cycle #3", async () => {
+    const { client, calls } = makeClient();
+    await expect(resolveCycleId(client, "t1", "3.9")).rejects.toMatchObject({ code: "not_found" });
+    await expect(resolveCycleId(client, "t1", "3abc")).rejects.toMatchObject({ code: "not_found" });
+    // Neither ever asked the server for number 3.
+    expect(calls.some((c) => c?.filter?.number?.eq === 3)).toBe(false);
+  });
+
+  it("reaches a cycle named with a leading digit by name", async () => {
+    const { client, calls } = makeClient();
+    expect(await resolveCycleId(client, "t1", "2024 Q1")).toBe("c-q1");
+    expect(calls.some((c) => c?.filter?.number?.eq === 2024)).toBe(false);
+  });
+
+  it("still resolves a whole-token integer through the number filter", async () => {
+    const { client, calls } = makeClient();
+    expect(await resolveCycleId(client, "t1", "3")).toBe("c3");
+    expect(calls[0].filter).toEqual({ number: { eq: 3 } });
+  });
+});
+
+/**
+ * TES-611: the reference CLI's 2.2 relative references. `now` joins
+ * `current`/`active`; `next`/`previous` ride Linear's own `isNext`/`isPrevious`
+ * flags (one filtered request, not a scan); `+N`/`-N` are offsets from the
+ * active cycle's number.
+ */
+describe("resolveCycleId — relative references", () => {
+  function makeClient(active: { id: string; number: number } | null = { id: "c5", number: 5 }) {
+    const calls: any[] = [];
+    const cycles = [
+      { id: "c4", number: 4, name: "Sprint 4", isPrevious: true, isNext: false },
+      { id: "c5", number: 5, name: "Sprint 5", isPrevious: false, isNext: false },
+      { id: "c6", number: 6, name: "Sprint 6", isPrevious: false, isNext: true },
+      { id: "c7", number: 7, name: "next", isPrevious: false, isNext: false },
+    ];
+    const team = {
+      activeCycle: Promise.resolve(active),
+      cycles: async (args: any) => {
+        calls.push(args);
+        const f = args?.filter ?? {};
+        let out = cycles;
+        if (f.number?.eq !== undefined) out = out.filter((c) => c.number === f.number.eq);
+        if (f.isNext?.eq !== undefined) out = out.filter((c) => c.isNext === f.isNext.eq);
+        if (f.isPrevious?.eq !== undefined) out = out.filter((c) => c.isPrevious === f.isPrevious.eq);
+        return connection(out);
+      },
+    };
+    return { client: { team: async () => team } as any, calls };
+  }
+
+  it("'now' is the active cycle, like current/active", async () => {
+    const { client } = makeClient();
+    expect(await resolveCycleId(client, "t1", "now")).toBe("c5");
+    expect(await resolveCycleId(client, "t1", "NOW")).toBe("c5");
+  });
+
+  it("'next' and 'previous' use the server-side isNext/isPrevious filters", async () => {
+    const { client, calls } = makeClient();
+    expect(await resolveCycleId(client, "t1", "next")).toBe("c6");
+    expect(calls[0]).toMatchObject({ filter: { isNext: { eq: true } }, first: 1 });
+    expect(await resolveCycleId(client, "t1", "previous")).toBe("c4");
+    expect(calls[1]).toMatchObject({ filter: { isPrevious: { eq: true } }, first: 1 });
+  });
+
+  // A cycle literally named "next" is not what `--cycle next` means; it stays
+  // reachable by number or id.
+  it("reserved words win over a coincidental cycle name", async () => {
+    const { client } = makeClient();
+    expect(await resolveCycleId(client, "t1", "next")).toBe("c6");
+    expect(await resolveCycleId(client, "t1", "7")).toBe("c7");
+  });
+
+  it("'+1' / '-1' offset the active cycle's number", async () => {
+    const { client, calls } = makeClient();
+    expect(await resolveCycleId(client, "t1", "+1")).toBe("c6");
+    expect(calls[0].filter).toEqual({ number: { eq: 6 } });
+    expect(await resolveCycleId(client, "t1", "-1")).toBe("c4");
+    expect(calls[1].filter).toEqual({ number: { eq: 4 } });
+    expect(await resolveCycleId(client, "t1", "+2")).toBe("c7");
+  });
+
+  it("an offset that lands on no cycle is not_found and names the target", async () => {
+    const { client } = makeClient();
+    await expect(resolveCycleId(client, "t1", "+9")).rejects.toThrow(/\+9 \(cycle #14\)/);
+    await expect(resolveCycleId(client, "t1", "-9")).rejects.toMatchObject({ code: "not_found" });
+  });
+
+  it("offsets and 'now' need an active cycle; 'next' does not", async () => {
+    const { client } = makeClient(null);
+    await expect(resolveCycleId(client, "t1", "+1")).rejects.toThrow(/no active cycle/);
+    await expect(resolveCycleId(client, "t1", "now")).rejects.toMatchObject({ code: "not_found" });
+    expect(await resolveCycleId(client, "t1", "next")).toBe("c6");
+  });
+
+  it("says so when the team has cycles disabled", async () => {
+    const client = {
+      team: async () => ({ key: "TES", cyclesEnabled: false, activeCycle: Promise.resolve(null) }),
+    } as any;
+    await expect(resolveCycleId(client, "t1", "next")).rejects.toThrow(/Cycles are not enabled/);
+    await expect(resolveCycleId(client, "t1", "3")).rejects.toMatchObject({ code: "usage" });
+  });
+});
+
 describe("STATE_TYPES", () => {
   it("includes the canonical workflow types", () => {
     expect(STATE_TYPES).toContain("started");

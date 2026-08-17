@@ -24,7 +24,7 @@ import type { Column } from "../output/table.js";
 
 const ROW_COLUMNS: Column<svc.CommentRow>[] = [
   { key: "createdAt", header: "Date", value: (r) => r.createdAt.slice(0, 10) },
-  { key: "author", header: "Author", value: (r) => r.author, max: 18 },
+  { key: "author", header: "Author", value: (r) => r.user?.displayName ?? "—", max: 18 },
   { key: "body", header: "Body", value: (r) => r.body.replace(/\n/g, " "), max: 70 },
 ];
 

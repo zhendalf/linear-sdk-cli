@@ -104,7 +104,7 @@ function refusingClient(): any {
     attachment: async () => entity,
     client: {
       rawRequest: async (query: string) => {
-        if (query.includes("CliCommentParent")) {
+        if (query.includes("CliCommentLookup")) {
           return {
             data: {
               comment: { id: "c1", issueId: UUID, issue: { id: UUID, identifier: "TES-1" } },

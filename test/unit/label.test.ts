@@ -42,16 +42,32 @@ describe("listLabels", () => {
     expect(rows[1]).toMatchObject({ team: null, isGroup: false });
   });
 
-  it("scopes the filter to the resolved team key", async () => {
+  // TES-617: a team scope used to filter on `team.key` alone, which silently
+  // dropped every workspace-level (team-less) label — the ones an issue in that
+  // team can carry just as well, and the ones `resolveLabelIds` accepts. The
+  // filter on the wire must OR the team key with `team: { null: true }`.
+  it("scopes to the team's labels PLUS workspace-level labels", async () => {
     const { client, calls } = listClient(NODES);
-    await listLabels(client, "tes", 50, undefined);
-    expect(calls[0].filter).toEqual({ team: { key: { eq: "TES" } } });
+    const rows = await listLabels(client, "tes", 50, undefined);
+    expect(calls[0].filter).toEqual({
+      or: [{ team: { key: { eq: "TES" } } }, { team: { null: true } }],
+    });
+    // The workspace label survives the scope.
+    expect(rows.map((r) => r.name)).toEqual(["bug", "ui"]);
   });
 
   it("falls back to the default team when none is passed", async () => {
     const { client, calls } = listClient(NODES);
     await listLabels(client, undefined, 50, "ENG");
-    expect(calls[0].filter).toEqual({ team: { key: { eq: "ENG" } } });
+    expect(calls[0].filter).toEqual({
+      or: [{ team: { key: { eq: "ENG" } } }, { team: { null: true } }],
+    });
+  });
+
+  it("--all-teams ignores both the argument and the default team", async () => {
+    const { client, calls } = listClient(NODES);
+    await listLabels(client, "tes", 50, "ENG", { allTeams: true });
+    expect(calls[0].filter).toBeUndefined();
   });
 });
 

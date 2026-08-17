@@ -1,0 +1,120 @@
+# Migrating from `schpet/linear-cli`
+
+_Verified against **schpet/linear-cli v2.5.0** (`5af8286`, 2026-08-11) — the Deno original, not a
+fork. If you are on the `@zhendalf/linear-cli` Bun port, everything here applies too; that fork
+tracks the original._
+
+The short version: **install, run `linear auth status`, keep typing what you typed.** Your
+credentials are found where schpet left them, your `.linear.toml` is read from the same places, and
+schpet's spellings are accepted as aliases. Where the two CLIs genuinely differ, the difference is
+loud — a usage error, never a quietly different result.
+
+## 1. Install (and the `linear` name)
+
+Both CLIs install a binary called `linear`. If schpet's is on your `PATH`, ours will shadow it — or
+be shadowed — depending on order. To keep both during transition:
+
+```bash
+# keep the old one reachable under a different name
+mv "$(command -v linear)" "$(dirname "$(command -v linear)")/linear-schpet"
+bun install -g linear-sdk-cli      # or: bun link, from a clone
+linear --version                   # ours: 0.x
+```
+
+We also install **`lin`**, a shorter alias that cannot collide with anything of theirs. If you want
+zero risk of running the wrong tool, use `lin` for the first week.
+
+## 2. Credentials — nothing to re-enter
+
+schpet 2.5 stores your API key in the **system keyring** (macOS Keychain, service `linear-cli`,
+account = workspace slug), with a plaintext fallback. We read that keyring entry directly, so:
+
+```bash
+linear auth status      # should already say Authenticated: true, Source: keychain
+```
+
+If it does not — no keyring on this platform, or you used schpet's plaintext mode — `linear auth
+login` prompts (masked) and stores the key. `auth migrate` moves a plaintext credential into the
+keyring, same command name as theirs. The API key is **never** read from a project `.linear.toml`.
+
+## 3. Config — same files, same keys
+
+We look in every place schpet does: `.linear.toml` and `linear.toml` up the directory tree,
+`.config/linear.toml`, and `~/.config/linear/linear.toml` (plus our own `~/.config/linear/config.toml`).
+`team_id`, `issue_sort`, `default_workspace` and `[workspaces."slug"]` tables are honored.
+`linear config` shows the resolved result; `linear config init` writes one.
+
+## 4. Commands — same words, or an alias
+
+| schpet | here | notes |
+|---|---|---|
+| `issue list` | **`issue mine`** | ⚠️ their `list` is an alias of `mine` (you, unstarted). Our `list` is the whole team. See §6. |
+| `issue query` | `issue list` | alias, same command |
+| `issue mine` | `issue mine` | same defaults: yours, unstarted; `--all-states` widens |
+| `issue comment add\|list\|update\|delete` | same, or top-level `comment …` | one implementation |
+| `issue comment <id> "<body>"` | same | |
+| `issue attach <file>` / `issue link <url>` | `attachment create --url` | file upload not yet here — see §7 |
+| `auth whoami` | `whoami` (also `auth whoami`) | |
+| `auth migrate` | `auth migrate` | |
+| `config` (writes toml) | `config init` / `config set` | |
+| `team states` / `team members` / `user list` | same | |
+| `initiative add-project` / `remove-project` / `unarchive` | same | |
+| `project delete` / `team delete` | same, confirmation-gated | |
+| `schema` / `api` | same | ours adds `--operation`, `--vars-file`, and refuses to `--paginate` a mutation |
+
+Everything with no row is spelled identically.
+
+## 5. Flags — theirs are accepted
+
+| schpet | here (canonical) | where |
+|---|---|---|
+| `-j, --json` | same | every command |
+| `-w, --web` | same | every `view` |
+| `--due-date` | `--due` | issue create/update |
+| `--target-date`, `--start-date` | `--target`, `--start` | project / milestone / initiative |
+| `--search` | `--query` | issue list / mine |
+| `--status` | `--state` | project list |
+| `--limit 0` | `--all` | every list |
+| `--assignee self` | `me` / `@me` | anywhere |
+| `--cycle active` | `current` | anywhere; `now`/`next`/`previous`/`+1` also work |
+| `-U/--unassigned`, `--created-after`, `--updated-after`, `--project-label`, `--milestone`, `--search-comments`, repeatable `--team`/`--state` | same | issue queries |
+| `--add-label`, `--remove-label`, `--unassign`, `--clear-cycle` | same | issue update |
+
+Passing both spellings at once (`--due` *and* `--due-date`) is a usage error, not a coin flip.
+
+**Short flags are the one place we did not follow.** schpet 2.5's own tree assigns `-a` four
+meanings (`--app`, `--all`, `--assignee`, `--attach`), `-f` four, `-y` three, `-t` two (`--title`
+and `--team`). There is no consistent target to copy. Ours holds **one meaning per letter across
+all 141 commands**, so `-t` is always `--team`, `-p` always `--project`, `-P` always `--priority`.
+Every collision fails loudly — `-p 2` says "No project matching '2'", not "set priority 2".
+
+## 6. The three things that would silently differ — and how we made them loud
+
+These are the only spots where the same command could *succeed and return different data*. Know them.
+
+1. **`issue list`** — theirs shows *your unstarted* issues; ours shows the *team's* issues.
+   We did not alias `list` to `mine`: a command named "list" that hides your colleagues' work and
+   your own in-progress work is the sharpest transition hazard there is. Type `issue mine` for the
+   old behavior.
+2. **Repeated `--label`** narrows (AND) in both CLIs now — same as schpet.
+3. **`--sort priority`** groups by workflow state in both — but we sort state **ascending** so active
+   work is on top. schpet hardcodes descending, which the API answers with Backlog *above* In
+   Progress; a Low-priority backlog item outranks an Urgent in-progress one there. We diverge on
+   purpose.
+
+## 7. Not here yet
+
+`issue attach <file>` (file upload), `issue commits`, `team autolinks`, jj support, bulk
+`--bulk-file`, markdown rendering + pager, `issue agent-session`. Each is tracked; the raw
+`linear api` reaches all of the API surface in the meantime.
+
+## 8. What you gain
+
+- **One JSON shape everywhere.** Lists are a bare array, single results a bare object, errors
+  `{"error":{"message","code"}}` on stderr with distinct exit codes (0–6). schpet wraps in
+  `{nodes,pageInfo}` and several of its commands have no `--json` at all.
+- **Discovery for agents:** `linear commands --json` (full command tree) and `linear schema`.
+- **Broader surface:** notifications, webhooks, favorites, organization, cycle create/update,
+  comment resolve/reply, label hierarchy, `issue archive/unarchive`, `issue subscribe`.
+- **Every mutation checks `success`**; every resolver scans past the first page and names the
+  candidates on a miss; `--json` implies non-interactive; a declined confirmation exits 6.

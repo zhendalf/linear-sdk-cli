@@ -29,15 +29,18 @@ function issueModel(overrides: Record<string, any> = {}) {
 }
 
 describe("listComments", () => {
-  it("maps rawRequest nodes to rows, falling back to 'unknown' author", async () => {
+  // The author is an OBJECT (id + displayName) like every other list row's
+  // relations, and null for a deleted account — not a display string, and no
+  // "unknown" placeholder that a script could mistake for a real name.
+  it("maps rawRequest nodes to rows: author object, thread parent, edited/resolved", async () => {
     // listComments uses a tailored GraphQL query (no N+1) via client.client.rawRequest.
     const rawRequest = vi.fn().mockResolvedValue({
       data: {
         issue: {
           comments: {
             nodes: [
-              { id: "c1", body: "hello\nworld", url: "u1", createdAt: "2026-01-02T03:04:05.000Z", user: { displayName: "Ada" } },
-              { id: "c2", body: "anon", url: "u2", createdAt: "2026-02-02T00:00:00.000Z", user: null },
+              { id: "c1", body: "hello\nworld", url: "u1", createdAt: "2026-01-02T03:04:05.000Z", editedAt: null, resolvedAt: null, parent: null, user: { id: "u-ada", displayName: "Ada" } },
+              { id: "c2", body: "anon", url: "u2", createdAt: "2026-02-02T00:00:00.000Z", editedAt: "2026-02-03T00:00:00.000Z", resolvedAt: null, parent: { id: "c1" }, user: null },
             ],
             pageInfo: { hasNextPage: false },
           },
@@ -49,8 +52,8 @@ describe("listComments", () => {
 
     const rows = await listComments(client, ISSUE_UUID, 50);
     expect(rows).toEqual([
-      { id: "c1", body: "hello\nworld", author: "Ada", createdAt: "2026-01-02T03:04:05.000Z", url: "u1" },
-      { id: "c2", body: "anon", author: "unknown", createdAt: "2026-02-02T00:00:00.000Z", url: "u2" },
+      { id: "c1", body: "hello\nworld", user: { id: "u-ada", displayName: "Ada" }, createdAt: "2026-01-02T03:04:05.000Z", editedAt: null, resolvedAt: null, parent: null, url: "u1" },
+      { id: "c2", body: "anon", user: null, createdAt: "2026-02-02T00:00:00.000Z", editedAt: "2026-02-03T00:00:00.000Z", resolvedAt: null, parent: { id: "c1" }, url: "u2" },
     ]);
   });
 });

@@ -82,7 +82,11 @@ export function normalizeError(err: unknown): CliError {
       anyErr.type ?? gqlErrors[0]?.extensions?.type ?? gqlErrors[0]?.extensions?.code;
     const message = pickMessage(err, gqlErrors);
 
-    let code = classify(name, type);
+    // A request that never got an HTTP response is a transport failure, however
+    // the SDK labelled it (it says `UnknownLinearError`, type Unknown, for a
+    // refused connection). Classify by the socket error underneath.
+    const transport = transportFailure(anyErr);
+    let code = transport ? "network" : classify(name, type);
     // Linear surfaces "could not find referenced X" as a validation error, but
     // semantically it is a not-found — reclassify so `view <bad-id>` exits 3.
     if (
@@ -91,10 +95,57 @@ export function normalizeError(err: unknown): CliError {
     ) {
       code = "not_found";
     }
-    return new CliError(message, code, gqlErrors.length ? gqlErrors : undefined);
+    // `--debug` detail: the GraphQL errors when there are any; otherwise what
+    // the transport said, since that is all there is to show.
+    const detail = gqlErrors.length ? gqlErrors : (transport ?? rawDetail(anyErr));
+    return new CliError(message, code, detail);
   }
 
   return new CliError(String(err), "runtime");
+}
+
+/**
+ * Socket / DNS / fetch failure codes as bun and node's fetch spell them (bun:
+ * `ConnectionRefused`, `FailedToOpenSocket`; node/undici: errno names and
+ * `UND_ERR_*`), plus a bare `TypeError: fetch failed`.
+ */
+const TRANSPORT_CODES =
+  /^(ConnectionRefused|ConnectionClosed|FailedToOpenSocket|ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|EPIPE|UND_ERR_\w+)$/;
+
+interface TransportDetail {
+  name?: string;
+  code?: string;
+  status?: undefined;
+}
+
+/**
+ * Detect a request that failed before any HTTP response existed. A real
+ * status — even a 5xx — is an answer from the API and is left to `classify`.
+ */
+function transportFailure(err: Record<string, any>): TransportDetail | undefined {
+  if (err.status !== undefined && err.status !== null) return undefined;
+  const raw = err.raw ?? err;
+  if (raw?.response?.status !== undefined) return undefined;
+  const candidates = [raw, raw?.cause, err.cause].filter(Boolean);
+  for (const c of candidates) {
+    const code = typeof c.code === "string" ? c.code : undefined;
+    if (code && TRANSPORT_CODES.test(code)) return { name: c.name, code };
+    if (c instanceof TypeError && /fetch failed|unable to connect|network/i.test(c.message ?? "")) {
+      return { name: c.name, code };
+    }
+  }
+  return undefined;
+}
+
+/** `{name, code, status}` from the SDK's raw error, when any of them is set. */
+function rawDetail(err: Record<string, any>): Record<string, unknown> | undefined {
+  const raw = err.raw;
+  const detail = {
+    name: raw?.name,
+    code: raw?.code,
+    status: err.status ?? raw?.response?.status,
+  };
+  return Object.values(detail).some((v) => v !== undefined) ? detail : undefined;
 }
 
 function classify(name: string, type: string | undefined): ErrorCode {
