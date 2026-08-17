@@ -30,7 +30,7 @@ linear state list [options] [team]
 
 ### `linear state view`
 
-Show a workflow state (by id)
+Show a workflow state (by id, or by name/type within --team / the default team)
 
 ```
 linear state view [options] <id>

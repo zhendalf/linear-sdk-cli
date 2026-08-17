@@ -65,7 +65,7 @@ const GLOBAL_OPTIONS = new Map([
   ["-t, --team <key>", "default team key (e.g. TES)"],
   ["-n, --limit <n>", "max results (positive integer; 0 = all)"],
   ["--all", "fetch all results (exhaust pagination)"],
-  ["-f, --fields <a,b,c>", "select columns for human table output"],
+  ["-f, --fields <a,b,c>", "select fields: table columns or detail lines (human), top-level keys (--json)"],
   ["-y, --yes", "skip confirmation prompts"],
   ["-q, --quiet", "suppress status output"],
   ["--no-input", "never prompt; fail instead"],
