@@ -714,33 +714,6 @@ export async function setSubscription(client: LinearClient, idArg: string, subsc
   return issue;
 }
 
-export async function commentOnIssue(client: LinearClient, idArg: string, body: string) {
-  const issue = await resolveIssue(client, idArg);
-  const comment = await unwrapMutation(
-    withRetry(() => client.createComment({ issueId: issue.id, body })),
-    "comment",
-    "Comment creation",
-  );
-  return { issue, comment };
-}
-
-export async function listComments(client: LinearClient, idArg: string, limit: number) {
-  const issue = await resolveIssue(client, idArg);
-  const conn = await withRetry(() => issue.comments({ first: limit === Infinity ? 100 : limit }));
-  const nodes = await collect(conn as any, limit);
-  return Promise.all(
-    nodes.map(async (c: any) => {
-      const user = await c.user;
-      return {
-        id: c.id,
-        body: c.body,
-        user: user?.displayName ?? "unknown",
-        createdAt: c.createdAt?.toISOString?.() ?? String(c.createdAt),
-      };
-    }),
-  );
-}
-
 /** The state change `issue start` makes; see `moveIssueState`. */
 export interface StartMove {
   /** Move to this state (name or type) instead of the first `started` one. */

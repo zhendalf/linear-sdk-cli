@@ -33,6 +33,7 @@ import { execFileSync } from "node:child_process";
 import { CliError } from "../lib/errors.js";
 import type { Context } from "../context.js";
 import * as svc from "../services/issue.js";
+import * as commentSvc from "../services/comment.js";
 import { isSelf } from "../lib/resolve.js";
 import type { Column } from "../output/table.js";
 
@@ -524,7 +525,7 @@ export function registerIssue(program: Command): void {
         const id = requireId(idArg);
         const body = resolveBody({ arg: bodyArg, file: opts.bodyFile, interactive: ctx.isTTY });
         if (!body) throw usageError("No comment body provided.");
-        const { issue: iss, comment } = await svc.commentOnIssue(ctx.client, id, body);
+        const { issue: iss, comment } = await commentSvc.addComment(ctx.client, id, body);
         ctx.output.emit({ id: comment?.id, issue: iss.identifier }, () =>
           ctx.output.success(`Commented on ${iss.identifier}`),
         );
@@ -541,12 +542,14 @@ export function registerIssue(program: Command): void {
     .description("List comments on an issue")
     .action(
       action(async (ctx: Context, _opts, idArg?: string) => {
-        const comments = await svc.listComments(ctx.client, requireId(idArg), ctx.limit);
+        // Same implementation and row shape as `comment list` — TES-629: this
+        // used to be a second, narrower lister with its own JSON.
+        const comments = await commentSvc.listComments(ctx.client, requireId(idArg), ctx.limit);
         ctx.output.list(
           comments,
           [
             { key: "createdAt", header: "Date", value: (c) => c.createdAt.slice(0, 10) },
-            { key: "user", header: "Author", value: (c) => c.user, max: 18 },
+            { key: "user", header: "Author", value: (c) => c.user?.displayName ?? "—", max: 18 },
             { key: "body", header: "Comment", value: (c) => c.body.replace(/\n/g, " "), max: 70 },
           ],
           comments,
@@ -796,7 +799,7 @@ export async function renderIssueDetail(
   detail: svc.IssueDetail,
   includeComments: boolean,
 ): Promise<void> {
-  const comments = includeComments ? await svc.listComments(ctx.client, detail.id, 10) : [];
+  const comments = includeComments ? await commentSvc.listComments(ctx.client, detail.id, 10) : [];
   const { cycle, team } = detail;
   ctx.output.detail({ ...detail, comments: includeComments ? comments : undefined }, [
     ["Issue", `${detail.identifier}  ${detail.title}`],
@@ -820,7 +823,7 @@ export async function renderIssueDetail(
     ["Description", detail.description ? `\n${detail.description}` : null],
     ...(includeComments
       ? comments.map(
-          (c) => [c.createdAt.slice(0, 10) + " " + c.user, c.body] as [string, unknown],
+          (c) => [c.createdAt.slice(0, 10) + " " + (c.user?.displayName ?? "—"), c.body] as [string, unknown],
         )
       : []),
   ]);

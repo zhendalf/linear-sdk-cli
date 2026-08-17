@@ -214,7 +214,6 @@ const MUTATIONS: Array<[string, (c: any) => Promise<unknown>]> = [
   ["issue.deleteIssue", (c) => issue.deleteIssue(c, "TES-1")],
   ["issue.setSubscription(true)", (c) => issue.setSubscription(c, "TES-1", true)],
   ["issue.setSubscription(false)", (c) => issue.setSubscription(c, "TES-1", false)],
-  ["issue.commentOnIssue", (c) => issue.commentOnIssue(c, "TES-1", "body")],
   ["issue.startIssue", (c) => issue.startIssue(c, "TES-1", { move: true })],
   ["issue.addRelation", (c) => issue.addRemoveRelation(c, "TES-1", "add", "blocks", "TES-2")],
   ["label.createLabel", (c) => label.createLabel(c, { name: "n" }, undefined)],
