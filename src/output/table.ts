@@ -4,6 +4,7 @@
 
 import pc from "picocolors";
 import { usageError } from "../lib/errors.js";
+import { sanitizeForTerminal, displayWidth } from "./sanitize.js";
 
 export interface Column<T> {
   /** Stable key used by --fields selection. */
@@ -16,22 +17,35 @@ export interface Column<T> {
   max?: number;
 }
 
-// Built via fromCharCode to avoid a control char in a regex literal (no-control-regex).
-const ANSI_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
-const stripAnsi = (s: string) => s.replace(ANSI_RE, "");
-const displayWidth = (s: string) => stripAnsi(s).length;
-
+/** Cut `s` to at most `max` terminal columns, by grapheme, with an ellipsis. */
 function truncate(s: string, max: number): string {
-  if (s.length <= max) return s;
-  if (max <= 1) return s.slice(0, max);
-  return s.slice(0, max - 1) + "…";
+  if (displayWidth(s) <= max) return s;
+  if (max <= 1) return sliceToWidth(s, max);
+  return sliceToWidth(s, max - 1) + "…";
 }
 
+/** The longest prefix of `s` that fits in `width` columns — whole graphemes only. */
+function sliceToWidth(s: string, width: number): string {
+  let out = "";
+  let used = 0;
+  for (const { segment } of new Intl.Segmenter().segment(s)) {
+    const w = displayWidth(segment);
+    if (used + w > width) break;
+    out += segment;
+    used += w;
+  }
+  return out;
+}
+
+/**
+ * A value as a human cell. Every string that reaches a table or a detail block
+ * passes through here, and this is where terminal escapes in API data die.
+ */
 function cell(v: unknown): string {
   if (v === null || v === undefined) return "";
   if (Array.isArray(v)) return v.map(cell).join(", ");
   if (v instanceof Date) return v.toISOString();
-  return String(v);
+  return sanitizeForTerminal(String(v));
 }
 
 /**

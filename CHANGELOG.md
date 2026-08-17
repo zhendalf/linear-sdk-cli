@@ -256,6 +256,22 @@ All notable changes to this project are documented here. The format is based on
   option. The contract suite now spawns the real binary against an isolated, key-less config and
   asserts the envelope under `--json`, `-j`, `-jq` and `linear -j issue …`; before, it exercised
   only the `Output` class, which is how this slipped past 600 tests.
+- **Terminal escape sequences in Linear data no longer reach the terminal** (TES-623). API text
+  was written to human output byte-for-byte: `renderTable`/`renderDetail`, the bare scalar lines
+  (`issue title`), and every status/error line. Anyone who can create an issue in a workspace could
+  put colour, cursor movement, a clear-screen, a `\r` overwrite, an OSC-8 fake hyperlink or a
+  window-title rewrite into a title, and every teammate's `linear issue list` ran it — verified live
+  on a `clitest-esc` issue whose title carried `\e[31m` and an OSC-8 link. Every string that
+  reaches a person now passes through one function (`sanitizeForTerminal`, `src/output/sanitize.ts`)
+  that strips *whole* sequences — CSI, OSC (BEL- or ST-terminated), DCS/SOS/PM/APC, other `ESC`
+  sequences, and their 8-bit C1 spellings — so `\e[31m` vanishes rather than leaving `[31m`
+  behind, then whatever C0/C1/DEL and bidi-override characters remain (`\n` and `\t` stay: a
+  description is multi-line). It is applied in `cell()` (every table cell and detail value) and in
+  `Output.line/info/success/warn/cancelled` and the human error line. **`--json` is untouched**: JSON
+  escapes control characters itself and a script is owed the exact bytes; the contract test pins
+  both halves. While in `table.ts`: column widths are terminal columns now, not `s.length` — a CJK
+  title or one emoji used to push every column after it out of line — via Bun's `stringWidth`, and
+  truncation cuts by whole grapheme so an emoji is never split.
 - **`milestone view|update|delete` and `state view` take names, not only UUIDs** (TES-634). The
   by-name resolvers existed — `issue create --milestone <name> --project <p>` and `--state <name>`
   use them — but the entity commands sent whatever they were given to `projectMilestone(id:)` /

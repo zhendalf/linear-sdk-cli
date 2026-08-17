@@ -12,6 +12,7 @@
 import pc from "picocolors";
 import type { CliError } from "../lib/errors.js";
 import { renderTable, renderDetail, selectColumns, type Column } from "./table.js";
+import { sanitizeForTerminal } from "./sanitize.js";
 
 export interface OutputOptions {
   json: boolean;
@@ -61,22 +62,28 @@ export class Output {
     process.stdout.write(renderDetail(pairs, { color: this.opts.color }) + "\n");
   }
 
-  /** Raw stdout line (human mode only); in json mode this is suppressed. */
+  /**
+   * Stdout line (human mode only); in json mode this is suppressed. Sanitized:
+   * `issue title` prints API data bare, and a title can carry escapes.
+   */
   line(text = ""): void {
-    if (!this.opts.json) process.stdout.write(text + "\n");
+    if (!this.opts.json) process.stdout.write(sanitizeForTerminal(text) + "\n");
   }
 
   /** Status/progress to stderr. Suppressed by --quiet. */
   info(text: string): void {
-    if (!this.opts.quiet) process.stderr.write(text + "\n");
+    if (!this.opts.quiet) process.stderr.write(sanitizeForTerminal(text) + "\n");
   }
 
   success(text: string): void {
-    if (!this.opts.quiet) process.stderr.write((this.opts.color ? pc.green("✓ ") : "✓ ") + text + "\n");
+    if (!this.opts.quiet)
+      process.stderr.write(
+        (this.opts.color ? pc.green("✓ ") : "✓ ") + sanitizeForTerminal(text) + "\n",
+      );
   }
 
   warn(text: string): void {
-    process.stderr.write((this.opts.color ? pc.yellow("! ") : "! ") + text + "\n");
+    process.stderr.write((this.opts.color ? pc.yellow("! ") : "! ") + sanitizeForTerminal(text) + "\n");
   }
 
   /**
@@ -95,7 +102,9 @@ export class Output {
       return;
     }
     if (!this.opts.quiet) {
-      process.stderr.write((this.opts.color ? pc.yellow("! ") : "! ") + `Cancelled: ${action}\n`);
+      process.stderr.write(
+        (this.opts.color ? pc.yellow("! ") : "! ") + `Cancelled: ${sanitizeForTerminal(action)}\n`,
+      );
     }
   }
 
@@ -118,7 +127,10 @@ export class Output {
       process.stderr.write(JSON.stringify({ error }) + "\n");
       return;
     }
-    process.stderr.write((this.opts.color ? pc.red("error: ") : "error: ") + err.message + "\n");
+    // An error message can quote API data (a name that matched several, …).
+    process.stderr.write(
+      (this.opts.color ? pc.red("error: ") : "error: ") + sanitizeForTerminal(err.message) + "\n",
+    );
     if (showDetail) {
       process.stderr.write(
         (this.opts.color ? pc.dim("detail: ") : "detail: ") +

@@ -232,3 +232,39 @@ describe("error boundary (spawned bin)", () => {
     expect(() => JSON.parse(r.stderr)).toThrow();
   });
 });
+
+/**
+ * TES-623: API data is written to a terminal only after terminal escapes are
+ * stripped — and to JSON exactly as it is. A title carrying `\e[31m` used to
+ * reach `issue title`'s bare line and every status line untouched.
+ */
+describe("terminal hygiene vs. JSON fidelity", () => {
+  const ESC = String.fromCharCode(27);
+  const evil = `x ${ESC}[31mRED${ESC}[0m ${ESC}]8;;https://evil.example${ESC}\\link${ESC}]8;;${ESC}\\ y`;
+  const human = () => new Output({ json: false, color: false, quiet: false, debug: false });
+
+  it("human line/info/success/warn strip escape sequences", () => {
+    const { out, err } = capture(() => {
+      const o = human();
+      o.line(evil);
+      o.info(evil);
+      o.success(evil);
+      o.warn(evil);
+    });
+    expect(out).toBe("x RED link y\n");
+    expect(err).not.toContain(ESC);
+    expect(err.split("\n").filter(Boolean)).toHaveLength(3);
+  });
+
+  it("the human error line strips them too", () => {
+    const { err } = capture(() => human().error(new CliError(evil, "not_found")));
+    expect(err).toBe("error: x RED link y\n");
+  });
+
+  it("JSON carries the exact bytes (escaped by JSON itself), stdout and the error envelope alike", () => {
+    const { out } = capture(() => jsonOutput().detail({ title: evil }, [["Title", evil]]));
+    expect(JSON.parse(out).title).toBe(evil);
+    const { err } = capture(() => jsonOutput().error(new CliError(evil, "not_found")));
+    expect(JSON.parse(err).error.message).toBe(evil);
+  });
+});
