@@ -270,6 +270,19 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- **`$EDITOR` with arguments (`code --wait`, `subl -w`, `vim -f`, `emacsclient -t`) broke the
+  editor path with a raw ENOENT** (TES-631). `openEditor` ran the whole `$EDITOR` string as the
+  executable name. It is now split shell-style — quotes and backslashes honoured, nothing
+  expanded — into argv with the file appended, the way git/gh run it; `$VISUAL` is consulted
+  before `$EDITOR` (git's precedence; `EDITOR` used to win); a missing editor is a usage error that
+  names the program and the variable it came from; and a non-zero editor exit is a failure rather
+  than "save whatever is in the file", as in git.
+- **`comment update` opened an empty editor, and an empty body wiped the comment** (TES-620).
+  The editor now opens on the comment's current body (fetched first, so a bad id fails before
+  anyone types), and the update refuses an empty or whitespace-only body ("Refusing to blank the
+  comment body. To remove a comment, use 'comment delete'.") and an unchanged one ("nothing to
+  update" — quitting the editor untouched is not an edit, and should not stamp `editedAt`).
+  Non-interactively, `comment update <id>` with no body is a usage error, not an editor.
 - **`issue comment "<body>"` on a matching branch failed** (TES-619) — the README's headline
   example. `issue comment [id] [body]` read a lone operand as the id, so `linear issue comment
   'shipped'` on `tes-615-…` produced "No comment body provided" (and, in a terminal, opened

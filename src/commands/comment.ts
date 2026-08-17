@@ -72,9 +72,20 @@ function buildUpdate(o: MountOptions): Command {
   if (o.aliases !== false) cmd.alias("edit");
   return cmd.action(
     action(async (ctx: Context, opts, commentId: string, bodyArg?: string) => {
-      const body = resolveBody({ arg: bodyArg, file: opts.bodyFile, interactive: ctx.isTTY });
+      // Fetch the comment first: the editor opens ON the current body (so
+      // quitting without typing cannot blank it), a missing id fails before
+      // anyone writes anything, and the service can refuse a no-op update.
+      const current = await svc.getComment(ctx.client, commentId);
+      const body = resolveBody({
+        arg: bodyArg,
+        file: opts.bodyFile,
+        interactive: ctx.isTTY,
+        template: current.body,
+      });
       if (body === undefined) throw usageError("No comment body provided.");
-      const updated = await svc.updateComment(ctx.client, commentId, body);
+      // The editor path hands back a trimmed body, so compare against the
+      // trimmed original: an untouched session must read as "unchanged".
+      const updated = await svc.updateComment(ctx.client, commentId, body, current.body.trim());
       ctx.output.emit({ id: updated.id, url: updated.url }, () =>
         ctx.output.success(`Updated comment ${updated.id}`),
       );
