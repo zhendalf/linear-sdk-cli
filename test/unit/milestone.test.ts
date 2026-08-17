@@ -4,9 +4,11 @@ import {
   createMilestone,
   updateMilestone,
   getMilestoneDetail,
+  resolveMilestoneRef,
 } from "../../src/services/milestone.js";
+import { formatMilestoneProgress } from "../../src/commands/milestone.js";
 import { CliError } from "../../src/lib/errors.js";
-import { rawPage } from "./_fakes.js";
+import { connection, rawPage } from "./_fakes.js";
 
 const UUID = "01234567-89ab-cdef-0123-456789abcdef";
 
@@ -209,5 +211,75 @@ describe("getMilestoneDetail (issues + truncation)", () => {
   it("a milestone the API does not return is not_found", async () => {
     const client = { client: { rawRequest: async () => ({ data: { projectMilestone: null } }) } } as any;
     await expect(getMilestoneDetail(client, UUID, 50)).rejects.toMatchObject({ code: "not_found" });
+  });
+});
+
+/**
+ * TES-634: `milestone view|update|delete` sent whatever they were given to
+ * `projectMilestone(id:)`, so a name got the API's "Could not find referenced
+ * ProjectMilestone" with no hint that only ids were tried, though the by-name
+ * resolver existed for `issue create --milestone`. Names are unique only within
+ * a project, so a name needs `--project` — the same rule as `issue update`.
+ */
+describe("resolveMilestoneRef", () => {
+  function client(seen: string[] = []) {
+    return {
+      projects: async ({ filter }: any) => {
+        seen.push(`projects:${filter.name.eqIgnoreCase}`);
+        return connection([{ id: "proj-1", name: "Auth" }]);
+      },
+      project: async (id: string) => {
+        seen.push(`project:${id}`);
+        return {
+          projectMilestones: async () =>
+            connection([
+              { id: "ms-beta", name: "Beta" },
+              { id: "ms-ga", name: "GA" },
+            ]),
+        };
+      },
+    } as any;
+  }
+
+  it("passes a UUID straight through, touching nothing", async () => {
+    const seen: string[] = [];
+    expect(await resolveMilestoneRef(client(seen), UUID, undefined)).toBe(UUID);
+    expect(await resolveMilestoneRef(client(seen), UUID, "Auth")).toBe(UUID);
+    expect(seen).toEqual([]);
+  });
+
+  it("resolves a name inside --project, case-insensitively", async () => {
+    const seen: string[] = [];
+    expect(await resolveMilestoneRef(client(seen), "beta", "auth")).toBe("ms-beta");
+    expect(seen).toEqual(["projects:auth", "project:proj-1"]);
+  });
+
+  it("a name without --project is a usage error that says what to pass", async () => {
+    const seen: string[] = [];
+    await expect(resolveMilestoneRef(client(seen), "Beta", undefined)).rejects.toMatchObject({
+      code: "usage",
+      message: "'Beta' is not a milestone id; pass --project <name|id> to look a milestone up by name.",
+    });
+    expect(seen).toEqual([]);
+  });
+
+  it("an unknown name in the project is not_found, listing the project's milestones", async () => {
+    await expect(resolveMilestoneRef(client(), "Nope", "Auth")).rejects.toMatchObject({
+      code: "not_found",
+      message: expect.stringContaining("Available: Beta, GA"),
+    });
+  });
+});
+
+/**
+ * TES-648: `ProjectMilestone.progress` is already a percentage (38.46 for 38%,
+ * verified live) — unlike `Project.progress`, a fraction. Multiplying by 100
+ * printed `3846%` in `milestone list` and `view`.
+ */
+describe("formatMilestoneProgress", () => {
+  it("treats the value as a percentage", () => {
+    expect(formatMilestoneProgress(38.46)).toBe("38%");
+    expect(formatMilestoneProgress(0)).toBe("0%");
+    expect(formatMilestoneProgress(100)).toBe("100%");
   });
 });

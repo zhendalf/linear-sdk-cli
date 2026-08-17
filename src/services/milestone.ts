@@ -13,7 +13,7 @@ import { withRetry } from "../client.js";
 import { collect, pageSizeForMore } from "../lib/pagination.js";
 import { usageError, notFound } from "../lib/errors.js";
 import { assertMutation, unwrapMutation } from "../lib/mutation.js";
-import { resolveProjectId } from "../lib/resolve.js";
+import { resolveProjectId, resolveMilestoneId, isUuid } from "../lib/resolve.js";
 
 export interface MilestoneRow {
   id: string;
@@ -142,10 +142,30 @@ export async function getMilestoneDetail(
 }
 
 /**
- * Resolve a milestone by id. A bare name cannot be resolved without a project
- * scope, so `view`/`update`/`delete` take an id (or a name pre-resolved against
- * a project via resolveMilestoneId).
+ * A milestone reference as `view`/`update`/`delete` take it: a UUID, or a name
+ * plus the project it lives in. Milestone names are unique only within a
+ * project, so a bare name has nothing to resolve against — the same rule
+ * `issue update --milestone` applies, where the scope is the issue's project
+ * or `--project`. Without a scope the error says what to pass, rather than the
+ * API's "Could not find referenced ProjectMilestone" for a name it never tried
+ * to match.
  */
+export async function resolveMilestoneRef(
+  client: LinearClient,
+  input: string,
+  projectInput: string | undefined,
+): Promise<string> {
+  if (isUuid(input)) return input;
+  if (!projectInput) {
+    throw usageError(
+      `'${input}' is not a milestone id; pass --project <name|id> to look a milestone up by name.`,
+    );
+  }
+  const projectId = await resolveProjectId(client, projectInput);
+  return resolveMilestoneId(client, projectId, input);
+}
+
+/** The SDK model for a milestone id (mutations need the model's id only, but the name for the receipt). */
 async function resolveMilestone(client: LinearClient, id: string) {
   return withRetry(() => client.projectMilestone(id));
 }

@@ -2,7 +2,8 @@
  * `linear state` (alias `st`) — inspect a team's workflow states (read-only).
  *
  * The team argument is optional on `list` and falls back to the configured
- * default team (ctx.defaultTeam) when omitted. `view` takes a state id (UUID).
+ * default team (ctx.defaultTeam) when omitted. `view` takes a state id, or a
+ * state name/type resolved against `--team` / the default team.
  * Creating/editing workflow states is admin-ish and intentionally out of scope.
  */
 
@@ -37,10 +38,10 @@ export function registerState(program: Command): void {
   // view --------------------------------------------------------------------
   state
     .command("view <id>")
-    .description("Show a workflow state (by id)")
+    .description("Show a workflow state (by id, or by name/type within --team / the default team)")
     .action(
       action(async (ctx: Context, _opts, id: string) => {
-        const detail = await svc.getStateDetail(ctx.client, id);
+        const detail = await svc.getStateDetail(ctx.client, id, ctx.defaultTeam);
         ctx.output.detail(detail, [
           ["State", detail.name],
           ["ID", detail.id],

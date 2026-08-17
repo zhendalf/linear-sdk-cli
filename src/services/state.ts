@@ -4,13 +4,14 @@
  *
  * A team is resolved from a friendly key/name/id via `resolveTeam`, then its
  * states come from the typed `team.states()` connection (sorted client-side by
- * position). The single `view` resolves a state by id via `client.workflowState`.
+ * position). The single `view` takes an id, or a name/type resolved within a team.
  */
 
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { collect, pageSize } from "../lib/pagination.js";
-import { resolveTeam } from "../lib/resolve.js";
+import { usageError } from "../lib/errors.js";
+import { resolveTeam, resolveStateId, isUuid } from "../lib/resolve.js";
 
 export interface StateRow {
   id: string;
@@ -46,8 +47,31 @@ export interface StateDetail {
   updatedAt: string;
 }
 
-/** A single workflow state by id (UUID). */
-export async function getStateDetail(client: LinearClient, id: string): Promise<StateDetail> {
+/**
+ * A single workflow state, by id or by name/type within a team.
+ *
+ * A name resolves through `resolveStateId` against `--team` or the configured
+ * default — the same lookup `issue create --state` uses — so `state view
+ * Backlog` works wherever `issue create --state Backlog` would. Without a team
+ * to scope the name, the error says what to pass; the API's own answer for a
+ * name was "Could not find referenced WorkflowState", which hid the fact that
+ * only ids were ever tried.
+ */
+export async function getStateDetail(
+  client: LinearClient,
+  input: string,
+  teamKey?: string,
+): Promise<StateDetail> {
+  let id = input;
+  if (!isUuid(input)) {
+    if (!teamKey) {
+      throw usageError(
+        `'${input}' is not a workflow state id; pass --team <KEY> (or set a default team) to look a state up by name.`,
+      );
+    }
+    const team = await resolveTeam(client, teamKey, undefined);
+    id = await resolveStateId(client, team.id, input);
+  }
   const state = await withRetry(() => client.workflowState(id));
   const team = await state.team;
   return {

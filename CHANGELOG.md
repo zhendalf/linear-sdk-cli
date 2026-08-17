@@ -245,6 +245,21 @@ All notable changes to this project are documented here. The format is based on
   option. The contract suite now spawns the real binary against an isolated, key-less config and
   asserts the envelope under `--json`, `-j`, `-jq` and `linear -j issue …`; before, it exercised
   only the `Output` class, which is how this slipped past 600 tests.
+- **`milestone view|update|delete` and `state view` take names, not only UUIDs** (TES-634). The
+  by-name resolvers existed — `issue create --milestone <name> --project <p>` and `--state <name>`
+  use them — but the entity commands sent whatever they were given to `projectMilestone(id:)` /
+  `workflowState(id:)`, so a name got the API's "Could not find referenced ProjectMilestone" with
+  no hint that only ids were ever tried. `milestone view|update|delete <name> --project <p>` now
+  resolves the name inside that project (names are unique per project only, the same rule
+  `issue update --milestone` applies); a name without `--project` is a usage error that says so:
+  `'…' is not a milestone id; pass --project <name|id> to look a milestone up by name.` `state view
+  <name-or-type>` resolves against `--team` or the configured default team, exactly as
+  `issue create --state` does, and says to pass `--team` when there is neither. UUIDs still go
+  straight through.
+- **`milestone list`/`view` printed progress ×100 — `3846%`** (TES-648, found while fixing the
+  above). `ProjectMilestone.progress` is already a percentage (`38.46`, verified live), unlike
+  `Project.progress`, which is a fraction; the milestone renderers multiplied it by 100 anyway. The
+  human output now reads `38%`; the JSON value stays as the API sends it.
 - **Detail views are one request each, not six to sixteen** (TES-622). Lists have always used a
   tailored GraphQL query, but every *detail* path awaited the SDK model's lazy relation getters,
   each its own HTTP round-trip. Measured live with a fetch counter before/after:
