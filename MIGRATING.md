@@ -12,17 +12,27 @@ loud — a usage error, never a quietly different result.
 ## 1. Install (and the `linear` name)
 
 Both CLIs install a binary called `linear`. If schpet's is on your `PATH`, ours will shadow it — or
-be shadowed — depending on order. To keep both during transition:
+be shadowed — depending on order; `linear --version` says which you got (`0.x` ours, `2.x` theirs)
+and `which -a linear` lists both. We keep the `linear` name on purpose: it is what every doc,
+script and agent skill types, and there is no second name that both projects would agree on. Two
+things make it safe anyway:
 
-```bash
-# keep the old one reachable under a different name
-mv "$(command -v linear)" "$(dirname "$(command -v linear)")/linear-schpet"
-bun install -g linear-sdk-cli      # or: bun link, from a clone
-linear --version                   # ours: 0.x
-```
+- We also install **`lin`**, a shorter alias that cannot collide with anything of theirs. If you
+  want zero risk of running the wrong tool, use `lin` for the first week — every command in this
+  guide works with `lin` in place of `linear`.
+- To keep theirs reachable during the transition, rename it to `linear-schpet` the way it was
+  installed, and let ours have `linear`:
 
-We also install **`lin`**, a shorter alias that cannot collide with anything of theirs. If you want
-zero risk of running the wrong tool, use `lin` for the first week.
+  ```bash
+  deno install -A --reload -f -g -n linear-schpet jsr:@schpet/linear-cli && deno uninstall -g linear   # deno
+  brew unlink schpet/tap/linear && ln -s "$(brew --prefix)/opt/linear/bin/linear" ~/.local/bin/linear-schpet  # homebrew
+  mv "$(command -v linear)" "$(dirname "$(command -v linear)")/linear-schpet"                                # npm/bun -g
+  bun add -g linear-sdk-cli          # or: bun link, from a clone
+  linear --version                   # ours: 0.x
+  ```
+
+A project-pinned `@schpet/linear-cli` (`bunx linear` inside that repo) never collides with a
+global install of ours.
 
 ## 2. Credentials — nothing to re-enter
 

@@ -43,6 +43,35 @@ linear --help
 This installs two equivalent binaries: **`linear`** and the shorter **`lin`**. If you already
 have a different tool named `linear` on your `PATH`, just use `lin`.
 
+### If you already have `schpet/linear-cli` installed
+
+Both CLIs install a binary called **`linear`**, so whichever is earlier on your `PATH` wins and
+the other is silently shadowed — `linear --version` tells you which you got (`0.x` is this one,
+`2.x` is schpet's), and `which -a linear` lists both. Three ways out, pick one:
+
+- **Use `lin`.** It is ours alone; nothing of theirs claims it. Every example in this README works
+  with `lin` in place of `linear`. Zero-risk for the transition week.
+- **Keep theirs reachable as `linear-schpet`** and let ours have `linear`:
+
+  ```sh
+  # installed with deno: reinstall under a new name, then drop the old one
+  deno install -A --reload -f -g -n linear-schpet jsr:@schpet/linear-cli
+  deno uninstall -g linear
+  # installed with homebrew (schpet/tap/linear): keep the keg, relink under a new name
+  brew unlink schpet/tap/linear
+  ln -s "$(brew --prefix)/opt/linear/bin/linear" ~/.local/bin/linear-schpet   # any dir on your PATH
+  # installed with npm/bun globally: rename the shim in place
+  mv "$(command -v linear)" "$(dirname "$(command -v linear)")/linear-schpet"
+  ```
+
+  (A package-manager upgrade of theirs may put `linear` back; re-run the line for your channel.)
+- **Uninstall theirs** once you no longer need it. Your credentials survive: they are in the OS
+  keyring under the same service and account, and we read them — see [Authentication](#authentication).
+
+Their project-pinned install (`bun add -D @schpet/linear-cli`, run as `bunx linear`) does not
+collide with a global install of ours; inside such a project `bunx linear` is theirs and
+`linear`/`lin` on your `PATH` is ours.
+
 <details>
 <summary>Run from source instead</summary>
 
