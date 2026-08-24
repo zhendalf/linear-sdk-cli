@@ -3,6 +3,12 @@ name: Release Please
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing release tag to verify and publish"
+        required: true
+        type: string
 
 concurrency:
   group: release-please-main
@@ -14,6 +20,7 @@ permissions:
 
 jobs:
   release-please:
+    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
@@ -26,10 +33,17 @@ jobs:
 
   publish:
     needs: release-please
-    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    if: >-
+      ${{
+        always() &&
+        (
+          (github.event_name == 'workflow_dispatch' && inputs.release_tag != '') ||
+          needs.release-please.outputs.release_created == 'true'
+        )
+      }}
     permissions:
       contents: read
       id-token: write
     uses: ./.github/workflows/release.yml
     with:
-      release_tag: ${{ needs.release-please.outputs.tag_name }}
+      release_tag: ${{ inputs.release_tag || needs.release-please.outputs.tag_name }}
