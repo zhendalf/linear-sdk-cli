@@ -287,6 +287,11 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- **Development linting now uses Oxlint instead of ESLint.** The migrated configuration preserves
+  the existing recommended JavaScript and TypeScript checks and underscore-prefixed unused-variable
+  exceptions while reducing the lint dependency tree and execution time.
+- **TypeScript 7 now powers type-checking.** The native compiler replaces TypeScript 6 without
+  source or configuration compatibility changes in this project.
 - **`--fields`, `--limit` and `--all` are refused on commands that never read them** (TES-637 (2),
   TES-596). All twelve globals are registered on every command so they can sit anywhere on the
   line, but `--fields` projects a *rendered* result (a table or a detail block) and `--limit`/`--all`

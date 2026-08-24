@@ -43,7 +43,7 @@ git-branch-aware, dual human/JSON output) with the agent-friendly JSON disciplin
 | Prompts | `@inquirer/prompts` | interactive `create`/`start` flows |
 | Build | **none** — ship raw TS, executed directly by Bun (shebang `#!/usr/bin/env bun`) | no bundler, no artifacts; source is the types |
 | Test | **`bun test`** | unit (mocked SDK) + live integration (gated by env) |
-| Lint/format | eslint + prettier | consistency |
+| Lint/format | Oxlint + Prettier | consistency with fast native linting |
 | Pkg mgr / runtime | bun | single toolchain for install/test/run; Bun-only by design |
 
 Binary names: `linear` (primary) and `lin` (alias). Package: `linear-sdk-cli`.

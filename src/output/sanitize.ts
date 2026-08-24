@@ -47,7 +47,7 @@ const ESCAPE_SEQUENCES = new RegExp(
  * characters human output needs.
  */
 const CONTROL_CHARS = new RegExp(
-  // eslint-disable-next-line no-control-regex
+  // oxlint-disable-next-line no-control-regex
   "[\\u0000-\\u0008\\u000B-\\u001F\\u007F-\\u009F\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]",
   "g",
 );
