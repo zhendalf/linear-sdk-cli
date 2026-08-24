@@ -24,12 +24,21 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: oven-sh/setup-bun@v2
+      # Current Bun owns the text lockfile format; switch to the matrix version
+      # after installing so the minimum supported runtime is still exercised.
+      - name: Set up Bun for dependency install
+        uses: oven-sh/setup-bun@v2
         with:
-          bun-version: ${{ matrix.bun }}
+          bun-version: latest
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Set up Bun ${{ matrix.bun }}
+        if: matrix.bun != 'latest'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ matrix.bun }}
 
       - name: Verify
         run: bun run verify
