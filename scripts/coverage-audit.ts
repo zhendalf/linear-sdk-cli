@@ -7,7 +7,7 @@
  */
 
 import { LinearClient } from "@linear/sdk";
-import { format } from "prettier";
+import { format } from "oxfmt";
 import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -211,7 +211,7 @@ async function main(): Promise<void> {
   const here = dirname(fileURLToPath(import.meta.url));
   const outPath = join(here, "..", "COVERAGE.md");
   const snapshotPath = join(here, "coverage.snapshot.json");
-  const formattedMd = await format(md, { filepath: outPath });
+  const { code: formattedMd } = await format(outPath, md);
   writeFileSync(outPath, formattedMd);
 
   console.error(
