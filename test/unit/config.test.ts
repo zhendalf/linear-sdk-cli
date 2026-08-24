@@ -15,7 +15,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  resolveConfig,
+  resolveConfig as resolveConfigImpl,
   redactKey,
   userConfigPath,
   writeCredential,
@@ -29,6 +29,7 @@ import {
   assertSettableKey,
   defaultProjectConfigPath,
   SETTABLE_KEYS,
+  type ConfigInputs,
 } from "../../src/config.js";
 import { execFileSync } from "node:child_process";
 import { setKeyringBackend, memoryKeyring, KeyringError, type KeyringBackend } from "../../src/lib/keyring.js";
@@ -62,6 +63,11 @@ const baseEnv = (over: Record<string, string | undefined> = {}): NodeJS.ProcessE
   HOME: root,
   ...over,
 });
+
+/** Keep cases without an explicit cwd inside the temporary fixture. */
+function resolveConfig(inputs: ConfigInputs = {}) {
+  return resolveConfigImpl({ cwd: root, ...inputs });
+}
 
 function writeUserConfig(body: string) {
   writeFileSync(userConfigPath(baseEnv()), body);
@@ -297,19 +303,25 @@ describe("multi-workspace credential resolution", () => {
     expect(cfg.credentialWorkspace).toBeUndefined();
   });
 
-  it("project config NEVER steers credential workspace selection", () => {
+  it("selects an already-stored credential from the project workspace", () => {
     writeWorkspaces(
       `default_workspace = "org-a"\n` +
         `[workspaces."org-a"]\napi_key = "lin_api_a000000000"\n` +
         `[workspaces."org-b"]\napi_key = "lin_api_b000000000"\n`,
     );
-    // A project file claiming workspace=org-b must not change the credential.
     writeProjectConfig(projectDir, `workspace = "org-b"`);
     const cfg = resolveConfig({ env: baseEnv(), cwd: projectDir });
-    expect(cfg.apiKey).toBe("lin_api_a000000000");
-    expect(cfg.credentialWorkspace).toBe("org-a");
-    // ...but it does affect the non-secret display workspace setting.
+    expect(cfg.apiKey).toBe("lin_api_b000000000");
+    expect(cfg.credentialWorkspace).toBe("org-b");
     expect(cfg.workspace).toBe("org-b");
+  });
+
+  it("reports a project workspace that has no stored credential", () => {
+    writeWorkspaces(`[workspaces."org-a"]\napi_key = "lin_api_a000000000"\n`);
+    writeProjectConfig(projectDir, `workspace = "missing"`);
+    const cfg = resolveConfig({ env: baseEnv(), cwd: projectDir });
+    expect(cfg.apiKey).toBeUndefined();
+    expect(cfg.apiKeyError?.message).toMatch(/No stored credential for workspace 'missing'/);
   });
 
   it("--workspace flag still wins the display workspace setting", () => {

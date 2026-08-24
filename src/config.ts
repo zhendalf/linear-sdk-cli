@@ -13,6 +13,8 @@
  *  - The API key has a STRICTER boundary and is never read from a project file
  *    or from the reference CLI's global file (avoids committing secrets):
  *    flag > LINEAR_API_KEY env > user config (plaintext `api_key`) > OS keyring.
+ *    A project `workspace` may select which already-stored credential to use;
+ *    it can never provide or override the secret itself.
  *
  * Multi-workspace credentials live under quoted `[workspaces."<slug>"]` tables
  * in the user config, with an optional top-level `default_workspace`. A table
@@ -389,10 +391,11 @@ export function resolveConfig(inputs: ConfigInputs = {}): ResolvedConfig {
     apiKey = envSettings.apiKey;
     apiKeySource = "env";
   } else {
-    // 2. Otherwise compute the credential workspace. Project config is NEVER
-    //    consulted here (secrets must not be steerable by project files).
+    // 2. Otherwise compute the credential workspace. A project may select an
+    //    already-stored credential by its non-secret slug, but cannot supply a
+    //    key: lookupCredential only reads the user config and OS keyring.
     const selected =
-      flags.workspace ?? env.LINEAR_WORKSPACE ?? user.defaultWorkspace;
+      flags.workspace ?? env.LINEAR_WORKSPACE ?? projectSettings.workspace ?? user.defaultWorkspace;
 
     // Apply a lookup result for the slug the selection settled on. An
     // explicitly named slug is probed even when no file lists it — the keyring
@@ -464,8 +467,8 @@ export function resolveConfig(inputs: ConfigInputs = {}): ResolvedConfig {
     apiKeyError,
     credentialWorkspace,
     team: pick("team"),
-    // The display `workspace` setting is separate from credential selection:
-    // it walks every tier. (Credential selection ignores project + global.)
+    // The display setting walks every tier. Credential selection above uses
+    // the flag, env, and project tiers, then the auth-specific user default.
     workspace: pick("workspace"),
     sort: pick("sort") ?? "priority",
     sortSource: origins.sort.source,

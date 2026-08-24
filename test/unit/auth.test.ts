@@ -15,14 +15,17 @@ let root: string;
 let kr: ReturnType<typeof memoryKeyring>;
 let savedXdg: string | undefined;
 let savedHome: string | undefined;
+let savedCwd: string;
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "linauth-"));
   mkdirSync(join(root, "xdg", "linear"), { recursive: true });
   savedXdg = process.env.XDG_CONFIG_HOME;
   savedHome = process.env.HOME;
+  savedCwd = process.cwd();
   process.env.XDG_CONFIG_HOME = join(root, "xdg");
   process.env.HOME = root;
+  process.chdir(root);
   kr = memoryKeyring();
   setKeyringBackend(kr);
 });
@@ -34,6 +37,7 @@ afterEach(() => {
   else process.env.XDG_CONFIG_HOME = savedXdg;
   if (savedHome === undefined) delete process.env.HOME;
   else process.env.HOME = savedHome;
+  process.chdir(savedCwd);
   rmSync(root, { recursive: true, force: true });
 });
 

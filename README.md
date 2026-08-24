@@ -105,8 +105,9 @@ environment variable → a plaintext key in the user config file (`~/.config/lin
 written `0600`) → the **OS keyring** (macOS Keychain, or `secret-tool` on Linux).
 
 > **Credential trust boundary.** The API key is **never** read from a project-local
-> `.linear.toml` — only non-secret settings live there — so a key can't be committed by accident,
-> and a checked-out project can never steer which credential you use.
+> `.linear.toml` — only non-secret settings live there — so a key can't be committed by accident.
+> A project may select one of your already-stored credentials with `workspace = "<slug>"`, but it
+> cannot provide or override the secret.
 
 ```sh
 linear auth login                          # store a key (prompts, validates, saves to the keyring)
@@ -141,9 +142,9 @@ linear auth logout --workspace acme        # remove one credential
 
 **Selection precedence** (strict): the `--api-key` flag and `LINEAR_API_KEY` env are absolute and
 bypass selection entirely; otherwise the workspace is chosen by `--workspace` → `LINEAR_WORKSPACE`
-env → `default_workspace` in the user config. With one configured workspace it's used
-automatically; with several and no default, the CLI asks you to pick (via `--workspace` or
-`auth default`).
+env → project config `workspace` → `default_workspace` in the user config. With one configured
+workspace it's used automatically; with several and no selection, the CLI asks you to pick (via
+`--workspace`, project config, or `auth default`).
 
 ## Core concepts
 
