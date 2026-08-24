@@ -60,7 +60,7 @@ jobs:
         env:
           HEAD_BRANCH: ${{ steps.release-pr.outputs.head_branch }}
         run: |
-          bunx prettier --write CHANGELOG.md
+          bunx oxfmt CHANGELOG.md
           if git diff --quiet -- CHANGELOG.md; then
             exit 0
           fi

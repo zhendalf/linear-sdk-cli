@@ -127,7 +127,9 @@ export async function collectRawQuery<T>(
       client.client.rawRequest(query, { ...variables, first: pageLimit, after }),
     );
     const conn = connectionPath.split(".").reduce((acc: any, key) => acc?.[key], data.data) as
-      RawConnection | null | undefined;
+      | RawConnection
+      | null
+      | undefined;
     // A nested path (`issue.comments`) can land on null when the parent entity
     // is gone; that is an empty list, not a crash.
     if (!conn) break;

@@ -8,7 +8,7 @@ This is a Bun-first TypeScript CLI; it runs source directly and has no build ste
 
 - `bun install` installs dependencies (Bun 1.1+ required).
 - `bun run dev -- issue list` runs the CLI from source.
-- `bun run verify` runs TypeScript checks, ESLint, and unit/contract tests; use this before submitting.
+- `bun run verify` runs TypeScript checks, Oxlint, Oxfmt, and unit/contract tests; use this before submitting.
 - `bun run test:unit` or `bun test test/unit/issue-create.test.ts` runs focused tests.
 - `bun run test:live` runs end-to-end integration tests with `LINEAR_API_KEY`; admin mutations require `bun run test:live:admin`.
 - `bun run skill:docs` refreshes generated skill references after command or option changes.
@@ -16,7 +16,7 @@ This is a Bun-first TypeScript CLI; it runs source directly and has no build ste
 
 ## Coding Style & Naming Conventions
 
-Use strict TypeScript with two-space indentation, semicolons, double quotes, trailing commas, and a 100-column target. Run `bun run format` for Prettier and `bun run lint` for ESLint. Use kebab-case filenames (`project-update.ts`), camelCase functions and variables, and PascalCase types. Keep Commander parsing in command modules and API interactions in services. Preserve the contract that JSON mode writes stable machine output to stdout and diagnostics to stderr.
+Use strict TypeScript with two-space indentation, semicolons, double quotes, trailing commas, and a 100-column target. Run `bun run format` for Oxfmt and `bun run lint` for Oxlint. Use kebab-case filenames (`project-update.ts`), camelCase functions and variables, and PascalCase types. Keep Commander parsing in command modules and API interactions in services. Preserve the contract that JSON mode writes stable machine output to stdout and diagnostics to stderr.
 
 ## Testing Guidelines
 
