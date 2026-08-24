@@ -971,7 +971,7 @@ describe("project config writers (`config init` / `config set`)", () => {
     const first = statSync(path).ino;
     setConfigKey(path, "team", "ENG");
     expect(statSync(path).ino).not.toBe(first);
-    expect(readdirSync(join(root, "proj"))).toEqual([".linear.toml", "nested"]);
+    expect(readdirSync(join(root, "proj")).sort()).toEqual([".linear.toml", "nested"]);
   });
 
   it("assertSettableKey refuses secrets and unknown keys with a pointed message", () => {
