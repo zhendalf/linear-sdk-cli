@@ -6,15 +6,13 @@ All notable changes to this project are documented here. The format is based on
 
 ## [0.2.0](https://github.com/zhendalf/linear-sdk-cli/compare/v0.1.3...v0.2.0) (2026-08-24)
 
-
 ### Features
 
-* expand CLI workflows and terminal UX ([0fe31cc](https://github.com/zhendalf/linear-sdk-cli/commit/0fe31cca7e71d0fa6eee2b7c1461ecaf0a01103f))
-
+- expand CLI workflows and terminal UX ([0fe31cc](https://github.com/zhendalf/linear-sdk-cli/commit/0fe31cca7e71d0fa6eee2b7c1461ecaf0a01103f))
 
 ### Bug Fixes
 
-* **ci:** give release dispatch repository context ([#15](https://github.com/zhendalf/linear-sdk-cli/issues/15)) ([e3f51e6](https://github.com/zhendalf/linear-sdk-cli/commit/e3f51e600102416f3bd3212578b364a13a452e49))
+- **ci:** give release dispatch repository context ([#15](https://github.com/zhendalf/linear-sdk-cli/issues/15)) ([e3f51e6](https://github.com/zhendalf/linear-sdk-cli/commit/e3f51e600102416f3bd3212578b364a13a452e49))
 
 ## [0.1.3](https://github.com/zhendalf/linear-sdk-cli/compare/v0.1.2...v0.1.3) (2026-08-24)
 
