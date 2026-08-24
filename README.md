@@ -336,20 +336,27 @@ from a file or stdin instead of a flag — e.g. `--body-file <path>` with `-` fo
 `--editor` to open `$EDITOR`. The raw `linear api` reads from `--query-file -` and `--vars-file -`
 too, so you can pipe GraphQL straight in.
 
-**Agent skill.** This repo ships a Claude agent skill at `skills/linear-sdk-cli/` that teaches an
-agent to drive the CLI — the JSON envelope, exit codes, discovery, forgiving inputs, and how to
-install the CLI itself if it is missing. Three ways to install it:
+**Agent skills.** This repo ships portable agent skills in `skills/`: `linear-sdk-cli` teaches an
+agent to drive the CLI, while `linear-sdk-cli-maintenance` defines the repository's safe upkeep
+and release-handoff contract. Both use `SKILL.md` so one source works with Codex and Claude Code.
+Claude Code receives both skills when the repository plugin is installed:
 
 ```bash
 # Claude Code — as a plugin (the repo is its own marketplace)
 claude plugin marketplace add <owner>/linear-sdk-cli
 claude plugin install linear-sdk-cli
 
-# any agent that reads SKILL.md — the package ships skills/, so from a clone or an install:
+# from a clone or install, make a portable SKILL.md available to an agent:
 ln -s "$PWD/skills/linear-sdk-cli" ~/.claude/skills/linear-sdk-cli
 ```
 
-The skill is self-contained: an agent that has only the skill and no CLI is told to
+For Codex, install or link the same directory into its skills location; no forked prompt is
+needed. The scheduled Claude Code maintenance routine invokes
+`skills/linear-sdk-cli-maintenance/SKILL.md` directly, keeping its schedule separate from the
+versioned maintenance policy. See [`skills/README.md`](skills/README.md) for the interoperability
+contract.
+
+The CLI skill is self-contained: an agent that has only the skill and no CLI is told to
 `bun add -g linear-sdk-cli`, and one arriving from `schpet/linear-cli` is told not to re-enter a
 key before `linear auth status`, since existing credentials are found. `linear commands --json`
 gives it the full command surface at runtime, so the reference docs are a starting point, not a

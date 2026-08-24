@@ -14,7 +14,10 @@
         "name": "Eugene Beloded"
       },
       "source": "./",
-      "skills": ["./skills/linear-sdk-cli"]
+      "skills": [
+        "./skills/linear-sdk-cli",
+        "./skills/linear-sdk-cli-maintenance"
+      ]
     }
   ]
 }
