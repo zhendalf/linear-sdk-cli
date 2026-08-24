@@ -35,7 +35,7 @@ jobs:
       - name: Smoke-test the package
         run: |
           bun pm pack --dry-run
-          bun src/bin/linear.ts --version
+          test "$(bun src/bin/linear.ts --version)" = "$(node -p "require('./package.json').version")"
           bun src/bin/linear.ts commands --json > /dev/null
 
   publish:

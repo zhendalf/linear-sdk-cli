@@ -34,8 +34,10 @@ import { Context, type GlobalOptions } from "./context.js";
 import { currentIssueId } from "./git.js";
 import { getIssueDetail } from "./services/issue.js";
 import { usageError } from "./lib/errors.js";
+import packageJson from "../package.json" with { type: "json" };
 
-export const VERSION = "0.1.0";
+/** One version source for the package, both binaries, and programmatic use. */
+export const VERSION = packageJson.version;
 
 export function createProgram(): Command {
   const program = new Command();
