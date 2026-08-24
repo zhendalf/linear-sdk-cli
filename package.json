@@ -66,19 +66,19 @@
     "janitor": "bun run test/janitor.ts"
   },
   "dependencies": {
-    "@inquirer/prompts": "^8.5.2",
-    "@linear/sdk": "^89.0.0",
+    "@inquirer/prompts": "^8.6.0",
+    "@linear/sdk": "^91.0.0",
     "commander": "^15.0.0",
     "graphql": "^17.0.2",
     "picocolors": "^1.1.1",
     "smol-toml": "^1.8.0"
   },
-  "packageManager": "bun@1.3.14",
+  "packageManager": "bun@1.4.0",
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/bun": "^1.3.14",
+    "@types/bun": "^1.4.0",
     "@types/node": "^26.2.0",
-    "eslint": "^10.8.1",
+    "eslint": "^10.9.0",
     "prettier": "^3.9.6",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.67.0"
