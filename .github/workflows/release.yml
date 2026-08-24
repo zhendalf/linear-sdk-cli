@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+concurrency:
+  group: npm-release-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Verify
+        run: bun run verify
+
+      - name: Verify generated skill references
+        run: |
+          bun run skill:docs
+          git diff --exit-code -- skills/linear-sdk-cli
+
+      - name: Smoke-test the package
+        run: |
+          bun pm pack --dry-run
+          bun src/bin/linear.ts --version
+          bun src/bin/linear.ts commands --json > /dev/null
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Verify release tag matches package version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          package_version="$(node -p "require('./package.json').version")"
+          if [[ "$RELEASE_TAG" != "$package_version" && "$RELEASE_TAG" != "v$package_version" ]]; then
+            echo "Release tag '$RELEASE_TAG' does not match package version '$package_version'." >&2
+            exit 1
+          fi
+
+      # Keyless OIDC publication with an npm provenance attestation. Configure
+      # npm's trusted publisher for this repository and the exact workflow
+      # filename `release.yml`; no long-lived NPM_TOKEN is required.
+      - name: Publish to npm
+        run: npm publish --provenance --access public
