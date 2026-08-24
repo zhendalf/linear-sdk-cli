@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3](https://github.com/zhendalf/linear-sdk-cli/compare/v0.2.2...v0.2.3) (2026-08-24)
+
+### Bug Fixes
+
+- **ci:** guard absent release PR output ([#21](https://github.com/zhendalf/linear-sdk-cli/issues/21)) ([ed082bf](https://github.com/zhendalf/linear-sdk-cli/commit/ed082bfc6673736a9705198f8e2a17c9d7b4698d))
+
 ## [0.2.2](https://github.com/zhendalf/linear-sdk-cli/compare/v0.2.1...v0.2.2) (2026-08-24)
 
 ### Bug Fixes
