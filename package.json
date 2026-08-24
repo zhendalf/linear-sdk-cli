@@ -5,6 +5,14 @@
   "type": "module",
   "license": "MIT",
   "author": "Eugene Beloded <belodedevgenij@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zhendalf/linear-sdk-cli"
+  },
+  "homepage": "https://github.com/zhendalf/linear-sdk-cli#readme",
+  "bugs": {
+    "url": "https://github.com/zhendalf/linear-sdk-cli/issues"
+  },
   "keywords": [
     "linear",
     "cli",

@@ -69,6 +69,13 @@ jobs:
             exit 1
           fi
 
+          expected_repository="https://github.com/$GITHUB_REPOSITORY"
+          package_repository="$(node -p "require('./package.json').repository?.url ?? ''")"
+          if [[ "$package_repository" != "$expected_repository" ]]; then
+            echo "package.json repository '$package_repository' does not match '$expected_repository'." >&2
+            exit 1
+          fi
+
       # Keyless OIDC publication with an npm provenance attestation. Configure
       # npm's trusted publisher for this repository and the exact workflow
       # filename `release.yml`; no long-lived NPM_TOKEN is required.
