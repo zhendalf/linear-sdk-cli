@@ -478,7 +478,7 @@ describe("config parse errors never quote the file", () => {
     expect(message).toMatch(/Failed to parse config at/);
     expect(message).not.toContain(esc);
     expect(message).not.toContain("PWNED");
-    // eslint-disable-next-line no-control-regex
+    // oxlint-disable-next-line no-control-regex
     expect(message).not.toMatch(new RegExp("[\\u0000-\\u001F\\u007F-\\u009F]"));
   });
 
