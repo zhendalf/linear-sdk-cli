@@ -25,11 +25,24 @@ jobs:
         with:
           release-type: node
 
+      - name: Read release PR branch
+        id: release-pr
+        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        env:
+          RELEASE_PR: ${{ steps.release.outputs.pr }}
+        run: |
+          head_branch="$(jq -r '.headBranchName // empty' <<< "$RELEASE_PR")"
+          if [[ -z "$head_branch" ]]; then
+            echo "Release Please reported a PR without a head branch." >&2
+            exit 1
+          fi
+          echo "head_branch=$head_branch" >> "$GITHUB_OUTPUT"
+
       - name: Check out release PR
         if: ${{ steps.release.outputs.prs_created == 'true' }}
         uses: actions/checkout@v7
         with:
-          ref: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
+          ref: ${{ steps.release-pr.outputs.head_branch }}
           fetch-depth: 0
 
       - name: Set up Bun
@@ -45,7 +58,7 @@ jobs:
       - name: Format generated changelog
         if: ${{ steps.release.outputs.prs_created == 'true' }}
         env:
-          HEAD_BRANCH: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
+          HEAD_BRANCH: ${{ steps.release-pr.outputs.head_branch }}
         run: |
           bunx prettier --write CHANGELOG.md
           if git diff --quiet -- CHANGELOG.md; then
@@ -63,7 +76,7 @@ jobs:
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
-          HEAD_BRANCH: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
+          HEAD_BRANCH: ${{ steps.release-pr.outputs.head_branch }}
         run: |
           head_sha="$(git rev-parse HEAD)"
           started_at="$(date -u -d '-1 minute' '+%Y-%m-%dT%H:%M:%SZ')"
