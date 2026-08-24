@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Verify
+        run: bun run verify
+
+      - name: Verify generated skill references
+        run: |
+          bun run skill:docs
+          git diff --exit-code -- skills/linear-sdk-cli
+
+      - name: Smoke-test the package
+        run: |
+          bun pm pack --dry-run
+          test "$(bun src/bin/linear.ts --version)" = "$(node -p "require('./package.json').version")"
+          bun src/bin/linear.ts commands --json > /dev/null
