@@ -1,6 +1,6 @@
 ---
 name: linear-sdk-cli-maintenance
-description: Safely maintain the linear-sdk-cli repository: assess dependency updates, prepare and verify focused pull requests, and hand off releases. Use for scheduled upkeep, dependency reviews, release-automation checks, and maintenance PR reviews in this repository.
+description: "Safely maintain the linear-sdk-cli repository: assess dependency updates, prepare and verify focused pull requests, and hand off releases. Use for scheduled upkeep, dependency reviews, release-automation checks, and maintenance PR reviews in this repository."
 ---
 
 # linear-sdk-cli maintenance
@@ -33,6 +33,10 @@ If the invocation does not state a mode, use review mode.
   auto-merged by this skill.
 - Use conventional commits. Do not bypass required checks, dismiss reviews, or override
   branch protection.
+- For multiline GitHub PR descriptions or comments, write Markdown to a file and use the
+  corresponding `--body-file` option. Do not encode line breaks as `\n` inside a quoted
+  `--body` argument. Read the published body back once and confirm that headings, paragraphs,
+  and lists render as intended.
 
 ## Maintenance loop
 
