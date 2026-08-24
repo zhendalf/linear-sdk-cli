@@ -9,6 +9,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
+  actions: write
   contents: write
   pull-requests: write
 
@@ -23,6 +24,72 @@ jobs:
         uses: googleapis/release-please-action@v5
         with:
           release-type: node
+
+      - name: Check out release PR
+        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
+          fetch-depth: 0
+
+      - name: Set up Bun
+        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        run: bun install --frozen-lockfile
+
+      - name: Format generated changelog
+        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        env:
+          HEAD_BRANCH: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
+        run: |
+          bunx prettier --write CHANGELOG.md
+          if git diff --quiet -- CHANGELOG.md; then
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          git commit -m "chore: format generated changelog"
+          git push origin "HEAD:$HEAD_BRANCH"
+
+      - name: Dispatch and verify release PR CI
+        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          HEAD_BRANCH: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
+        run: |
+          head_sha="$(git rev-parse HEAD)"
+          started_at="$(date -u -d '-1 minute' '+%Y-%m-%dT%H:%M:%SZ')"
+          gh workflow run ci.yml --ref "$HEAD_BRANCH"
+
+          run_id=""
+          for attempt in {1..60}; do
+            run_id="$(
+              gh run list --workflow ci.yml --event workflow_dispatch --limit 20 \
+                --json databaseId,headSha,createdAt |
+                jq --arg head_sha "$head_sha" --arg started_at "$started_at" -r \
+                  '.[] | select(.headSha == $head_sha and .createdAt >= $started_at) | .databaseId' |
+                head -n 1
+            )"
+            if [[ -n "$run_id" ]]; then
+              break
+            fi
+            sleep 2
+          done
+
+          if [[ -z "$run_id" ]]; then
+            echo "Timed out waiting for CI on release PR head $head_sha." >&2
+            exit 1
+          fi
+
+          gh run watch "$run_id" --exit-status
 
   publish:
     needs: release-please
