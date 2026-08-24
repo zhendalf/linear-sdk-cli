@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1](https://github.com/zhendalf/linear-sdk-cli/compare/v0.2.0...v0.2.1) (2026-08-24)
+
+
+### Bug Fixes
+
+* format generated release notes ([3bab1dd](https://github.com/zhendalf/linear-sdk-cli/commit/3bab1dda627cd83d1feb8a2e1c0a7da37bee10db))
+
 ## [0.2.0](https://github.com/zhendalf/linear-sdk-cli/compare/v0.1.3...v0.2.0) (2026-08-24)
 
 ### Features
