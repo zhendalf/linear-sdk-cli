@@ -16,6 +16,9 @@ let kr: ReturnType<typeof memoryKeyring>;
 let savedXdg: string | undefined;
 let savedHome: string | undefined;
 let savedCwd: string;
+let savedApiKey: string | undefined;
+let savedApiToken: string | undefined;
+let savedWorkspace: string | undefined;
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "linauth-"));
@@ -23,9 +26,17 @@ beforeEach(() => {
   savedXdg = process.env.XDG_CONFIG_HOME;
   savedHome = process.env.HOME;
   savedCwd = process.cwd();
+  savedApiKey = process.env.LINEAR_API_KEY;
+  savedApiToken = process.env.LINEAR_API_TOKEN;
+  savedWorkspace = process.env.LINEAR_WORKSPACE;
   process.env.XDG_CONFIG_HOME = join(root, "xdg");
   process.env.HOME = root;
   process.chdir(root);
+  // Credential resolution must come only from the temp config/keyring below,
+  // never from an ambient LINEAR_API_KEY (e.g. set in a dev/CI environment).
+  delete process.env.LINEAR_API_KEY;
+  delete process.env.LINEAR_API_TOKEN;
+  delete process.env.LINEAR_WORKSPACE;
   kr = memoryKeyring();
   setKeyringBackend(kr);
 });
@@ -37,6 +48,12 @@ afterEach(() => {
   else process.env.XDG_CONFIG_HOME = savedXdg;
   if (savedHome === undefined) delete process.env.HOME;
   else process.env.HOME = savedHome;
+  if (savedApiKey === undefined) delete process.env.LINEAR_API_KEY;
+  else process.env.LINEAR_API_KEY = savedApiKey;
+  if (savedApiToken === undefined) delete process.env.LINEAR_API_TOKEN;
+  else process.env.LINEAR_API_TOKEN = savedApiToken;
+  if (savedWorkspace === undefined) delete process.env.LINEAR_WORKSPACE;
+  else process.env.LINEAR_WORKSPACE = savedWorkspace;
   process.chdir(savedCwd);
   rmSync(root, { recursive: true, force: true });
 });
