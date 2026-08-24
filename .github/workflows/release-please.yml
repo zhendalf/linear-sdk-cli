@@ -3,12 +3,6 @@ name: Release Please
 on:
   push:
     branches: [main]
-  workflow_dispatch:
-    inputs:
-      release_tag:
-        description: "Existing release tag to verify and publish"
-        required: true
-        type: string
 
 concurrency:
   group: release-please-main
@@ -20,7 +14,6 @@ permissions:
 
 jobs:
   release-please:
-    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
@@ -33,17 +26,38 @@ jobs:
 
   publish:
     needs: release-please
-    if: >-
-      ${{
-        always() &&
-        (
-          (github.event_name == 'workflow_dispatch' && inputs.release_tag != '') ||
-          needs.release-please.outputs.release_created == 'true'
-        )
-      }}
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: ubuntu-latest
     permissions:
+      actions: write
       contents: read
-      id-token: write
-    uses: ./.github/workflows/release.yml
-    with:
-      release_tag: ${{ inputs.release_tag || needs.release-please.outputs.tag_name }}
+    steps:
+      - name: Dispatch and verify npm publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          started_at="$(date -u -d '-1 minute' '+%Y-%m-%dT%H:%M:%SZ')"
+          gh workflow run release.yml --ref main --field release_tag="$RELEASE_TAG"
+
+          run_id=""
+          for attempt in {1..60}; do
+            run_id="$(
+              gh run list --workflow release.yml --event workflow_dispatch --limit 20 \
+                --json databaseId,displayTitle,createdAt |
+                jq --arg title "Publish $RELEASE_TAG" --arg started_at "$started_at" -r \
+                  '.[] | select(.displayTitle == $title and .createdAt >= $started_at) | .databaseId' |
+                head -n 1
+            )"
+            if [[ -n "$run_id" ]]; then
+              break
+            fi
+            sleep 2
+          done
+
+          if [[ -z "$run_id" ]]; then
+            echo "Timed out waiting for release.yml to start for $RELEASE_TAG." >&2
+            exit 1
+          fi
+
+          gh run watch "$run_id" --exit-status
