@@ -77,6 +77,10 @@ In scheduled autonomous mode, merge it only when all of the following are true:
   trigger them, while the exact release commit has already passed `main` CI);
 - it is cleanly mergeable with no conflicts, review blockers, or unresolved comments.
 
+Release Please may rewrite its PR whenever `main` changes. Record the `headRefOid` used by CI
+and review, then fetch the PR again immediately before merging. If its head changed, discard the
+earlier evidence and repeat diff review, verification, and review-comment checks on the new head.
+
 After an approved merge, confirm the release workflow completed, then verify the GitHub Release,
 the npm package version, and the `latest` dist-tag. npm publishing must retain OIDC provenance.
 Never retry a failed publish by adding an npm token or disabling provenance; report the failure.
