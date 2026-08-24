@@ -1,6 +1,6 @@
 {
   "name": "linear-sdk-cli",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Ergonomic command-line interface for Linear, built on @linear/sdk",
   "type": "module",
   "license": "MIT",
