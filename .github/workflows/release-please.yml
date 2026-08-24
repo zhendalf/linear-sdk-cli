@@ -34,6 +34,7 @@ jobs:
     steps:
       - name: Dispatch and verify npm publication
         env:
+          GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
