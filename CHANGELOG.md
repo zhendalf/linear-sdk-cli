@@ -6,10 +6,9 @@ All notable changes to this project are documented here. The format is based on
 
 ## [0.2.4](https://github.com/zhendalf/linear-sdk-cli/compare/v0.2.3...v0.2.4) (2026-08-24)
 
-
 ### Bug Fixes
 
-* **build:** replace Prettier with Oxfmt ([#23](https://github.com/zhendalf/linear-sdk-cli/issues/23)) ([5490bdc](https://github.com/zhendalf/linear-sdk-cli/commit/5490bdcf352e731fcacc0be4c0e91266863dcfa4))
+- **build:** replace Prettier with Oxfmt ([#23](https://github.com/zhendalf/linear-sdk-cli/issues/23)) ([5490bdc](https://github.com/zhendalf/linear-sdk-cli/commit/5490bdcf352e731fcacc0be4c0e91266863dcfa4))
 
 ## [0.2.3](https://github.com/zhendalf/linear-sdk-cli/compare/v0.2.2...v0.2.3) (2026-08-24)
 
