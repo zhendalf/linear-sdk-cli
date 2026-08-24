@@ -50,7 +50,9 @@ function fakeClient(opts: { parentProject?: { id: string } | null } = {}) {
   const parent = {
     id: PARENT_ID,
     identifier: "TES-7",
-    project: Promise.resolve(opts.parentProject === undefined ? { id: PROJECT_ID } : opts.parentProject),
+    project: Promise.resolve(
+      opts.parentProject === undefined ? { id: PROJECT_ID } : opts.parentProject,
+    ),
     team: Promise.resolve(teamModel),
   };
   return {
@@ -95,7 +97,11 @@ describe("createIssue — templates (TES-639)", () => {
   });
 
   it("useDefaultTemplate: false (--no-default-template) leaves the flag out entirely", async () => {
-    await createIssue(fakeClient(), { title: "t", team: "TES", useDefaultTemplate: false }, undefined);
+    await createIssue(
+      fakeClient(),
+      { title: "t", team: "TES", useDefaultTemplate: false },
+      undefined,
+    );
     expect(createInputs[0]).toEqual({ teamId: TEAM_ID, title: "t" });
     expect("useDefaultTemplate" in createInputs[0]).toBe(false);
   });
@@ -133,7 +139,9 @@ describe("resolveTemplateId — scope and preference", () => {
   it("does not see another team's template, and says which are available", async () => {
     await expect(resolveTemplateId(fakeClient(), TEAM_ID, "Incident")).rejects.toMatchObject({
       code: "not_found",
-      message: expect.stringMatching(/No issue template 'Incident'.*Available: Bug, Bug, Feature\./),
+      message: expect.stringMatching(
+        /No issue template 'Incident'.*Available: Bug, Bug, Feature\./,
+      ),
     });
   });
 
@@ -152,12 +160,20 @@ describe("createIssue — a sub-issue joins its parent's project (TES-639)", () 
 
   it("--parent with --project: the explicit project wins", async () => {
     const other = "cccccccc-0000-0000-0000-000000000009";
-    await createIssue(fakeClient(), { title: "t", team: "TES", parent: "TES-7", project: other }, undefined);
+    await createIssue(
+      fakeClient(),
+      { title: "t", team: "TES", parent: "TES-7", project: other },
+      undefined,
+    );
     expect(createInputs[0]).toMatchObject({ parentId: PARENT_ID, projectId: other });
   });
 
   it("a parent outside any project: no projectId at all", async () => {
-    await createIssue(fakeClient({ parentProject: null }), { title: "t", team: "TES", parent: "TES-7" }, undefined);
+    await createIssue(
+      fakeClient({ parentProject: null }),
+      { title: "t", team: "TES", parent: "TES-7" },
+      undefined,
+    );
     expect(createInputs[0].parentId).toBe(PARENT_ID);
     expect("projectId" in createInputs[0]).toBe(false);
   });
@@ -167,13 +183,21 @@ describe("createIssue — a sub-issue joins its parent's project (TES-639)", () 
     client.project = async () => ({
       projectMilestones: async () => connection([{ id: "ms-1", name: "Alpha" }]),
     });
-    await createIssue(client, { title: "t", team: "TES", parent: "TES-7", milestone: "Alpha" }, undefined);
+    await createIssue(
+      client,
+      { title: "t", team: "TES", parent: "TES-7", milestone: "Alpha" },
+      undefined,
+    );
     expect(createInputs[0]).toMatchObject({ projectId: PROJECT_ID, projectMilestoneId: "ms-1" });
   });
 
   it("--milestone with neither --project nor a parent in a project is a usage error", async () => {
     await expect(
-      createIssue(fakeClient({ parentProject: null }), { title: "t", team: "TES", parent: "TES-7", milestone: "Alpha" }, undefined),
+      createIssue(
+        fakeClient({ parentProject: null }),
+        { title: "t", team: "TES", parent: "TES-7", milestone: "Alpha" },
+        undefined,
+      ),
     ).rejects.toMatchObject({ code: "usage" });
   });
 });
@@ -232,7 +256,10 @@ describe("`issue create` command — flags (TES-639)", () => {
     process.env.LINEAR_API_KEY = "lin_api_test000000000000";
     process.env.LINEAR_TEAM = "TES";
     clientDescriptor = Object.getOwnPropertyDescriptor(Context.prototype, "client");
-    Object.defineProperty(Context.prototype, "client", { get: () => fakeClient(), configurable: true });
+    Object.defineProperty(Context.prototype, "client", {
+      get: () => fakeClient(),
+      configurable: true,
+    });
   });
 
   afterEach(() => {
@@ -284,7 +311,15 @@ describe("`issue create` command — flags (TES-639)", () => {
   });
 
   it("--start --state X: created in X, no second move", async () => {
-    const out = await runJson(["issue", "create", "--title", "t", "--start", "--state", "In Review"]);
+    const out = await runJson([
+      "issue",
+      "create",
+      "--title",
+      "t",
+      "--start",
+      "--state",
+      "In Review",
+    ]);
     expect(createInputs[0].stateId).toBe("state-started-2");
     expect(updateInputs).toEqual([]);
     expect(out.stateChanged).toBe(false);
@@ -295,7 +330,16 @@ describe("`issue create` command — flags (TES-639)", () => {
     const spy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     try {
       await createProgram().parseAsync([
-        "node", "linear", "issue", "create", "--title", "t", "--start", "--assignee", "ada@example.com", "--json",
+        "node",
+        "linear",
+        "issue",
+        "create",
+        "--title",
+        "t",
+        "--start",
+        "--assignee",
+        "ada@example.com",
+        "--json",
       ]);
     } catch (e) {
       err = e;
@@ -313,6 +357,10 @@ describe("`issue create` command — flags (TES-639)", () => {
 
   it("without --start the JSON is unchanged: id, identifier, url", async () => {
     const out = await runJson(["issue", "create", "--title", "t"]);
-    expect(out).toEqual({ id: "new-issue-uuid", identifier: "TES-99", url: "https://linear.app/t/issue/TES-99" });
+    expect(out).toEqual({
+      id: "new-issue-uuid",
+      identifier: "TES-99",
+      url: "https://linear.app/t/issue/TES-99",
+    });
   });
 });

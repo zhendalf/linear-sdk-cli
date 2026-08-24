@@ -27,8 +27,14 @@ export function registerAttach(issue: Command): void {
     .command("attach <issue> <file...>")
     .description("Upload files and attach them to an issue (private by default)")
     .option("--title <title>", "attachment title (single file only; default: the file name)")
-    .option("--comment <body>", "also post a comment with this body embedding the files as markdown")
-    .option("--public", "upload to a public, world-readable URL (raster images only; default: private)")
+    .option(
+      "--comment <body>",
+      "also post a comment with this body embedding the files as markdown",
+    )
+    .option(
+      "--public",
+      "upload to a public, world-readable URL (raster images only; default: private)",
+    )
     .addHelpText(
       "after",
       [
@@ -50,8 +56,13 @@ export function registerAttach(issue: Command): void {
           comment: opts.comment,
           public: opts.public === true,
           onAttached: (a, iss) => {
-            ctx.output.success(`Attached ${a.filename} (${formatBytes(a.size)}) to ${iss.identifier}`);
-            if (a.public) ctx.output.warn(`${a.filename} is on a public URL, readable by anyone: ${a.assetUrl}`);
+            ctx.output.success(
+              `Attached ${a.filename} (${formatBytes(a.size)}) to ${iss.identifier}`,
+            );
+            if (a.public)
+              ctx.output.warn(
+                `${a.filename} is on a public URL, readable by anyone: ${a.assetUrl}`,
+              );
           },
         });
         const identifier = result.issue.identifier;

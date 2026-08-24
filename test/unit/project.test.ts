@@ -73,7 +73,9 @@ describe("project buildFilter", () => {
   it("--all-teams drops the team clause even with a default team configured", async () => {
     expect(await buildFilter(client, { allTeams: true }, "ENG")).toEqual({});
     expect(await buildFilter(client, { allTeams: true, state: "started" }, "ENG")).toEqual({
-      status: { or: [{ name: { eqIgnoreCase: "started" } }, { type: { eqIgnoreCase: "started" } }] },
+      status: {
+        or: [{ name: { eqIgnoreCase: "started" } }, { type: { eqIgnoreCase: "started" } }],
+      },
     });
   });
 });
@@ -141,13 +143,21 @@ describe("createProject / updateProject (input building)", () => {
 
   it("validates priority locally, before the round-trip", async () => {
     await expect(
-      createProject(stub(() => {}, "create"), { name: "P", priority: 7 }, "TES"),
+      createProject(
+        stub(() => {}, "create"),
+        { name: "P", priority: 7 },
+        "TES",
+      ),
     ).rejects.toMatchObject({ code: "usage" });
   });
 
   it("leaves untouched fields out of the update input", async () => {
     let captured: any;
-    await updateProject(stub((i) => (captured = i), "update"), UUID, { content: "new body" });
+    await updateProject(
+      stub((i) => (captured = i), "update"),
+      UUID,
+      { content: "new body" },
+    );
     expect(captured).toEqual({ content: "new body" });
   });
 });
@@ -201,7 +211,13 @@ describe("getProjectDetail (one round-trip, structured relations)", () => {
     // Two, not a page: a second match is already "ambiguous", and a full page
     // times three nested connections is over Linear's complexity cap.
     expect(query).toContain("projects(filter: $filter, first: 2");
-    for (const sel of ["status { id name type }", "lead { id displayName email }", "teams(first: 50) { nodes { id key name } }", "members(first: 50) { nodes { id displayName email } }", "labels(first: 50) { nodes { id name } }"]) {
+    for (const sel of [
+      "status { id name type }",
+      "lead { id displayName email }",
+      "teams(first: 50) { nodes { id key name } }",
+      "members(first: 50) { nodes { id displayName email } }",
+      "labels(first: 50) { nodes { id name } }",
+    ]) {
       expect(query).toContain(sel);
     }
     // A name matches live projects only, case-insensitively — as resolveProjectId does.
@@ -224,11 +240,30 @@ describe("getProjectDetail (one round-trip, structured relations)", () => {
     expect(d.labels).toEqual([{ id: "pl-1", name: "backend" }]);
     expect(d.archivedAt).toBeNull();
     // Scalars keep their keys.
-    expect(d).toMatchObject({ name: "Auth", content: "# Body", state: "started", health: "onTrack", priorityLabel: "High" });
+    expect(d).toMatchObject({
+      name: "Auth",
+      content: "# Body",
+      state: "started",
+      health: "onTrack",
+      priorityLabel: "High",
+    });
   });
 
   it("nulls the optional relations rather than inventing placeholders", async () => {
-    const d = await getProjectDetail(stub([{ ...node, status: null, lead: null, labels: { nodes: [] }, teams: { nodes: [] }, members: { nodes: [] }, description: "" }]), "auth");
+    const d = await getProjectDetail(
+      stub([
+        {
+          ...node,
+          status: null,
+          lead: null,
+          labels: { nodes: [] },
+          teams: { nodes: [] },
+          members: { nodes: [] },
+          description: "",
+        },
+      ]),
+      "auth",
+    );
     expect(d.status).toBeNull();
     expect(d.lead).toBeNull();
     expect(d.teams).toEqual([]);
@@ -237,7 +272,9 @@ describe("getProjectDetail (one round-trip, structured relations)", () => {
 
   it("no match → not_found; several → ambiguous, naming them", async () => {
     await expect(getProjectDetail(stub([]), "nope")).rejects.toMatchObject({ code: "not_found" });
-    await expect(getProjectDetail(stub([node, { ...node, id: "p2" }]), "auth")).rejects.toMatchObject({
+    await expect(
+      getProjectDetail(stub([node, { ...node, id: "p2" }]), "auth"),
+    ).rejects.toMatchObject({
       code: "ambiguous",
       message: expect.stringContaining("Auth, Auth"),
     });
@@ -300,7 +337,10 @@ describe("`project create --team` is repeatable, and one list with --teams", () 
         ]),
       createProject: async (input: any) => {
         created.push(input);
-        return { success: true, project: Promise.resolve({ id: "p1", name: input.name, url: "u" }) };
+        return {
+          success: true,
+          project: Promise.resolve({ id: "p1", name: input.name, url: "u" }),
+        };
       },
     } as any;
   }
@@ -311,7 +351,10 @@ describe("`project create --team` is repeatable, and one list with --teams", () 
     process.env.LINEAR_API_KEY = "lin_api_test000000000000";
     process.env.LINEAR_TEAM = "TES";
     clientDescriptor = Object.getOwnPropertyDescriptor(Context.prototype, "client");
-    Object.defineProperty(Context.prototype, "client", { get: () => fakeClient(), configurable: true });
+    Object.defineProperty(Context.prototype, "client", {
+      get: () => fakeClient(),
+      configurable: true,
+    });
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -350,7 +393,10 @@ describe("`project create --team` is repeatable, and one list with --teams", () 
   it("--team and --teams together is a usage error, not a merge", async () => {
     await expect(
       run(["project", "create", "--name", "P", "--team", "AAA", "--teams", "BBB"]),
-    ).rejects.toMatchObject({ code: "usage", message: expect.stringMatching(/either --teams or --team/) });
+    ).rejects.toMatchObject({
+      code: "usage",
+      message: expect.stringMatching(/either --teams or --team/),
+    });
     expect(created).toEqual([]);
   });
 
@@ -415,7 +461,10 @@ describe("noteWorkspaceWide: 'no default team; listing every team's' (TES-637 #8
     process.env.LINEAR_API_KEY = "lin_api_test000000000000";
     delete process.env.LINEAR_TEAM;
     clientDescriptor = Object.getOwnPropertyDescriptor(Context.prototype, "client");
-    Object.defineProperty(Context.prototype, "client", { get: () => fakeClient(), configurable: true });
+    Object.defineProperty(Context.prototype, "client", {
+      get: () => fakeClient(),
+      configurable: true,
+    });
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -451,7 +500,11 @@ describe("noteWorkspaceWide: 'no default team; listing every team's' (TES-637 #8
   });
 
   it("issue list / mine / search: the same note", async () => {
-    for (const args of [["issue", "list"], ["issue", "mine"], ["issue", "search", "x"]]) {
+    for (const args of [
+      ["issue", "list"],
+      ["issue", "mine"],
+      ["issue", "search", "x"],
+    ]) {
       expect((await run([...args, "--json"])).err, args.join(" ")).toMatch(NOTE);
     }
   });

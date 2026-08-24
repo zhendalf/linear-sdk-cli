@@ -162,7 +162,7 @@ describe("discovery commands", () => {
   });
 });
 
-// Phase 2 of the linear-cli alignment: every alias below is additive. The point
+// Every linear-cli compatibility alias below is additive. The point
 // of these tests is that an alias can never be silently unhooked from the thing
 // it aliases — each one asserts the alias and the original land on the same
 // command object / option key, and that the original still behaves as before.
@@ -186,7 +186,10 @@ describe("linear-cli aliases", () => {
     });
 
     it("adds -w wherever --web already exists, and nowhere else", () => {
-      for (const path of [["issue", "view"], ["issue", "pull-request"]]) {
+      for (const path of [
+        ["issue", "view"],
+        ["issue", "pull-request"],
+      ]) {
         expect(find(path)?.options.find((o) => o.long === "--web")?.short).toBe("-w");
       }
     });
@@ -328,9 +331,9 @@ describe("linear-cli aliases", () => {
   }
 });
 
-// Phase 3 of the alignment: capability gaps. These pin the *option surface* —
-// the service-level filter shapes live in issue-filter.test.ts.
-describe("linear-cli capability gaps (phase 3)", () => {
+// Compatibility filters pin the option surface; the service-level filter
+// shapes live in issue-filter.test.ts.
+describe("linear-cli compatibility filters", () => {
   const program = createProgram();
   const find = (path: string[]): Command =>
     path.reduce<Command | undefined>(
@@ -356,7 +359,12 @@ describe("linear-cli capability gaps (phase 3)", () => {
   it("leaves --team single-valued everywhere else", () => {
     // `project create` is the other exception: a project belongs to several
     // teams, so its `--team` collects like `--teams` (TES-637 item 3).
-    for (const path of [["issue", "create"], ["issue", "update"], ["cycle", "create"], ["label", "create"]]) {
+    for (const path of [
+      ["issue", "create"],
+      ["issue", "update"],
+      ["cycle", "create"],
+      ["label", "create"],
+    ]) {
       const teamOptions = option(find(path), "--team");
       expect(teamOptions).toHaveLength(1);
       expect(teamOptions[0]!.parseArg).toBeUndefined();
@@ -390,7 +398,7 @@ describe("linear-cli capability gaps (phase 3)", () => {
     }
   });
 
-  // AUDIT.md #8: the global --team was accepted here and silently ignored.
+  // The global --team was previously accepted here and silently ignored.
   it("documents --team on `issue update` as a move", () => {
     expect(option(find(["issue", "update"]), "--team")[0]!.description).toMatch(/move/i);
   });
@@ -549,7 +557,8 @@ describe("lifecycle commands (TES-644)", () => {
       (cmd, name) => cmd?.commands.find((c) => c.name() === name || c.aliases().includes(name)),
       program,
     );
-  const visibleLongs = (cmd: Command) => cmd.options.filter((o: any) => !o.hidden).map((o) => o.long);
+  const visibleLongs = (cmd: Command) =>
+    cmd.options.filter((o: any) => !o.hidden).map((o) => o.long);
 
   it("`project delete` exists beside `archive`, and is not an alias of it", () => {
     const del = find(["project", "delete"])!;
@@ -562,7 +571,10 @@ describe("lifecycle commands (TES-644)", () => {
   it("`team delete <key>` requires the key and offers --move-issues", () => {
     const del = find(["team", "delete"])!;
     expect(del).toBeDefined();
-    const args = (del as any).registeredArguments.map((a: any) => ({ name: a.name(), required: a.required }));
+    const args = (del as any).registeredArguments.map((a: any) => ({
+      name: a.name(),
+      required: a.required,
+    }));
     expect(args).toEqual([{ name: "key", required: true }]);
     expect(visibleLongs(del)).toContain("--move-issues");
     // Deletes take the shared confirmation gate, so `-y` is there for scripts.
@@ -576,7 +588,14 @@ describe("lifecycle commands (TES-644)", () => {
     const list = find(["issue", "agent-session", "list"])!;
     expect(visibleLongs(list)).toEqual(expect.arrayContaining(["--status", "--all-issues"]));
     const status = list.options.find((o) => o.long === "--status") as any;
-    expect(status.argChoices).toEqual(["pending", "active", "awaitingInput", "complete", "error", "stale"]);
+    expect(status.argChoices).toEqual([
+      "pending",
+      "active",
+      "awaitingInput",
+      "complete",
+      "error",
+      "stale",
+    ]);
     const view = find(["issue", "agent-session", "view"])!;
     expect((view as any).registeredArguments.map((a: any) => a.name())).toEqual(["id"]);
   });
@@ -593,7 +612,9 @@ describe("lifecycle commands (TES-644)", () => {
       { name: "issue", required: true, variadic: false },
       { name: "file", required: true, variadic: true },
     ]);
-    expect(visibleLongs(attach)).toEqual(expect.arrayContaining(["--title", "--comment", "--public"]));
+    expect(visibleLongs(attach)).toEqual(
+      expect.arrayContaining(["--title", "--comment", "--public"]),
+    );
     for (const path of [
       ["comment", "add"],
       ["issue", "comment", "add"],
@@ -602,9 +623,24 @@ describe("lifecycle commands (TES-644)", () => {
     }
   });
 
+  it("advertises explicit --mention intent on every command that writes a comment body", () => {
+    for (const path of [
+      ["issue", "comment"],
+      ["comment", "add"],
+      ["comment", "reply"],
+      ["comment", "update"],
+      ["issue", "comment", "add"],
+      ["issue", "comment", "update"],
+    ]) {
+      expect(visibleLongs(find(path)!)).toContain("--mention");
+    }
+  });
+
   it("`commands --json` lists all of them", async () => {
     let out = "";
-    const spy = vi.spyOn(process.stdout, "write").mockImplementation((c: any) => ((out += c), true));
+    const spy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((c: any) => ((out += c), true));
     try {
       await createProgram().parseAsync(["node", "linear", "commands", "--json"]);
     } finally {
@@ -630,7 +666,8 @@ describe("flag gaps closed (TES-642)", () => {
       (cmd, name) => cmd?.commands.find((c) => c.name() === name || c.aliases().includes(name)),
       program,
     );
-  const visibleLongs = (cmd: Command) => cmd.options.filter((o: any) => !o.hidden).map((o) => o.long);
+  const visibleLongs = (cmd: Command) =>
+    cmd.options.filter((o: any) => !o.hidden).map((o) => o.long);
 
   it("`project list --all-teams`, `team create --private`, `initiative list` filters", () => {
     expect(visibleLongs(find(["project", "list"])!)).toContain("--all-teams");
@@ -639,10 +676,14 @@ describe("flag gaps closed (TES-642)", () => {
       expect.arrayContaining(["--status", "--owner", "--archived"]),
     );
     // The reference CLI's `--all-statuses` is accepted (hidden) as a no-op.
-    const allStatuses = find(["initiative", "list"])!.options.find((o) => o.long === "--all-statuses") as any;
+    const allStatuses = find(["initiative", "list"])!.options.find(
+      (o) => o.long === "--all-statuses",
+    ) as any;
     expect(allStatuses?.hidden).toBe(true);
     for (const verb of ["create", "update"]) {
-      expect(visibleLongs(find(["initiative", verb])!)).toEqual(expect.arrayContaining(["--icon", "--color"]));
+      expect(visibleLongs(find(["initiative", verb])!)).toEqual(
+        expect.arrayContaining(["--icon", "--color"]),
+      );
     }
   });
 

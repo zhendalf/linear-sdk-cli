@@ -9,7 +9,12 @@
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { shape } from "../lib/shape.js";
-import { collect, pageSize } from "../lib/pagination.js";
+import {
+  collect,
+  inheritPaginationMetadata,
+  pageSize,
+  setPaginationMetadata,
+} from "../lib/pagination.js";
 import { usageError } from "../lib/errors.js";
 import { assertMutation, unwrapMutation } from "../lib/mutation.js";
 import { resolveTeam, type ResolvedTeam } from "../lib/resolve.js";
@@ -23,11 +28,23 @@ export interface TeamRow {
 /** The row's shape as `linear commands` advertises it (TES-610); checked against the interface. */
 export const TEAM_ROW_SHAPE = shape<TeamRow>({ id: "string", key: "string", name: "string" });
 
+/** Resolve the selected team to its canonical key, UUID, and name. */
+export async function getTeamIdentity(
+  client: LinearClient,
+  keyArg: string | undefined,
+  defaultTeamKey: string | undefined,
+): Promise<ResolvedTeam> {
+  return resolveTeam(client, keyArg, defaultTeamKey);
+}
+
 /** All teams (key, name, id). */
 export async function listTeams(client: LinearClient, limit: number): Promise<TeamRow[]> {
-  const conn = await withRetry(() => client.teams({ first: limit === Infinity ? 100 : Math.min(limit, 250) }));
+  const conn = await withRetry(() => client.teams({ first: pageSize(limit) }));
   const nodes = await collect(conn as any, limit);
-  return nodes.map((t: any) => ({ id: t.id, key: t.key, name: t.name }));
+  return inheritPaginationMetadata(
+    nodes.map((t: any) => ({ id: t.id, key: t.key, name: t.name })),
+    nodes,
+  );
 }
 
 export interface TeamDetail {
@@ -128,13 +145,16 @@ export async function listMembers(
     (await withRetry(() => team.members({ first: pageSize(limit), includeDisabled }))) as any,
     limit,
   );
-  return nodes.map((u: any) => ({
-    id: u.id,
-    displayName: u.displayName,
-    name: u.name,
-    email: u.email,
-    active: !!u.active,
-  }));
+  return inheritPaginationMetadata(
+    nodes.map((u: any) => ({
+      id: u.id,
+      displayName: u.displayName,
+      name: u.name,
+      email: u.email,
+      active: !!u.active,
+    })),
+    nodes,
+  );
 }
 
 export interface StateRow {
@@ -161,8 +181,8 @@ export async function listStates(
 ): Promise<StateRow[]> {
   const resolved = await resolveTeam(client, keyArg, defaultTeamKey);
   const team = await withRetry(() => client.team(resolved.id));
-  const nodes = await collect((await withRetry(() => team.states())) as any, limit);
-  return nodes
+  const nodes = await collect((await withRetry(() => team.states())) as any, Infinity);
+  const rows = nodes
     .map((s: any) => ({
       id: s.id,
       name: s.name,
@@ -171,6 +191,10 @@ export async function listStates(
       position: s.position,
     }))
     .sort((a: StateRow, b: StateRow) => a.position - b.position);
+  return setPaginationMetadata(
+    limit === Infinity ? rows : rows.slice(0, limit),
+    rows.length > limit,
+  );
 }
 
 export interface LabelRow {
@@ -179,7 +203,11 @@ export interface LabelRow {
   color: string;
 }
 
-export const TEAM_LABEL_ROW_SHAPE = shape<LabelRow>({ id: "string", name: "string", color: "string" });
+export const TEAM_LABEL_ROW_SHAPE = shape<LabelRow>({
+  id: "string",
+  name: "string",
+  color: "string",
+});
 
 export async function listLabels(
   client: LinearClient,
@@ -190,7 +218,10 @@ export async function listLabels(
   const resolved = await resolveTeam(client, keyArg, defaultTeamKey);
   const team = await withRetry(() => client.team(resolved.id));
   const nodes = await collect((await withRetry(() => team.labels())) as any, limit);
-  return nodes.map((l: any) => ({ id: l.id, name: l.name, color: l.color }));
+  return inheritPaginationMetadata(
+    nodes.map((l: any) => ({ id: l.id, name: l.name, color: l.color })),
+    nodes,
+  );
 }
 
 export interface CycleRow {
@@ -217,14 +248,20 @@ export async function listCycles(
 ): Promise<CycleRow[]> {
   const resolved = await resolveTeam(client, keyArg, defaultTeamKey);
   const team = await withRetry(() => client.team(resolved.id));
-  const nodes = await collect((await withRetry(() => team.cycles())) as any, limit);
-  return nodes.map((c: any) => ({
-    id: c.id,
-    number: c.number,
-    name: c.name ?? null,
-    startsAt: c.startsAt?.toISOString?.() ?? (c.startsAt ? String(c.startsAt) : null),
-    endsAt: c.endsAt?.toISOString?.() ?? (c.endsAt ? String(c.endsAt) : null),
-  }));
+  const nodes = await collect((await withRetry(() => team.cycles())) as any, Infinity);
+  const rows = nodes
+    .map((c: any) => ({
+      id: c.id,
+      number: c.number,
+      name: c.name ?? null,
+      startsAt: c.startsAt?.toISOString?.() ?? (c.startsAt ? String(c.startsAt) : null),
+      endsAt: c.endsAt?.toISOString?.() ?? (c.endsAt ? String(c.endsAt) : null),
+    }))
+    .sort((a, b) => b.number - a.number);
+  return setPaginationMetadata(
+    limit === Infinity ? rows : rows.slice(0, limit),
+    rows.length > limit,
+  );
 }
 
 export interface CreateTeamOptions {
@@ -321,7 +358,10 @@ export async function moveTeamIssues(
   to: ResolvedTeam,
 ): Promise<number> {
   const team = await withRetry(() => client.team(from.id));
-  const issues = await collect((await withRetry(() => team.issues({ first: 100 }))) as any, Infinity);
+  const issues = await collect(
+    (await withRetry(() => team.issues({ first: 100 }))) as any,
+    Infinity,
+  );
   const ids = issues.map((i: any) => i.id as string);
   for (let i = 0; i < ids.length; i += MOVE_BATCH) {
     const batch = ids.slice(i, i + MOVE_BATCH);
@@ -339,5 +379,8 @@ export async function moveTeamIssues(
  * user as `feature_not_accessible` like every other plan gate.
  */
 export async function deleteTeam(client: LinearClient, team: ResolvedTeam): Promise<void> {
-  await assertMutation(withRetry(() => client.deleteTeam(team.id)), "Team deletion");
+  await assertMutation(
+    withRetry(() => client.deleteTeam(team.id)),
+    "Team deletion",
+  );
 }

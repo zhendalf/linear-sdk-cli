@@ -10,6 +10,8 @@ import { withRetry } from "../client.js";
 import { resolve } from "node:path";
 import {
   writeCredential,
+  probeKeyringCredential,
+  adoptKeyringCredential,
   removeCredential,
   setDefaultWorkspace,
   listCredentials,
@@ -25,8 +27,8 @@ import {
 } from "../config.js";
 import { keyring } from "../lib/keyring.js";
 import { readStdinSync } from "../lib/body.js";
-import { authError, usageError } from "../lib/errors.js";
-import { promptSecret, promptSelect } from "../lib/prompt.js";
+import { authError, normalizeError, usageError } from "../lib/errors.js";
+import { confirmDestructive, promptSecret, promptSelect } from "../lib/prompt.js";
 import { listTeams } from "../services/team.js";
 import { ISSUE_SORTS } from "../services/issue.js";
 import { firstTeam, type Context } from "../context.js";
@@ -58,6 +60,79 @@ const whoamiAction = action(async (ctx: Context) => {
   );
 });
 
+interface AuthIdentity {
+  user: { id: string; name: string; email: string };
+  organization: { id: string; name: string; urlKey: string };
+}
+
+interface AuthValidationClient {
+  viewer: Promise<{ id: string; name: string; email: string }>;
+  organization: Promise<{ id: string; name: string; urlKey: string }>;
+}
+
+export type AuthValidationClientFactory = (apiKey: string) => AuthValidationClient;
+
+const defaultAuthValidationClientFactory: AuthValidationClientFactory = (apiKey) =>
+  new LinearClient({ apiKey }) as unknown as AuthValidationClient;
+let authValidationClientFactory = defaultAuthValidationClientFactory;
+
+/** Test seam for command-level auth tests; production always uses LinearClient. */
+export function setAuthValidationClientFactoryForTests(
+  factory: AuthValidationClientFactory | undefined,
+): void {
+  authValidationClientFactory = factory ?? defaultAuthValidationClientFactory;
+}
+
+/** Merge the local and global login spellings without silently choosing one. */
+export function selectLoginKey(
+  localKey: string | undefined,
+  globalKey: string | undefined,
+): string | undefined {
+  if (localKey !== undefined && globalKey !== undefined) {
+    throw usageError("Pass only one of --key or --api-key to `auth login`.");
+  }
+  return localKey ?? globalKey;
+}
+
+/** Validate a credential and prove that an explicitly requested slug matches it. */
+export async function validateAuthCredential(
+  apiKey: string,
+  requestedWorkspace?: string,
+): Promise<AuthIdentity> {
+  const client = authValidationClientFactory(apiKey);
+  let me;
+  let org;
+  try {
+    me = await withRetry(() => client.viewer);
+    org = await withRetry(() => client.organization);
+  } catch (err) {
+    const normalized = normalizeError(err);
+    if (normalized.code === "auth" || normalized.code === "forbidden") {
+      throw authError("That API key was rejected by Linear.");
+    }
+    throw normalized;
+  }
+  if (requestedWorkspace && requestedWorkspace !== org.urlKey) {
+    throw usageError(
+      `--workspace '${requestedWorkspace}' does not match the key's workspace '${org.urlKey}'. Store credentials under their Linear workspace slug.`,
+    );
+  }
+  return {
+    user: { id: me.id, name: me.name, email: me.email },
+    organization: { id: org.id, name: org.name, urlKey: org.urlKey },
+  };
+}
+
+function explicitWorkspaceSlug(input: string): string {
+  const slug = input.trim();
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$/.test(slug)) {
+    throw usageError(
+      "Workspace slug must be its lowercase Linear URL key (letters, numbers, and hyphens).",
+    );
+  }
+  return slug;
+}
+
 export function registerMeta(program: Command): void {
   program.command("whoami").description("Show the authenticated user").action(whoamiAction);
 
@@ -75,10 +150,7 @@ export function registerMeta(program: Command): void {
     .command("login")
     .description("Validate and store a Linear API key for a workspace")
     .option("--key <key>", "API key (otherwise prompted; '-' reads it from stdin)")
-    .option(
-      "--plaintext",
-      "Store the key in the config file (0600) instead of the system keyring",
-    )
+    .option("--plaintext", "Store the key in the config file (0600) instead of the system keyring")
     .action(
       // The global `--workspace <slug>` selects the slug to store under
       // (default: derived from the key's organization urlKey).
@@ -87,14 +159,14 @@ export function registerMeta(program: Command): void {
         // it is a credential, and it must not reach the screen or scrollback.
         // Nothing below echoes it either: the receipt reports the user and
         // where the key went, never the value.
-        let key: string | undefined = opts.key;
+        let key: string | undefined = selectLoginKey(opts.key, ctx.options.apiKey);
         if (key === "-") {
           key = readStdinSync();
         } else if (key) {
           // argv is world-readable (`ps`) and lands in shell history; say so
           // once, quietly, and carry on — the script author chose it.
           ctx.output.warn(
-            "--key on the command line is visible to other processes and shell history; prefer the prompt or `--key -` (stdin).",
+            "An API key on the command line is visible to other processes and shell history; prefer the prompt or `--key -` (stdin).",
           );
         } else {
           key = await promptSecret(ctx, "Linear API key:", { required: true });
@@ -102,25 +174,18 @@ export function registerMeta(program: Command): void {
         key = key.trim();
         if (!key) throw usageError("No API key provided.");
         // Validate before persisting and learn the workspace slug.
-        const client = new LinearClient({ apiKey: key });
-        let me;
-        let org;
-        try {
-          me = await client.viewer;
-          org = await client.organization;
-        } catch {
-          throw authError("That API key was rejected by Linear.");
-        }
-        const slug: string = ctx.options.workspace ?? org.urlKey;
+        const identity = await validateAuthCredential(key, ctx.options.workspace);
+        const { user: me, organization: org } = identity;
+        const slug: string = org.urlKey;
         const { path, storage, keyringLabel } = writeCredential(slug, key, {
           plaintext: opts.plaintext === true,
         });
         const where =
           storage === "keychain"
-            ? `Key saved to the ${keyringLabel} (service linear-cli, account '${slug}'); ${path} records the workspace.`
+            ? `Credential saved to the ${keyringLabel} (service linear-cli, account '${slug}'); ${path} records the workspace.`
             : opts.plaintext
-              ? `Key saved to ${path} (plaintext, 0600).`
-              : `Key saved to ${path} (plaintext, 0600 — no system keyring on this platform).`;
+              ? `Credential saved to ${path} (plaintext, 0600).`
+              : `Credential saved to ${path} (plaintext, 0600 — no system keyring on this platform).`;
         ctx.output.emit(
           {
             success: true,
@@ -132,6 +197,45 @@ export function registerMeta(program: Command): void {
           () =>
             ctx.output.success(
               `Authenticated as ${me.name} <${me.email}> for workspace '${slug}'. ${where}`,
+            ),
+        );
+      }),
+    );
+
+  // adopt ------------------------------------------------------------------
+  auth
+    .command("adopt <slug>")
+    .description("Adopt an existing named credential from the shared OS keyring")
+    .action(
+      action(async (ctx: Context, _opts, input: string) => {
+        const slug = explicitWorkspaceSlug(input);
+        if (ctx.options.apiKey !== undefined) {
+          throw usageError(
+            "`auth adopt` reads only the named OS keyring entry; remove --api-key (or use `auth login --key -` to supply a key on stdin).",
+          );
+        }
+        if (ctx.options.workspace && ctx.options.workspace !== slug) {
+          throw usageError(
+            `The positional workspace '${slug}' conflicts with --workspace '${ctx.options.workspace}'.`,
+          );
+        }
+
+        // Probe one exact account only. No keyring enumeration and no secret
+        // on argv, stdout, stderr, or disk.
+        const found = probeKeyringCredential(slug);
+        const identity = await validateAuthCredential(found.apiKey, slug);
+        const adopted = adoptKeyringCredential(slug, found.apiKey);
+        ctx.output.emit(
+          {
+            success: true,
+            workspace: slug,
+            user: identity.user,
+            storage: adopted.storage,
+            path: adopted.path,
+          },
+          () =>
+            ctx.output.success(
+              `Adopted workspace '${slug}' from the ${adopted.keyringLabel}; ${adopted.path} now records the workspace without storing the secret.`,
             ),
         );
       }),
@@ -263,6 +367,7 @@ export function registerMeta(program: Command): void {
                 .join(", ")}). Pass --workspace <slug> to choose which to remove.`,
             );
         }
+        if (!(await confirmDestructive(ctx, `Remove credential for workspace '${slug}'?`))) return;
         const removed = removeCredential(slug);
         ctx.output.emit({ success: true, workspace: slug, removed }, () =>
           removed
@@ -279,7 +384,9 @@ export function registerMeta(program: Command): void {
   // show (default) ----------------------------------------------------------
   config
     .command("show", { isDefault: true })
-    .description("Show the resolved configuration and where each value came from (secrets redacted)")
+    .description(
+      "Show the resolved configuration and where each value came from (secrets redacted)",
+    )
     .action(
       action(async (ctx) => {
         // Re-resolve to expose sources/paths beyond what Context keeps.
@@ -299,8 +406,10 @@ export function registerMeta(program: Command): void {
           if (o.source === "none") return "default";
           return o.path ? `${o.source}: ${o.path}` : o.source;
         };
-        const show = (key: keyof typeof c.origins, value: string | undefined): string | undefined =>
-          value === undefined ? undefined : `${value}  (${from(key)})`;
+        const show = (
+          key: keyof typeof c.origins,
+          value: string | undefined,
+        ): string | undefined => (value === undefined ? undefined : `${value}  (${from(key)})`);
         ctx.output.detail(
           {
             apiKey: redactKey(c.apiKey),
@@ -309,7 +418,6 @@ export function registerMeta(program: Command): void {
             team: c.team ?? null,
             workspace: c.workspace ?? null,
             sort: c.sort,
-            vcs: c.vcs,
             origins: c.origins,
             userConfigPath: c.userConfigPath,
             projectConfigPath: c.projectConfigPath ?? null,
@@ -321,7 +429,6 @@ export function registerMeta(program: Command): void {
             ["Team", show("team", c.team)],
             ["Workspace", show("workspace", c.workspace)],
             ["Sort", show("sort", c.sort)],
-            ["VCS", show("vcs", c.vcs)],
             ["User config", c.userConfigPath],
             ["Project config", c.projectConfigPath],
             ["Global config", c.globalConfigPath],
@@ -358,11 +465,15 @@ export function registerMeta(program: Command): void {
               .map((t) => ({ name: `${t.name} (${t.key})`, value: t.key })),
           );
         }
-        const settings: Partial<Record<SettableKey, string>> = { team: validateSetting("team", team) };
+        const settings: Partial<Record<SettableKey, string>> = {
+          team: validateSetting("team", team),
+        };
         if (opts.sort !== undefined) settings.sort = validateSetting("sort", opts.sort);
         initProjectConfig(path, settings, { force: opts.force === true });
         ctx.output.emit({ success: true, path, ...settings }, () =>
-          ctx.output.success(`Wrote ${path} (team ${settings.team}${settings.sort ? `, sort ${settings.sort}` : ""}).`),
+          ctx.output.success(
+            `Wrote ${path} (team ${settings.team}${settings.sort ? `, sort ${settings.sort}` : ""}).`,
+          ),
         );
       }),
     );
@@ -410,9 +521,6 @@ function validateSetting(key: SettableKey, value: string): string {
       if (!(ISSUE_SORTS as readonly string[]).includes(v)) {
         throw usageError(`Invalid sort '${v}'. Valid values: ${ISSUE_SORTS.join(", ")}.`);
       }
-      return v;
-    case "vcs":
-      if (!["git", "jj"].includes(v)) throw usageError(`Invalid vcs '${v}'. Valid values: git, jj.`);
       return v;
     case "team":
       // A team key: letters and digits, as Linear issues them (TES, ENG2).

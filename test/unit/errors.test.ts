@@ -30,6 +30,59 @@ describe("normalizeError", () => {
     expect(e.message).toBe("title is required");
   });
 
+  it("prefers Linear's userPresentableMessage without weakening classification", () => {
+    class InvalidInputLinearError extends Error {
+      errors = [
+        {
+          message: "Could not find referenced WorkflowState.",
+          extensions: {
+            type: "InvalidInput",
+            userPresentableMessage: "That workflow state is no longer available.",
+          },
+        },
+      ];
+    }
+    const e = normalizeError(new InvalidInputLinearError("invalid"));
+    expect(e.message).toBe("That workflow state is no longer available.");
+    // The raw GraphQL message still participates in the established not-found
+    // reclassification even though it is no longer the displayed message.
+    expect(e.code).toBe("not_found");
+    expect(e.exitCode).toBe(ExitCode.NotFound);
+  });
+
+  it("extracts GraphQL errors from a direct response as well as SDK wrappers", () => {
+    class GraphQLClientError extends Error {
+      response = {
+        errors: [
+          {
+            message: "Internal wording",
+            extensions: { userPresentableMessage: "Readable wording" },
+          },
+        ],
+      };
+    }
+    expect(normalizeError(new GraphQLClientError("fallback")).message).toBe("Readable wording");
+  });
+
+  it("does not let an empty SDK errors array hide raw GraphQL response errors", () => {
+    class InvalidInputLinearError extends Error {
+      errors: unknown[] = [];
+      raw = {
+        response: {
+          errors: [
+            {
+              message: "Internal wording",
+              extensions: { userPresentableMessage: "Raw response wording" },
+            },
+          ],
+        },
+      };
+    }
+    expect(normalizeError(new InvalidInputLinearError("fallback")).message).toBe(
+      "Raw response wording",
+    );
+  });
+
   it("falls back to runtime for unknown errors", () => {
     expect(normalizeError(new Error("boom")).code).toBe("runtime");
     expect(normalizeError("string error").code).toBe("runtime");
@@ -120,5 +173,10 @@ describe("CliError", () => {
   it("maps codes to exit codes", () => {
     expect(new CliError("x", "not_found").exitCode).toBe(ExitCode.NotFound);
     expect(new CliError("x", "usage").exitCode).toBe(ExitCode.Usage);
+  });
+
+  it("carries an optional structured suggestion", () => {
+    const error = usageError("Bad input", "Pass --team TES.");
+    expect(error.suggestion).toBe("Pass --team TES.");
   });
 });

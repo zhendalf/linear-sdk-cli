@@ -73,7 +73,10 @@ describe("createProjectUpdate (mocked client)", () => {
       },
     } as any;
 
-    const created = await createProjectUpdate(client, UUID, { body: "on track", health: "onTrack" });
+    const created = await createProjectUpdate(client, UUID, {
+      body: "on track",
+      health: "onTrack",
+    });
     expect(captured).toEqual({ projectId: UUID, body: "on track", health: "onTrack" });
     expect(created).toMatchObject({ id: "pu1", body: "on track", health: "onTrack", user: "Ada" });
   });
@@ -104,7 +107,8 @@ describe("createProjectUpdate (mocked client)", () => {
   it("fails when the payload carries no update", async () => {
     const client = {
       project: () => Promise.resolve({ id: UUID }),
-      createProjectUpdate: () => Promise.resolve({ success: true, projectUpdate: Promise.resolve(null) }),
+      createProjectUpdate: () =>
+        Promise.resolve({ success: true, projectUpdate: Promise.resolve(null) }),
     } as any;
     await expect(createProjectUpdate(client, UUID, { body: "x" })).rejects.toMatchObject({
       code: "api",
@@ -134,7 +138,10 @@ describe("createInitiativeUpdate (mocked client)", () => {
       },
     } as any;
 
-    const created = await createInitiativeUpdate(client, UUID, { body: "at risk", health: "atRisk" });
+    const created = await createInitiativeUpdate(client, UUID, {
+      body: "at risk",
+      health: "atRisk",
+    });
     expect(captured).toEqual({ initiativeId: "init-1", body: "at risk", health: "atRisk" });
     expect(created).toMatchObject({ id: "iu1", health: "atRisk", user: "Bo" });
   });
@@ -142,7 +149,8 @@ describe("createInitiativeUpdate (mocked client)", () => {
   it("fails when the payload carries no update", async () => {
     const client = {
       initiative: () => Promise.resolve({ id: "init-1" }),
-      createInitiativeUpdate: () => Promise.resolve({ success: true, initiativeUpdate: Promise.resolve(null) }),
+      createInitiativeUpdate: () =>
+        Promise.resolve({ success: true, initiativeUpdate: Promise.resolve(null) }),
     } as any;
     await expect(createInitiativeUpdate(client, UUID, { body: "x" })).rejects.toMatchObject({
       code: "api",
@@ -178,7 +186,9 @@ describe("project-update / initiative-update command wiring", () => {
   });
 
   it("create exposes --body / --body-file / --editor / --health", () => {
-    const help = find("project-update")!.commands.find((c) => c.name() === "create")!.helpInformation();
+    const help = find("project-update")!
+      .commands.find((c) => c.name() === "create")!
+      .helpInformation();
     expect(help).toContain("--body");
     expect(help).toContain("--body-file");
     expect(help).toContain("--editor");
@@ -188,7 +198,17 @@ describe("project-update / initiative-update command wiring", () => {
   it("rejects an invalid --health choice", async () => {
     const program = createProgram();
     await expect(
-      program.parseAsync(["node", "linear", "project-update", "create", UUID, "--body", "x", "--health", "great"]),
+      program.parseAsync([
+        "node",
+        "linear",
+        "project-update",
+        "create",
+        UUID,
+        "--body",
+        "x",
+        "--health",
+        "great",
+      ]),
     ).rejects.toBeInstanceOf(CommanderError);
   });
 

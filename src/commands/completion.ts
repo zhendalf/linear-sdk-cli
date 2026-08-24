@@ -47,12 +47,8 @@ compdef _linear linear lin
 `;
     case "fish":
       return `# linear fish completion:  linear completion fish > ~/.config/fish/completions/linear.fish
-${commands
-  .map((c) => `complete -c linear -n '__fish_use_subcommand' -a '${c}'`)
-  .join("\n")}
-${commands
-  .map((c) => `complete -c lin -n '__fish_use_subcommand' -a '${c}'`)
-  .join("\n")}
+${commands.map((c) => `complete -c linear -n '__fish_use_subcommand' -a '${c}'`).join("\n")}
+${commands.map((c) => `complete -c lin -n '__fish_use_subcommand' -a '${c}'`).join("\n")}
 `;
   }
 }

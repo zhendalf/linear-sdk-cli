@@ -1,9 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import {
-  buildFavoriteInput,
-  entityLabel,
-  favoriteName,
-} from "../../src/services/favorite.js";
+import { buildFavoriteInput, entityLabel, favoriteName } from "../../src/services/favorite.js";
 import { connection } from "./_fakes.js";
 
 const UUID = "01234567-89ab-cdef-0123-456789abcdef";

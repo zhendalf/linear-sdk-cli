@@ -86,6 +86,22 @@ movedIssues: number
 movedTo: {id: string, key: string, name: string} | null
 ```
 
+### `linear team id`
+
+Print a team's UUID (defaults to the configured team)
+
+```
+linear team id [options] [key]
+```
+
+**Output (`--json`)**: a receipt object
+
+```text
+id: string
+key: string
+name: string
+```
+
 ### `linear team labels`
 
 List a team's labels

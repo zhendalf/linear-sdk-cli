@@ -146,7 +146,7 @@ describe("auth logout", () => {
   it("removes the keyring entry and the workspace table", async () => {
     writeFileSync(userConfigPath(), `[workspaces."acme"]\nkeyring = true\n`);
     kr.store.set("acme", "lin_api_fromkeychain0000");
-    const out = await runJson(["auth", "logout"]);
+    const out = await runJson(["auth", "logout", "--yes"]);
     expect(out).toMatchObject({ success: true, workspace: "acme", removed: true });
     expect(kr.store.has("acme")).toBe(false);
     expect(await runJson(["auth", "list"])).toEqual([]);
@@ -155,7 +155,7 @@ describe("auth logout", () => {
   it("can forget a workspace only the reference CLI's list knows", async () => {
     writeFileSync(referenceCredentialsPath(), `default = "lumiere"\nworkspaces = ["lumiere"]\n`);
     kr.store.set("lumiere", "lin_api_schpet0000000000");
-    const out = await runJson(["auth", "logout", "--workspace", "lumiere"]);
+    const out = await runJson(["auth", "logout", "--workspace", "lumiere", "--yes"]);
     expect(out).toMatchObject({ success: true, removed: true });
     expect(kr.store.has("lumiere")).toBe(false);
     expect(readFileSync(referenceCredentialsPath(), "utf8").trim()).toBe("workspaces = []");

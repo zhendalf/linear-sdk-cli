@@ -19,7 +19,7 @@
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { collectRawQuery } from "../lib/pagination.js";
-import { usageError, notFound } from "../lib/errors.js";
+import { usageError, notFound, normalizeError } from "../lib/errors.js";
 import { assertMutation, unwrapMutation } from "../lib/mutation.js";
 import {
   resolveProjectId,
@@ -100,7 +100,9 @@ export async function resolveTarget(
     case "cycle": {
       const teamKey = sel.team ?? defaultTeamKey;
       if (!teamKey)
-        throw usageError("--cycle needs a team to look the cycle up in: pass --team <KEY> or set a default team.");
+        throw usageError(
+          "--cycle needs a team to look the cycle up in: pass --team <KEY> or set a default team.",
+        );
       const team = await resolveTeam(client, teamKey, undefined);
       return { kind: "cycle", id: await resolveCycleId(client, team.id, sel.value) };
     }
@@ -169,7 +171,9 @@ function targets(n: any): DocumentTargets {
     initiative: n.initiative ?? null,
     team: n.team ?? null,
     cycle: n.cycle ? { id: n.cycle.id, number: n.cycle.number, name: n.cycle.name ?? null } : null,
-    release: n.release ? { id: n.release.id, name: n.release.name, version: n.release.version ?? null } : null,
+    release: n.release
+      ? { id: n.release.id, name: n.release.name, version: n.release.version ?? null }
+      : null,
   };
 }
 
@@ -184,7 +188,8 @@ export function describeTarget(t: DocumentTargets): string | null {
   if (t.initiative) return `Initiative: ${t.initiative.name}`;
   if (t.team) return `Team: ${t.team.key} ${t.team.name}`;
   if (t.cycle) return `Cycle: #${t.cycle.number}${t.cycle.name ? ` ${t.cycle.name}` : ""}`;
-  if (t.release) return `Release: ${t.release.name}${t.release.version ? ` (${t.release.version})` : ""}`;
+  if (t.release)
+    return `Release: ${t.release.name}${t.release.version ? ` (${t.release.version})` : ""}`;
   return null;
 }
 
@@ -233,10 +238,15 @@ query CliDocumentDetail($id: String!) {
   }
 }`;
 
-export async function getDocumentDetail(client: LinearClient, idArg: string): Promise<DocumentDetail> {
+export async function getDocumentDetail(
+  client: LinearClient,
+  idArg: string,
+): Promise<DocumentDetail> {
   // An unknown id is an API error ("Could not find referenced Document"), which
   // the error boundary already reads as not-found (exit 3); a null is guarded too.
-  const data: any = await withRetry(() => (client as any).client.rawRequest(DETAIL_QUERY, { id: idArg }));
+  const data: any = await withRetry(() =>
+    (client as any).client.rawRequest(DETAIL_QUERY, { id: idArg }),
+  );
   const n = data?.data?.document;
   if (!n) throw notFound(`No document matching '${idArg}'.`);
   return {
@@ -267,7 +277,11 @@ export interface CreateOptions extends DocumentTargetOptions {
  * NOT a fallback here: the command decides that, so the service never turns
  * "no target" into "the team from config" behind the caller's back.
  */
-export async function createDocument(client: LinearClient, opts: CreateOptions, defaultTeamKey?: string) {
+export async function createDocument(
+  client: LinearClient,
+  opts: CreateOptions,
+  defaultTeamKey?: string,
+) {
   const sel = selectTarget(opts);
   if (!sel) throw usageError(`A document needs a target: pass one of ${TARGET_FLAGS}.`);
   const input: Record<string, any> = { title: opts.title };
@@ -318,7 +332,10 @@ export async function updateDocument(
 
 export async function deleteDocument(client: LinearClient, idArg: string) {
   const document = await resolveDocument(client, idArg);
-  await assertMutation(withRetry(() => client.deleteDocument(document.id)), "Document deletion");
+  await assertMutation(
+    withRetry(() => client.deleteDocument(document.id)),
+    "Document deletion",
+  );
   return document;
 }
 
@@ -332,7 +349,9 @@ async function resolveDocument(client: LinearClient, idArg: string) {
   // The SDK's document() also resolves a slugId; fall back to it directly.
   try {
     return await withRetry(() => client.document(idArg));
-  } catch {
-    throw notFound(`No document matching '${idArg}'.`);
+  } catch (err) {
+    const normalized = normalizeError(err);
+    if (normalized.code === "not_found") throw notFound(`No document matching '${idArg}'.`);
+    throw normalized;
   }
 }

@@ -1,5 +1,5 @@
 /**
- * The class-of-bug test for AUDIT #6.
+ * Class-of-bug coverage for unchecked mutation payloads.
  *
  * Every mutating service entry point is driven against a client whose reads all
  * succeed and whose *writes* all answer `{ success: false }` — the shape Linear
@@ -195,9 +195,15 @@ function refusingClient(): any {
 
 /** Every mutating entry point in `src/services`, by the file it lives in. */
 const MUTATIONS: Array<[string, (c: any) => Promise<unknown>]> = [
-  ["attachment.createAttachment", (c) => attachment.createAttachment(c, "TES-1", { url: "u", title: "t" })],
+  [
+    "attachment.createAttachment",
+    (c) => attachment.createAttachment(c, "TES-1", { url: "u", title: "t" }),
+  ],
   ["attachment.attachFiles", (c) => attachment.attachFiles(c, "TES-1", [SOME_FILE], {})],
-  ["comment.addComment(attachments)", (c) => comment.addComment(c, "TES-1", "body", { attachments: [SOME_FILE] })],
+  [
+    "comment.addComment(attachments)",
+    (c) => comment.addComment(c, "TES-1", "body", { attachments: [SOME_FILE] }),
+  ],
   ["upload.uploadFile", (c) => uploadFile(c, SOME_FILE)],
   ["attachment.deleteAttachment", (c) => attachment.deleteAttachment(c, UUID)],
   ["comment.addComment", (c) => comment.addComment(c, "TES-1", "body")],
@@ -206,7 +212,10 @@ const MUTATIONS: Array<[string, (c: any) => Promise<unknown>]> = [
   ["comment.deleteComment", (c) => comment.deleteComment(c, "c1")],
   ["comment.setResolved(true)", (c) => comment.setResolved(c, "c1", true)],
   ["comment.setResolved(false)", (c) => comment.setResolved(c, "c1", false)],
-  ["cycle.createCycle", (c) => cycle.createCycle(c, { startsAt: "2026-01-01", endsAt: "2026-01-14" }, "TES")],
+  [
+    "cycle.createCycle",
+    (c) => cycle.createCycle(c, { startsAt: "2026-01-01", endsAt: "2026-01-14" }, "TES"),
+  ],
   ["cycle.updateCycle", (c) => cycle.updateCycle(c, UUID, { name: "n" }, "TES", undefined)],
   ["document.createDocument", (c) => document.createDocument(c, { title: "t", project: UUID })],
   ["document.updateDocument", (c) => document.updateDocument(c, UUID, { title: "t" })],
@@ -217,7 +226,10 @@ const MUTATIONS: Array<[string, (c: any) => Promise<unknown>]> = [
   ["initiative.updateInitiative", (c) => initiative.updateInitiative(c, UUID, { name: "n" })],
   ["initiative.archiveInitiative", (c) => initiative.archiveInitiative(c, UUID)],
   ["initiative.deleteInitiative", (c) => initiative.deleteInitiative(c, UUID)],
-  ["initiative-update.createInitiativeUpdate", (c) => initiativeUpdate.createInitiativeUpdate(c, UUID, { body: "b" })],
+  [
+    "initiative-update.createInitiativeUpdate",
+    (c) => initiativeUpdate.createInitiativeUpdate(c, UUID, { body: "b" }),
+  ],
   ["issue.createIssue", (c) => issue.createIssue(c, { title: "t", team: "TES" }, "TES")],
   ["issue.updateIssue", (c) => issue.updateIssue(c, "TES-1", { title: "t" })],
   ["issue.archiveIssue", (c) => issue.archiveIssue(c, "TES-1", false)],
@@ -235,17 +247,26 @@ const MUTATIONS: Array<[string, (c: any) => Promise<unknown>]> = [
   ["milestone.deleteMilestone", (c) => milestone.deleteMilestone(c, UUID)],
   ["notification.setRead", (c) => notification.setRead(c, "n1", true)],
   ["notification.archiveNotification", (c) => notification.archiveNotification(c, "n1")],
-  ["notification.snoozeNotification", (c) => notification.snoozeNotification(c, "n1", "2026-07-01T09:00:00Z")],
+  [
+    "notification.snoozeNotification",
+    (c) => notification.snoozeNotification(c, "n1", "2026-07-01T09:00:00Z"),
+  ],
   ["project.createProject", (c) => project.createProject(c, { name: "n" }, "TES")],
   ["project.updateProject", (c) => project.updateProject(c, UUID, { name: "n" })],
   ["project.archiveProject", (c) => project.archiveProject(c, UUID)],
-  ["project-update.createProjectUpdate", (c) => projectUpdate.createProjectUpdate(c, UUID, { body: "b" })],
+  [
+    "project-update.createProjectUpdate",
+    (c) => projectUpdate.createProjectUpdate(c, UUID, { body: "b" }),
+  ],
   ["roadmap.createRoadmap", (c) => roadmap.createRoadmap(c, { name: "n" })],
   ["roadmap.updateRoadmap", (c) => roadmap.updateRoadmap(c, UUID, { name: "n" })],
   ["roadmap.deleteRoadmap", (c) => roadmap.deleteRoadmap(c, UUID)],
   ["team.createTeam", (c) => team.createTeam(c, { name: "n" })],
   ["team.updateTeam", (c) => team.updateTeam(c, "TES", undefined, { name: "n" })],
-  ["webhook.createWebhook", (c) => webhook.createWebhook(c, { url: "https://x/h", resourceTypes: ["Issue"], team: "TES" })],
+  [
+    "webhook.createWebhook",
+    (c) => webhook.createWebhook(c, { url: "https://x/h", resourceTypes: ["Issue"], team: "TES" }),
+  ],
   ["webhook.updateWebhook", (c) => webhook.updateWebhook(c, UUID, { enabled: false })],
   ["webhook.deleteWebhook", (c) => webhook.deleteWebhook(c, UUID)],
 ];
@@ -275,7 +296,11 @@ describe("a refusal that still carries an entity is not a success either", () =>
       c[key] = async () => ({
         success: false,
         lastSyncId: 1,
-        [entityKey]: Promise.resolve({ ...carried, user: Promise.resolve(null), createdAt: new Date() }),
+        [entityKey]: Promise.resolve({
+          ...carried,
+          user: Promise.resolve(null),
+          createdAt: new Date(),
+        }),
       });
     }
     return c;

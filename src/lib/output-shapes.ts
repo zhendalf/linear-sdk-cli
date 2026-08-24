@@ -130,7 +130,10 @@ export const UPDATE_ROW_SHAPE = shape<UpdateRow>({
   body: "string",
   health: "string|null",
 });
-const UPDATE_RECEIPT_SHAPE = shape<UpdateRow & { url: string }>({ ...UPDATE_ROW_SHAPE, url: "string" });
+const UPDATE_RECEIPT_SHAPE = shape<UpdateRow & { url: string }>({
+  ...UPDATE_ROW_SHAPE,
+  url: "string",
+});
 
 /** `whoami` / `auth whoami`. */
 const WHOAMI_SHAPE: ObjectFields = {
@@ -142,12 +145,15 @@ const WHOAMI_SHAPE: ObjectFields = {
   organization: { id: "string", name: "string", urlKey: "string" },
 };
 
-const SETTING_ORIGIN_SHAPE = shape<SettingOrigin>({ source: "string", "path?": "string" });
+const SETTING_ORIGIN_SHAPE = shape<SettingOrigin>({
+  source: "string",
+  "path?": "string",
+  "key?": "string",
+});
 const SETTING_ORIGINS_SHAPE = shape<SettingOrigins>({
   team: SETTING_ORIGIN_SHAPE,
   workspace: SETTING_ORIGIN_SHAPE,
   sort: SETTING_ORIGIN_SHAPE,
-  vcs: SETTING_ORIGIN_SHAPE,
 });
 
 /** `config show`: every resolved setting, redacted, with its provenance. */
@@ -158,7 +164,6 @@ const CONFIG_SHOW_SHAPE: ObjectFields = {
   team: "string|null",
   workspace: "string|null",
   sort: "string",
-  vcs: "string",
   origins: SETTING_ORIGINS_SHAPE,
   userConfigPath: "string",
   projectConfigPath: "string|null",
@@ -171,7 +176,20 @@ export const COMMAND_NODE_SHAPE = shape<CommandNode>({
   description: "string",
   aliases: ["string"],
   arguments: [{ name: "string", required: "boolean", variadic: "boolean" }],
-  options: [{ flags: "string", description: "string" }],
+  options: [
+    {
+      flags: "string",
+      description: "string",
+      attribute: "string",
+      valueRequired: "boolean",
+      valueOptional: "boolean",
+      variadic: "boolean",
+      "choices?": ["string"],
+      "defaultValue?": "unknown",
+      global: "boolean",
+      applicable: "boolean",
+    },
+  ],
   "output?": {
     kind: "string",
     "fields?": "object",
@@ -210,8 +228,8 @@ const RELATION_ROW: ObjectFields = { type: "string", issue: "string", title: "st
 
 const ISSUE_VIEW = object(ISSUE_DETAIL_SHAPE, {
   variants: {
-    "--comments": object({ ...ISSUE_DETAIL_SHAPE, comments: [COMMENT_ROW_SHAPE] }),
     "--web": receipt({ ...ISSUE_URL_RECEIPT, opened: "boolean" }),
+    "--app": receipt({ ...ISSUE_URL_RECEIPT, opened: "boolean" }),
   },
 });
 const ISSUE_LIST = list(ISSUE_ROW_SHAPE);
@@ -236,6 +254,13 @@ export const OUTPUT_SHAPES: Record<string, OutputShape | null> = {
   "attachment list": list(ATTACHMENT_ROW_SHAPE),
 
   auth: null,
+  "auth adopt": receipt({
+    success: "boolean",
+    workspace: "string",
+    user: { id: "string", name: "string", email: "string" },
+    storage: "string",
+    path: "string",
+  }),
   "auth default": receipt({ success: "boolean", default_workspace: "string", path: "string" }),
   "auth list": list({ slug: "string", isDefault: "boolean", storage: "string" }),
   "auth login": receipt({
@@ -316,7 +341,28 @@ export const OUTPUT_SHAPES: Record<string, OutputShape | null> = {
   "issue agent-session": null,
   "issue agent-session list": list(AGENT_SESSION_ROW_SHAPE),
   "issue agent-session view": object(AGENT_SESSION_DETAIL_SHAPE),
-  "issue archive": receipt({ ...ISSUE_REF, archived: "boolean" }),
+  "issue archive": receipt(
+    { ...ISSUE_REF, archived: "boolean" },
+    {
+      variants: {
+        "--bulk": receipt({
+          action: "string",
+          results: [
+            {
+              input: "string",
+              "id?": "string",
+              "identifier?": "string",
+              "archived?": "boolean",
+              "deleted?": "boolean",
+              "error?": { message: "string", code: "string" },
+            },
+          ],
+          succeeded: "number",
+          failed: "number",
+        }),
+      },
+    },
+  ),
   "issue assign": receipt(ISSUE_REF),
   "issue attach": list(
     {
@@ -350,10 +396,33 @@ export const OUTPUT_SHAPES: Record<string, OutputShape | null> = {
       }),
     },
   }),
-  "issue delete": receipt({ ...ISSUE_REF, deleted: "boolean" }),
+  "issue delete": receipt(
+    { ...ISSUE_REF, deleted: "boolean" },
+    {
+      variants: {
+        "--bulk": receipt({
+          action: "string",
+          results: [
+            {
+              input: "string",
+              "id?": "string",
+              "identifier?": "string",
+              "archived?": "boolean",
+              "deleted?": "boolean",
+              "error?": { message: "string", code: "string" },
+            },
+          ],
+          succeeded: "number",
+          failed: "number",
+        }),
+      },
+    },
+  ),
   "issue describe": receipt(
     { identifier: "string", title: "string", url: "string", trailer: "string", message: "string" },
-    { note: "`trailer` is the magic-word phrase (Fixes TES-1); `message` the full commit text as printed" },
+    {
+      note: "`trailer` is the magic-word phrase (Fixes TES-1); `message` the full commit text as printed",
+    },
   ),
   "issue id": receipt({ id: "string" }, { note: "`id` is the identifier (TES-123), not the UUID" }),
   "issue label": receipt(ISSUE_REF),
@@ -416,6 +485,8 @@ export const OUTPUT_SHAPES: Record<string, OutputShape | null> = {
   "notification snooze": receipt({ id: "string", snoozedUntilAt: "string" }),
   "notification unread": receipt({ id: "string", read: "boolean" }),
 
+  open: receipt({ target: "string", url: "string", label: "string", opened: "boolean" }),
+
   organization: runs("organization view", object(ORGANIZATION_DETAIL_SHAPE)),
   "organization invites": list(INVITE_ROW_SHAPE),
   "organization members": list(ORGANIZATION_MEMBER_ROW_SHAPE),
@@ -459,6 +530,7 @@ export const OUTPUT_SHAPES: Record<string, OutputShape | null> = {
     movedIssues: "number",
     movedTo: { nullable: TEAM_ROW_SHAPE },
   }),
+  "team id": receipt(TEAM_ROW_SHAPE),
   "team labels": list(TEAM_LABEL_ROW_SHAPE),
   "team list": list(TEAM_ROW_SHAPE),
   "team members": list(TEAM_MEMBER_ROW_SHAPE),

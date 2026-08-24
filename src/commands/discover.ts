@@ -26,7 +26,9 @@ import type { Context } from "../context.js";
 export function registerCommands(program: Command): void {
   program
     .command("commands [path...]")
-    .description("List every command in a machine-readable tree, or describe one (for scripts/agents)")
+    .description(
+      "List every command in a machine-readable tree, or describe one (for scripts/agents)",
+    )
     .addHelpText(
       "after",
       [
@@ -89,7 +91,9 @@ function renderTree(ctx: Context, nodes: CommandNode[], baseDepth = 0): void {
 
 /** One command in full: usage, aliases, options, and the `--json` output shape. */
 function renderOne(ctx: Context, n: CommandNode): void {
-  ctx.output.line(`Usage: linear ${[n.path, n.options.length ? "[options]" : "", usageArgs(n)].filter(Boolean).join(" ")}`);
+  ctx.output.line(
+    `Usage: linear ${[n.path, n.options.length ? "[options]" : "", usageArgs(n)].filter(Boolean).join(" ")}`,
+  );
   if (n.description) ctx.output.line(`  ${n.description}`);
   if (n.aliases.length) ctx.output.line(`Aliases: ${n.aliases.join(", ")}`);
   if (n.options.length) {

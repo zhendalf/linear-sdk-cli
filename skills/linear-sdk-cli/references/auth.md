@@ -14,6 +14,24 @@ Manage authentication
 linear auth [options]
 ```
 
+### `linear auth adopt`
+
+Adopt an existing named credential from the shared OS keyring
+
+```
+linear auth adopt [options] <slug>
+```
+
+**Output (`--json`)**: a receipt object
+
+```text
+success: boolean
+workspace: string
+user: {id: string, name: string, email: string}
+storage: string
+path: string
+```
+
 ### `linear auth default`
 
 Set the default workspace credential

@@ -60,7 +60,11 @@ function fakeClient() {
     createAttachment: async (input: any) => {
       calls.push(`createAttachment ${input.title}`);
       attachmentsCreated.push(input);
-      return payload("attachment", { id: `att-${attachmentsCreated.length}`, title: input.title, url: input.url });
+      return payload("attachment", {
+        id: `att-${attachmentsCreated.length}`,
+        title: input.title,
+        url: input.url,
+      });
     },
     createComment: async (input: any) => {
       calls.push("createComment");
@@ -95,7 +99,10 @@ beforeEach(() => {
   out = "";
   err = "";
   clientDescriptor = Object.getOwnPropertyDescriptor(Context.prototype, "client");
-  Object.defineProperty(Context.prototype, "client", { get: () => fakeClient(), configurable: true });
+  Object.defineProperty(Context.prototype, "client", {
+    get: () => fakeClient(),
+    configurable: true,
+  });
   savedFetch = globalThis.fetch;
   globalThis.fetch = (async (url: any, init: any) => {
     calls.push(`PUT ${String(url).split("?")[0]} ${init?.method}`);
@@ -170,7 +177,9 @@ describe("issue attach", () => {
   });
 
   it("--title with several files is a usage error before anything is uploaded", async () => {
-    await expect(run(["issue", "attach", "TES-1", png, txt, "--title", "x", "--json"])).rejects.toMatchObject({
+    await expect(
+      run(["issue", "attach", "TES-1", png, txt, "--title", "x", "--json"]),
+    ).rejects.toMatchObject({
       code: "usage",
     });
     expect(calls).toEqual([]);
@@ -196,7 +205,14 @@ describe("issue attach", () => {
 
   it("without --comment, the JSON rows carry no comment key", async () => {
     await run(["issue", "attach", "TES-1", png, "--json"]);
-    expect(Object.keys(JSON.parse(out)[0])).toEqual(["id", "title", "url", "assetUrl", "contentType", "size"]);
+    expect(Object.keys(JSON.parse(out)[0])).toEqual([
+      "id",
+      "title",
+      "url",
+      "assetUrl",
+      "contentType",
+      "size",
+    ]);
   });
 
   it("--public uploads publicly and warns on stderr that the URL is world-readable", async () => {
@@ -210,7 +226,9 @@ describe("issue attach", () => {
   });
 
   it("--public on a non-image is a usage error and nothing is uploaded — even mid-batch", async () => {
-    await expect(run(["issue", "attach", "TES-1", png, txt, "--public", "--json"])).rejects.toMatchObject({
+    await expect(
+      run(["issue", "attach", "TES-1", png, txt, "--public", "--json"]),
+    ).rejects.toMatchObject({
       code: "usage",
     });
     expect(calls).toEqual([]);
@@ -237,7 +255,9 @@ describe("issue attach", () => {
   });
 
   it("is a real subcommand: `issue attach x` no longer lands in view with a pointer", async () => {
-    await expect(run(["issue", "attach", "TES-1", "--json"])).rejects.toThrow(/missing required argument 'file'/i);
+    await expect(run(["issue", "attach", "TES-1", "--json"])).rejects.toThrow(
+      /missing required argument 'file'/i,
+    );
   });
 });
 
@@ -255,8 +275,18 @@ describe("comment add --attach", () => {
       issue: "TES-1",
       url: "https://linear.app/c/1",
       attachments: [
-        { filename: "shot.png", assetUrl: "https://uploads.linear.app/ws/1", contentType: "image/png", size: PNG.length },
-        { filename: "notes.txt", assetUrl: "https://uploads.linear.app/ws/2", contentType: "text/plain", size: 5 },
+        {
+          filename: "shot.png",
+          assetUrl: "https://uploads.linear.app/ws/1",
+          contentType: "image/png",
+          size: PNG.length,
+        },
+        {
+          filename: "notes.txt",
+          assetUrl: "https://uploads.linear.app/ws/2",
+          contentType: "text/plain",
+          size: 5,
+        },
       ],
     });
     expect(out + err).not.toContain("deadbeefcafe");
@@ -282,12 +312,16 @@ describe("comment add --attach", () => {
   });
 
   it("no body and no attachment is still a usage error", async () => {
-    await expect(run(["comment", "add", "TES-1", "--json"])).rejects.toMatchObject({ code: "usage" });
+    await expect(run(["comment", "add", "TES-1", "--json"])).rejects.toMatchObject({
+      code: "usage",
+    });
     expect(calls).toEqual([]);
   });
 
   it("--public without --attach is a usage error", async () => {
-    await expect(run(["comment", "add", "TES-1", "hi", "--public", "--json"])).rejects.toMatchObject({
+    await expect(
+      run(["comment", "add", "TES-1", "hi", "--public", "--json"]),
+    ).rejects.toMatchObject({
       code: "usage",
     });
     expect(calls).toEqual([]);
@@ -299,14 +333,35 @@ describe("comment add --attach", () => {
     expect(err).toMatch(/anyone|world-readable/i);
     calls = [];
     await expect(
-      run(["comment", "add", "TES-1", "hi", "--attach", png, "--attach", txt, "--public", "--json"]),
+      run([
+        "comment",
+        "add",
+        "TES-1",
+        "hi",
+        "--attach",
+        png,
+        "--attach",
+        txt,
+        "--public",
+        "--json",
+      ]),
     ).rejects.toMatchObject({ code: "usage" });
     expect(calls).toEqual([]);
   });
 
   it("a missing --attach file fails before anything is uploaded", async () => {
     await expect(
-      run(["comment", "add", "TES-1", "hi", "--attach", png, "--attach", join(dir, "nope.txt"), "--json"]),
+      run([
+        "comment",
+        "add",
+        "TES-1",
+        "hi",
+        "--attach",
+        png,
+        "--attach",
+        join(dir, "nope.txt"),
+        "--json",
+      ]),
     ).rejects.toMatchObject({ code: "usage" });
     expect(calls).toEqual([]);
     expect(commentsCreated).toEqual([]);

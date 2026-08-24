@@ -34,7 +34,10 @@ export function formatMilestoneProgress(progress: number | null): string {
   return `${Math.round(progress)}%`;
 }
 
-const PROJECT_SCOPE = ["-p, --project <name>", "the milestone's project, when <id> is a name (names are unique per project only)"] as const;
+const PROJECT_SCOPE = [
+  "-p, --project <name>",
+  "the milestone's project, when <id> is a name (names are unique per project only)",
+] as const;
 
 export function registerMilestone(program: Command): void {
   const milestone = program

@@ -31,22 +31,14 @@ suite("favorite lifecycle (live)", () => {
   });
 
   it("adds a favorite for an issue and returns id + type", () => {
-    const res = runJson<{ id: string; type: string }>([
-      "favorite",
-      "add",
-      "--issue",
-      issueId!,
-    ]);
+    const res = runJson<{ id: string; type: string }>(["favorite", "add", "--issue", issueId!]);
     expect(res.id).toBeTruthy();
     expect(res.type).toBe("issue");
     createdFavoriteIds.push(res.id);
   });
 
   it("lists favorites as an array with the expected shape", () => {
-    const rows = runJson<Array<{ id: string; type: string; name: string }>>([
-      "favorite",
-      "list",
-    ]);
+    const rows = runJson<Array<{ id: string; type: string; name: string }>>(["favorite", "list"]);
     expect(Array.isArray(rows)).toBe(true);
     if (rows.length) {
       expect(rows[0]!.id).toBeTruthy();
@@ -61,15 +53,7 @@ suite("favorite lifecycle (live)", () => {
     expect(none.code).toBe(2);
     expect(JSON.parse(none.stderr).error.code).toBe("usage");
 
-    const two = run([
-      "favorite",
-      "add",
-      "--issue",
-      issueId!,
-      "--project",
-      "anything",
-      "--json",
-    ]);
+    const two = run(["favorite", "add", "--issue", issueId!, "--project", "anything", "--json"]);
     expect(two.code).toBe(2);
     expect(JSON.parse(two.stderr).error.code).toBe("usage");
   });

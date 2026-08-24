@@ -9,7 +9,7 @@
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { shape } from "../lib/shape.js";
-import { collect, pageSize } from "../lib/pagination.js";
+import { collect, inheritPaginationMetadata, pageSize } from "../lib/pagination.js";
 import { resolveUserId } from "../lib/resolve.js";
 
 export interface UserRow {
@@ -45,7 +45,7 @@ export async function listUsers(
 ): Promise<UserRow[]> {
   const conn = await withRetry(() => client.users({ first: pageSize(limit), includeDisabled }));
   const nodes = await collect(conn as any, limit);
-  return nodes.map(toRow);
+  return inheritPaginationMetadata(nodes.map(toRow), nodes);
 }
 
 export interface UserDetail {

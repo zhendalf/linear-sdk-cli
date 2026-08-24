@@ -11,7 +11,7 @@
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { shape } from "../lib/shape.js";
-import { collect, pageSize } from "../lib/pagination.js";
+import { collect, inheritPaginationMetadata, pageSize } from "../lib/pagination.js";
 import { notFound, usageError } from "../lib/errors.js";
 import { assertMutation, unwrapMutation } from "../lib/mutation.js";
 import { resolveIssue } from "../lib/resolve.js";
@@ -65,7 +65,7 @@ export async function listAttachments(
   const issue = await resolveIssue(client, issueArg);
   const conn = await withRetry(() => issue.attachments({ first: pageSize(limit) }));
   const nodes = await collect(conn as any, limit);
-  return nodes.map(toRow);
+  return inheritPaginationMetadata(nodes.map(toRow), nodes);
 }
 
 export interface CreateOptions {
@@ -128,9 +128,15 @@ export async function attachFiles(
   issueArg: string,
   paths: string[],
   opts: AttachFilesOptions,
-): Promise<{ issue: { id: string; identifier: string }; attachments: AttachedFile[]; comment?: { id: string; url: string } }> {
+): Promise<{
+  issue: { id: string; identifier: string };
+  attachments: AttachedFile[];
+  comment?: { id: string; url: string };
+}> {
   if (opts.title !== undefined && paths.length > 1) {
-    throw usageError("--title names a single attachment; with several files, drop it to use each file's name.");
+    throw usageError(
+      "--title names a single attachment; with several files, drop it to use each file's name.",
+    );
   }
   validateUploads(paths, { public: opts.public });
   const issue = await resolveIssue(client, issueArg);
@@ -178,7 +184,10 @@ export async function attachFiles(
 export async function deleteAttachment(client: LinearClient, id: string) {
   const attachment = await withRetry(() => client.attachment(id));
   if (!attachment) throw notFound(`No attachment ${id}.`);
-  await assertMutation(withRetry(() => client.deleteAttachment(id)), "Attachment deletion");
+  await assertMutation(
+    withRetry(() => client.deleteAttachment(id)),
+    "Attachment deletion",
+  );
   return { id: attachment.id, title: attachment.title };
 }
 

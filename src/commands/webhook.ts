@@ -91,7 +91,12 @@ export function registerWebhook(program: Command): void {
           secret: opts.secret,
         });
         ctx.output.emit(
-          { id: created.id, url: created.url, enabled: created.enabled, resourceTypes: created.resourceTypes },
+          {
+            id: created.id,
+            url: created.url,
+            enabled: created.enabled,
+            resourceTypes: created.resourceTypes,
+          },
           () => ctx.output.success(`Created webhook ${created.id}`),
         );
       }),
@@ -121,7 +126,12 @@ export function registerWebhook(program: Command): void {
           secret: opts.secret,
         });
         ctx.output.emit(
-          { id: updated.id, url: updated.url, enabled: updated.enabled, resourceTypes: updated.resourceTypes },
+          {
+            id: updated.id,
+            url: updated.url,
+            enabled: updated.enabled,
+            resourceTypes: updated.resourceTypes,
+          },
           () => ctx.output.success(`Updated webhook ${updated.id}`),
         );
       }),

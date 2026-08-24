@@ -206,15 +206,31 @@ suite("phase 1 — issue lifecycle (live)", () => {
     const onlyA = makeIssue("lbl-a", ["--label", a.name]);
     const both = makeIssue("lbl-ab", ["--label", a.name, "--label", b.name]);
 
-    const one = runJson<Array<{ identifier: string }>>(
-      ["issue", "list", "--team", TEAM, "--label", a.name, "--limit", "100"],
-    ).map((r) => r.identifier);
+    const one = runJson<Array<{ identifier: string }>>([
+      "issue",
+      "list",
+      "--team",
+      TEAM,
+      "--label",
+      a.name,
+      "--limit",
+      "100",
+    ]).map((r) => r.identifier);
     expect(one).toContain(onlyA);
     expect(one).toContain(both);
 
-    const two = runJson<Array<{ identifier: string }>>(
-      ["issue", "list", "--team", TEAM, "--label", a.name, "--label", b.name, "--limit", "100"],
-    ).map((r) => r.identifier);
+    const two = runJson<Array<{ identifier: string }>>([
+      "issue",
+      "list",
+      "--team",
+      TEAM,
+      "--label",
+      a.name,
+      "--label",
+      b.name,
+      "--limit",
+      "100",
+    ]).map((r) => r.identifier);
     expect(two).toContain(both);
     expect(two).not.toContain(onlyA);
   });

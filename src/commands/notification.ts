@@ -8,6 +8,7 @@ import { confirmDestructive } from "../lib/prompt.js";
 import type { Context } from "../context.js";
 import * as svc from "../services/notification.js";
 import type { Column } from "../output/table.js";
+import { ExitCode } from "../lib/errors.js";
 
 const ROW_COLUMNS: Column<svc.NotificationRow>[] = [
   { key: "type", header: "Type", value: (r) => r.type, max: 24 },
@@ -67,10 +68,20 @@ export function registerNotification(program: Command): void {
       action(async (ctx: Context) => {
         const res = await svc.markAllRead(ctx.client);
         ctx.output.emit(res, () => {
-          ctx.output.success(`Marked ${res.count} of ${res.attempted} notification(s) read`);
-          // A partial batch says so out loud instead of hiding behind the count.
-          for (const f of res.failed) ctx.output.warn(`${f.id}: ${f.error}`);
+          if (res.success) {
+            ctx.output.success(`Marked ${res.count} of ${res.attempted} notification(s) read`);
+          } else {
+            ctx.output.warn(
+              `Marked ${res.count} of ${res.attempted} notification(s) read; ${res.failed.length} failed`,
+            );
+            for (const f of res.failed) ctx.output.warn(`${f.id}: ${f.error}`);
+          }
         });
+        // A batch receipt belongs on stdout even when only part of the batch
+        // succeeded, but exit zero would let `read-all && ...` treat that as a
+        // complete success. Preserve the receipt and make the process outcome
+        // unambiguous.
+        if (!res.success) process.exitCode = ExitCode.Runtime;
       }),
     );
 
@@ -82,9 +93,7 @@ export function registerNotification(program: Command): void {
       action(async (ctx: Context, _opts, id: string) => {
         if (!(await confirmDestructive(ctx, `Archive notification ${id}?`))) return;
         const success = await svc.archiveNotification(ctx.client, id);
-        ctx.output.emit({ id, archived: success }, () =>
-          ctx.output.success(`Archived ${id}`),
-        );
+        ctx.output.emit({ id, archived: success }, () => ctx.output.success(`Archived ${id}`));
       }),
     );
 

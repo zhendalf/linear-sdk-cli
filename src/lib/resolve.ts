@@ -15,6 +15,27 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export const isUuid = (v: string): boolean => UUID_RE.test(v);
 
 const IDENTIFIER_RE = /^([a-zA-Z][a-zA-Z0-9]*)-(\d+)$/;
+const ISSUE_NUMBER_RE = /^\d+$/;
+
+/**
+ * Expand a bare issue number with the configured team (`42` + `TES` →
+ * `TES-42`). This is deliberately pure: commands can normalize every place an
+ * issue reference appears before handing it to the existing resolvers.
+ */
+export function normalizeIssueReference(input: string, defaultTeamKey?: string): string {
+  if (!ISSUE_NUMBER_RE.test(input)) return input;
+  if (!defaultTeamKey) {
+    throw usageError(
+      `Bare issue number '${input}' needs a default team. Pass --team <KEY> or set one in config.`,
+    );
+  }
+  if (!/^[a-zA-Z][a-zA-Z0-9]*$/.test(defaultTeamKey)) {
+    throw usageError(
+      `Cannot expand issue number '${input}' with default team '${defaultTeamKey}'; configure a team key such as TES.`,
+    );
+  }
+  return `${defaultTeamKey.toUpperCase()}-${Number.parseInt(input, 10)}`;
+}
 
 /** Known workflow-state types, used to decide name-vs-type filtering. */
 export const STATE_TYPES = ["triage", "backlog", "unstarted", "started", "completed", "canceled"];
@@ -101,13 +122,15 @@ export async function resolveTeam(
         "linear team list",
       )}`,
     );
-  if (matches.length > 1) throw ambiguous(`Multiple teams match '${value}': ${matches.map((t) => t.key).join(", ")}`);
+  if (matches.length > 1)
+    throw ambiguous(`Multiple teams match '${value}': ${matches.map((t) => t.key).join(", ")}`);
   const team = matches[0]!;
   return { id: team.id, key: team.key, name: team.name };
 }
 
 /** The spellings that mean "the authenticated user": ours (`me`, `@me`) and the reference CLI's (`self`). */
-export const isSelf = (input: string): boolean => input === "me" || input === "@me" || input === "self";
+export const isSelf = (input: string): boolean =>
+  input === "me" || input === "@me" || input === "self";
 
 /**
  * Resolve an assignee reference (`me`, email, name, or id) to a user id.
@@ -138,7 +161,9 @@ export async function resolveUserId(client: LinearClient, input: string): Promis
   if (nodes.length === 0)
     throw notFound(`No user matching '${input}'. Run 'linear user list' to see workspace members.`);
   if (nodes.length > 1)
-    throw ambiguous(`Multiple users match '${input}': ${nodes.map((u: any) => u.email).join(", ")}`);
+    throw ambiguous(
+      `Multiple users match '${input}': ${nodes.map((u: any) => u.email).join(", ")}`,
+    );
   return nodes[0]!.id;
 }
 
@@ -203,7 +228,8 @@ export async function resolveLabelIds(
     // Narrow to this team's labels + workspace-level labels when a team is known.
     // If a team is known and nothing is in scope, that's not-found (do NOT fall
     // back to an out-of-scope label from another team).
-    let candidates: any[] = nodes;
+    // Label groups are containers, not labels that can be applied to an issue.
+    let candidates: any[] = nodes.filter((label: any) => !label.isGroup);
     if (teamId) {
       const scoped = await Promise.all(
         nodes.map(async (l: any) => ({ label: l, team: await l.team })),
@@ -334,7 +360,9 @@ export async function resolveProjectId(client: LinearClient, input: string): Pro
   if (nodes.length === 0)
     throw notFound(`No project matching '${input}'. Run 'linear project list' to see the options.`);
   if (nodes.length > 1)
-    throw ambiguous(`Multiple projects match '${input}': ${nodes.map((p: any) => p.name).join(", ")}`);
+    throw ambiguous(
+      `Multiple projects match '${input}': ${nodes.map((p: any) => p.name).join(", ")}`,
+    );
   return nodes[0]!.id;
 }
 
@@ -485,7 +513,11 @@ export async function resolveReleaseId(client: LinearClient, input: string): Pro
       first: RESOLVE_PAGE,
     }),
   );
-  const nodes = await scanAll<any>(conn as any, "releases", "linear api '{ releases { nodes { id name version } } }'");
+  const nodes = await scanAll<any>(
+    conn as any,
+    "releases",
+    "linear api '{ releases { nodes { id name version } } }'",
+  );
   if (nodes.length === 0) throw notFound(`No release named or versioned '${input}'.`);
   if (nodes.length > 1)
     throw ambiguous(
@@ -547,7 +579,8 @@ export async function resolveTemplateId(
 export async function resolveIssue(client: LinearClient, input: string): Promise<Issue> {
   if (isUuid(input)) return withRetry(() => client.issue(input));
   const match = input.match(IDENTIFIER_RE);
-  if (!match) throw usageError(`'${input}' is not a valid issue id (expected e.g. TES-123 or a UUID).`);
+  if (!match)
+    throw usageError(`'${input}' is not a valid issue id (expected e.g. TES-123 or a UUID).`);
   const key = match[1]!.toUpperCase();
   const number = Number.parseInt(match[2]!, 10);
   // includeArchived so archive/unarchive/delete can operate on archived issues.

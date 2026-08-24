@@ -179,7 +179,8 @@ export function omni(lazy = false): any {
         if (prop === Symbol.toPrimitive) return () => "omni";
         return undefined;
       }
-      if (prop === "then") return lazy ? (resolve: (v: unknown) => void) => resolve(settled()) : undefined;
+      if (prop === "then")
+        return lazy ? (resolve: (v: unknown) => void) => resolve(settled()) : undefined;
       const scalar = scalarOf(prop);
       if (scalar.hit) return scalar.value;
       if (prop === "nodes") return [settled()];

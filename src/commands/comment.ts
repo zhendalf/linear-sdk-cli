@@ -53,25 +53,36 @@ function buildAdd(_o: MountOptions): Command {
     .description("Add a comment to an issue (images uploaded with --attach render inline)")
     .option("--body-file <path>", "read comment body from a file ('-' = stdin)")
     .option(
+      "--mention <user>",
+      "prepend a real Linear mention (name, email, me, or id; repeatable)",
+      collectArray,
+    )
+    .option(
       "--attach <file>",
       "upload a file and embed it in the comment (images inline; repeatable; private by default)",
       collectArray,
     )
-    .option("--public", "upload the attachments to public, world-readable URLs (raster images only)")
+    .option(
+      "--public",
+      "upload the attachments to public, world-readable URLs (raster images only)",
+    )
     .action(
       action(async (ctx: Context, opts, issueArg: string, bodyArg?: string) => {
         const attachments: string[] = opts.attach ?? [];
+        const mentions: string[] = opts.mention ?? [];
         if (opts.public && attachments.length === 0) {
           throw usageError("--public applies to uploads; add --attach <file>, or drop --public.");
         }
-        // With attachments the body is optional (the embeds are the comment),
-        // so the editor is not opened for one — the reference CLI's rule too.
+        // With attachments or explicit mentions the body is optional, so the
+        // editor is not opened for one — the reference CLI's attachment rule,
+        // extended to mention-only comments.
         const body = resolveBody({
           arg: bodyArg,
           file: opts.bodyFile,
-          interactive: ctx.isTTY && attachments.length === 0,
+          interactive: ctx.isTTY && attachments.length === 0 && mentions.length === 0,
         });
-        if (!body && attachments.length === 0) throw usageError("No comment body provided.");
+        if (!body && attachments.length === 0 && mentions.length === 0)
+          throw usageError("No comment body provided.");
         const {
           issue,
           comment: created,
@@ -79,9 +90,11 @@ function buildAdd(_o: MountOptions): Command {
         } = await svc.addComment(ctx.client, issueArg, body ?? "", {
           attachments,
           public: opts.public === true,
+          mentions,
         });
         for (const u of uploads) {
-          if (u.public) ctx.output.warn(`${u.filename} is on a public URL, readable by anyone: ${u.assetUrl}`);
+          if (u.public)
+            ctx.output.warn(`${u.filename} is on a public URL, readable by anyone: ${u.assetUrl}`);
         }
         ctx.output.emit(
           {
@@ -110,7 +123,12 @@ function buildUpdate(o: MountOptions): Command {
     .argument("<commentId>")
     .argument("[body]")
     .description("Update a comment's body")
-    .option("--body-file <path>", "read new body from a file ('-' = stdin)");
+    .option("--body-file <path>", "read new body from a file ('-' = stdin)")
+    .option(
+      "--mention <user>",
+      "prepend a real Linear mention (name, email, me, or id; repeatable)",
+      collectArray,
+    );
   if (o.aliases !== false) cmd.alias("edit");
   return cmd.action(
     action(async (ctx: Context, opts, commentId: string, bodyArg?: string) => {
@@ -127,7 +145,13 @@ function buildUpdate(o: MountOptions): Command {
       if (body === undefined) throw usageError("No comment body provided.");
       // The editor path hands back a trimmed body, so compare against the
       // trimmed original: an untouched session must read as "unchanged".
-      const updated = await svc.updateComment(ctx.client, commentId, body, current.body.trim());
+      const updated = await svc.updateComment(
+        ctx.client,
+        commentId,
+        body,
+        current.body.trim(),
+        opts.mention ?? [],
+      );
       ctx.output.emit({ id: updated.id, url: updated.url }, () =>
         ctx.output.success(`Updated comment ${updated.id}`),
       );
@@ -168,11 +192,26 @@ export function registerComment(program: Command): void {
     .command("reply <commentId> [body]")
     .description("Reply to a comment (nested under it)")
     .option("--body-file <path>", "read reply body from a file ('-' = stdin)")
+    .option(
+      "--mention <user>",
+      "prepend a real Linear mention (name, email, me, or id; repeatable)",
+      collectArray,
+    )
     .action(
       action(async (ctx: Context, opts, commentId: string, bodyArg?: string) => {
-        const body = resolveBody({ arg: bodyArg, file: opts.bodyFile, interactive: ctx.isTTY });
-        if (!body) throw usageError("No reply body provided.");
-        const { comment: created, issue } = await svc.replyToComment(ctx.client, commentId, body);
+        const mentions: string[] = opts.mention ?? [];
+        const body = resolveBody({
+          arg: bodyArg,
+          file: opts.bodyFile,
+          interactive: ctx.isTTY && mentions.length === 0,
+        });
+        if (!body && mentions.length === 0) throw usageError("No reply body provided.");
+        const { comment: created, issue } = await svc.replyToComment(
+          ctx.client,
+          commentId,
+          body ?? "",
+          mentions,
+        );
         ctx.output.emit(
           { id: created.id, parent: commentId, issue: issue?.identifier ?? null, url: created.url },
           () => ctx.output.success(`Replied to comment${issue ? ` on ${issue.identifier}` : ""}`),

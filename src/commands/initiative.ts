@@ -18,7 +18,11 @@ import type { Column } from "../output/table.js";
 const ROW_COLUMNS: Column<svc.InitiativeRow>[] = [
   { key: "name", header: "Name", value: (r) => r.name, max: 40 },
   { key: "status", header: "Status", value: (r) => r.status ?? "—", max: 12 },
-  { key: "priority", header: "Pri", value: (r) => (r.priority ? svc.priorityLabel(r.priority) : "—") },
+  {
+    key: "priority",
+    header: "Pri",
+    value: (r) => (r.priority ? svc.priorityLabel(r.priority) : "—"),
+  },
   { key: "targetDate", header: "Target", value: (r) => r.targetDate ?? "—" },
   { key: "health", header: "Health", value: (r) => r.health ?? "—", max: 12 },
 ];

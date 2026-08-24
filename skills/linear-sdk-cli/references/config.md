@@ -23,8 +23,7 @@ credentialWorkspace: string | null
 team: string | null
 workspace: string | null
 sort: string
-vcs: string
-origins: {team: {source: string, path?: string}, workspace: {source: string, path?: string}, sort: {source: string, path?: string}, vcs: {source: string, path?: string}}
+origins: {team: {source: string, path?: string, key?: string}, workspace: {source: string, path?: string, key?: string}, sort: {source: string, path?: string, key?: string}}
 userConfigPath: string
 projectConfigPath: string | null
 globalConfigPath: string | null
@@ -38,12 +37,12 @@ Write a project .linear.toml (at the git root, or here outside a repository)
 linear config init [options]
 ```
 
-| Option           | Description                                              |
-| ---------------- | -------------------------------------------------------- |
-| `--team <key>`   | default team key (otherwise chosen from a list)          |
-| `--sort <order>` | default issue-list sort (priority \| updated \| created) |
-| `--path <file>`  | write this file instead of <git root>/.linear.toml       |
-| `--force`        | overwrite an existing file                               |
+| Option           | Description                                                        |
+| ---------------- | ------------------------------------------------------------------ |
+| `--team <key>`   | default team key (otherwise chosen from a list)                    |
+| `--sort <order>` | default issue-list sort (priority \| manual \| updated \| created) |
+| `--path <file>`  | write this file instead of <git root>/.linear.toml                 |
+| `--force`        | overwrite an existing file                                         |
 
 **Output (`--json`)**: a receipt object
 
@@ -56,7 +55,7 @@ sort?: string
 
 ### `linear config set`
 
-Set one project setting (team, workspace, sort, vcs) in the project config
+Set one project setting (team, workspace, sort) in the project config
 
 ```
 linear config set [options] <key> <value>
@@ -93,8 +92,7 @@ credentialWorkspace: string | null
 team: string | null
 workspace: string | null
 sort: string
-vcs: string
-origins: {team: {source: string, path?: string}, workspace: {source: string, path?: string}, sort: {source: string, path?: string}, vcs: {source: string, path?: string}}
+origins: {team: {source: string, path?: string, key?: string}, workspace: {source: string, path?: string, key?: string}, sort: {source: string, path?: string, key?: string}}
 userConfigPath: string
 projectConfigPath: string | null
 globalConfigPath: string | null

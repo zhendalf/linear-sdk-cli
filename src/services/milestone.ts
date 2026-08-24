@@ -11,7 +11,12 @@
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { shape } from "../lib/shape.js";
-import { collect, pageSizeForMore } from "../lib/pagination.js";
+import {
+  collect,
+  inheritPaginationMetadata,
+  pageSize,
+  pageSizeForMore,
+} from "../lib/pagination.js";
 import { usageError, notFound } from "../lib/errors.js";
 import { assertMutation, unwrapMutation } from "../lib/mutation.js";
 import { resolveProjectId, resolveMilestoneId, isUuid } from "../lib/resolve.js";
@@ -54,11 +59,9 @@ export async function listMilestones(
 ): Promise<MilestoneRow[]> {
   const projectId = await resolveProjectId(client, projectInput);
   const project = await withRetry(() => client.project(projectId));
-  const conn = await withRetry(() =>
-    project.projectMilestones({ first: limit === Infinity ? 100 : Math.min(limit, 100) }),
-  );
+  const conn = await withRetry(() => project.projectMilestones({ first: pageSize(limit) }));
   const nodes = await collect(conn as any, limit);
-  return nodes.map(toRow);
+  return inheritPaginationMetadata(nodes.map(toRow), nodes);
 }
 
 export interface MilestoneDetail {

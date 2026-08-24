@@ -41,7 +41,12 @@ export function registerCycle(program: Command): void {
     .description("Show a cycle (by id, number, or 'current')")
     .action(
       action(async (ctx: Context, opts, id: string) => {
-        const detail = await svc.getCycleDetail(ctx.client, id, opts.team ?? ctx.defaultTeam, ctx.defaultTeam);
+        const detail = await svc.getCycleDetail(
+          ctx.client,
+          id,
+          opts.team ?? ctx.defaultTeam,
+          ctx.defaultTeam,
+        );
         emitDetail(ctx, detail);
       }),
     );

@@ -29,16 +29,23 @@ describe("keyring selection", () => {
 
 /**
  * The real macOS Keychain, through /usr/bin/security, on a throwaway
- * `clitest-` account that is created and deleted here. Skipped off-macOS and
- * on CI, where the login keychain may be locked.
+ * `clitest-` account that is created and deleted here. This is deliberately
+ * opt-in: normal unit tests must never create a real Keychain item or trigger
+ * macOS credential UI. Run it explicitly with `LINEAR_LIVE_KEYRING_TESTS=1`.
  */
-const onMac = process.platform === "darwin" && !process.env.CI;
+const onMac = process.platform === "darwin" && process.env.LINEAR_LIVE_KEYRING_TESTS === "1";
 describe.skipIf(!onMac)("macOS Keychain backend (live, clitest- account)", () => {
   const account = `clitest-keyring-${process.pid}`;
 
   afterAll(() => {
     // Belt and braces: never leave a test item behind.
-    spawnSync("/usr/bin/security", ["delete-generic-password", "-a", account, "-s", KEYRING_SERVICE]);
+    spawnSync("/usr/bin/security", [
+      "delete-generic-password",
+      "-a",
+      account,
+      "-s",
+      KEYRING_SERVICE,
+    ]);
   });
 
   it("round-trips a secret without ever putting it on argv, and reports absence as null", () => {

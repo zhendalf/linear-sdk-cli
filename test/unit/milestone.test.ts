@@ -41,7 +41,10 @@ describe("createMilestone", () => {
       // resolveProjectId passes a uuid straight through (no SDK call).
       createProjectMilestone: async (input: any) => {
         captured = input;
-        return { success: true, projectMilestone: Promise.resolve({ id: "new-m", name: input.name }) };
+        return {
+          success: true,
+          projectMilestone: Promise.resolve({ id: "new-m", name: input.name }),
+        };
       },
     } as any;
     const created = await createMilestone(client, UUID, {
@@ -72,7 +75,10 @@ describe("createMilestone", () => {
 
   it("fails when the payload carries no milestone", async () => {
     const client = {
-      createProjectMilestone: async () => ({ success: true, projectMilestone: Promise.resolve(null) }),
+      createProjectMilestone: async () => ({
+        success: true,
+        projectMilestone: Promise.resolve(null),
+      }),
     } as any;
     await expect(createMilestone(client, UUID, { name: "X" })).rejects.toMatchObject({
       code: "api",
@@ -146,8 +152,18 @@ describe("getMilestoneDetail (issues + truncation)", () => {
   it("returns the milestone's issues with their state — as objects, with ids", async () => {
     const d = await getMilestoneDetail(stub(2), UUID, 50);
     expect(d.issues).toEqual([
-      { id: "issue-1", identifier: "TES-1", title: "Issue 1", state: { id: "st-todo", name: "Todo", type: "unstarted" } },
-      { id: "issue-2", identifier: "TES-2", title: "Issue 2", state: { id: "st-todo", name: "Todo", type: "unstarted" } },
+      {
+        id: "issue-1",
+        identifier: "TES-1",
+        title: "Issue 1",
+        state: { id: "st-todo", name: "Todo", type: "unstarted" },
+      },
+      {
+        id: "issue-2",
+        identifier: "TES-2",
+        title: "Issue 2",
+        state: { id: "st-todo", name: "Todo", type: "unstarted" },
+      },
     ]);
     expect(d.project).toEqual({ id: "p1", name: "Auth" });
     expect(d.issuesTruncated).toBe(false);
@@ -173,16 +189,16 @@ describe("getMilestoneDetail (issues + truncation)", () => {
     expect(d.issuesTruncated).toBe(true);
   });
 
-  // AUDIT #5, exactly as reproduced: 180 issues at --limit 150. The limit is
-  // over one page, so collection has to follow the cursor — and it is the
+  // Regression case: 180 issues at --limit 150. The limit is over one page, so
+  // collection has to follow the cursor — and it is the
   // multi-page path where reading a connection afterwards used to lie.
   it("flags truncation when the hidden issues are past the first page", async () => {
     const calls: Array<{ query: string; vars: any }> = [];
     const d = await getMilestoneDetail(stub(180, calls), UUID, 150);
     expect(d.issues).toHaveLength(150);
     expect(d.issuesTruncated).toBe(true);
-    // Two pages of 100: the second one continues from the first's cursor.
-    expect(calls.map((c) => c.vars.after)).toEqual([undefined, "c100"]);
+    // The 151-node sentinel fits in Linear's 250-node page maximum.
+    expect(calls.map((c) => c.vars.after)).toEqual([undefined]);
   });
 
   // Exactly `limit` issues is not truncation: the sentinel item is what
@@ -209,7 +225,9 @@ describe("getMilestoneDetail (issues + truncation)", () => {
   });
 
   it("a milestone the API does not return is not_found", async () => {
-    const client = { client: { rawRequest: async () => ({ data: { projectMilestone: null } }) } } as any;
+    const client = {
+      client: { rawRequest: async () => ({ data: { projectMilestone: null } }) },
+    } as any;
     await expect(getMilestoneDetail(client, UUID, 50)).rejects.toMatchObject({ code: "not_found" });
   });
 });
@@ -258,7 +276,8 @@ describe("resolveMilestoneRef", () => {
     const seen: string[] = [];
     await expect(resolveMilestoneRef(client(seen), "Beta", undefined)).rejects.toMatchObject({
       code: "usage",
-      message: "'Beta' is not a milestone id; pass --project <name|id> to look a milestone up by name.",
+      message:
+        "'Beta' is not a milestone id; pass --project <name|id> to look a milestone up by name.",
     });
     expect(seen).toEqual([]);
   });

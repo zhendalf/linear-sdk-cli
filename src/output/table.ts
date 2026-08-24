@@ -148,15 +148,14 @@ export function selectPairs(
 export function renderTable<T>(
   rows: T[],
   columns: Column<T>[],
-  opts: { color?: boolean } = {},
+  opts: { color?: boolean; empty?: string } = {},
 ): string {
   const color = opts.color ?? false;
-  if (rows.length === 0) return color ? pc.dim("(no results)") : "(no results)";
+  const colors = pc.createColors(color);
+  if (rows.length === 0) return colors.dim(sanitizeForTerminal(opts.empty ?? "(no results)"));
 
   const headers = columns.map((c) => c.header ?? c.key);
-  const body = rows.map((row) =>
-    columns.map((c) => truncate(cell(c.value(row)), c.max ?? 60)),
-  );
+  const body = rows.map((row) => columns.map((c) => truncate(cell(c.value(row)), c.max ?? 60)));
 
   const widths = columns.map((_, i) => {
     const header = headers[i] ?? "";
@@ -167,7 +166,7 @@ export function renderTable<T>(
   const pad = (s: string, w: number) => s + " ".repeat(Math.max(0, w - displayWidth(s)));
 
   const headerLine = headers
-    .map((h, i) => pad(color ? pc.bold(h) : h, widths[i] ?? 0))
+    .map((h, i) => pad(colors.bold(h), widths[i] ?? 0))
     .join("  ")
     .trimEnd();
 
@@ -187,12 +186,13 @@ export function renderDetail(
   opts: { color?: boolean } = {},
 ): string {
   const color = opts.color ?? false;
+  const colors = pc.createColors(color);
   const visible = pairs.filter(([, v]) => v !== undefined && v !== null);
   const keyWidth = visible.reduce((m, [k]) => Math.max(m, k.length), 0);
   return visible
     .map(([k, v]) => {
       const label = (k + ":").padEnd(keyWidth + 1);
-      return `${color ? pc.dim(label) : label} ${cell(v)}`;
+      return `${colors.dim(label)} ${cell(v)}`;
     })
     .join("\n");
 }

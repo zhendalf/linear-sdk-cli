@@ -7,9 +7,7 @@ suite("phase 0 — auth, whoami, api (live)", () => {
   beforeAll(() => ensureBuilt());
 
   it("whoami --json returns the viewer + organization", () => {
-    const me = runJson<{ id: string; email: string; organization: { urlKey: string } }>([
-      "whoami",
-    ]);
+    const me = runJson<{ id: string; email: string; organization: { urlKey: string } }>(["whoami"]);
     expect(me.id).toBeTruthy();
     expect(me.email).toContain("@");
     expect(me.organization.urlKey).toBeTruthy();

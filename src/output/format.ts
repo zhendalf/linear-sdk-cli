@@ -6,7 +6,7 @@
  *   - lists → bare array, single resource → bare object, mutations → affected
  *     object (or {success,id} when there is no body)
  *   - status/progress/pagination notes → stderr
- *   - errors → {"error":{"message","code"}} on stderr + non-zero exit
+ *   - errors → {"error":{"message","code", …optional additive fields}} on stderr + non-zero exit
  */
 
 import pc from "picocolors";
@@ -20,6 +20,9 @@ import {
   type Column,
 } from "./table.js";
 import { sanitizeForTerminal } from "./sanitize.js";
+import { renderMarkdown } from "./markdown.js";
+import { pageOutput, shouldUsePager } from "./pager.js";
+import { hasMoreResults } from "../lib/pagination.js";
 
 export interface OutputOptions {
   json: boolean;
@@ -28,10 +31,38 @@ export interface OutputOptions {
   debug: boolean;
   /** `--fields`: table columns / detail lines (human), top-level keys (json). */
   fields?: string[];
+  /** Injectable terminal facts; default to stdout's live state. */
+  isTTY?: boolean;
+  terminalRows?: number;
+  terminalColumns?: number;
+  /** Used only to resolve PAGER when long-form output is eligible. */
+  env?: NodeJS.ProcessEnv;
+}
+
+export interface ListOutputOptions {
+  /** JSON rows may be richer/differently shaped than the human table rows. */
+  jsonRows?: unknown[];
+  /** Context shown instead of the default `(no results)` in human mode. */
+  empty?: string;
+}
+
+export interface MarkdownOutputOptions {
+  /** Leave Markdown syntax intact (terminal controls are still removed). */
+  raw?: boolean;
+  /** Commands with `--no-pager` pass false. Defaults to enabled. */
+  pager?: boolean;
 }
 
 export class Output {
-  constructor(private readonly opts: OutputOptions) {}
+  private readonly opts: OutputOptions;
+  private readonly colors: ReturnType<typeof pc.createColors>;
+
+  constructor(opts: OutputOptions) {
+    this.opts = opts;
+    // Do not rely on picocolors' module-load-time environment detection:
+    // CLICOLOR_FORCE and per-stream TTY policy are resolved by Context.
+    this.colors = pc.createColors(opts.color);
+  }
 
   get json(): boolean {
     return this.opts.json;
@@ -54,13 +85,28 @@ export class Output {
    * Emit a list as a table (human) or bare array (json). `--fields` narrows
    * both: the table's columns (or any row key), and the JSON objects' keys.
    */
-  list<T>(rows: T[], columns: Column<T>[], jsonRows?: unknown[]): void {
+  list<T>(
+    rows: T[],
+    columns: Column<T>[],
+    jsonRowsOrOptions?: unknown[] | ListOutputOptions,
+    legacyOptions?: Pick<ListOutputOptions, "empty">,
+  ): void {
+    const options: ListOutputOptions = Array.isArray(jsonRowsOrOptions)
+      ? { jsonRows: jsonRowsOrOptions, ...legacyOptions }
+      : (jsonRowsOrOptions ?? {});
+    if (hasMoreResults(rows)) {
+      this.info(
+        `Showing ${rows.length} results; more exist. Use --all or increase --limit to see them.`,
+      );
+    }
     if (this.opts.json) {
-      this.writeJson(projectFields(jsonRows ?? rows, this.opts.fields));
+      this.writeJson(projectFields(options.jsonRows ?? rows, this.opts.fields));
       return;
     }
     const cols = selectColumns(columns, this.opts.fields, rows[0]);
-    process.stdout.write(renderTable(rows, cols, { color: this.opts.color }) + "\n");
+    process.stdout.write(
+      renderTable(rows, cols, { color: this.opts.color, empty: options.empty }) + "\n",
+    );
   }
 
   /**
@@ -84,6 +130,41 @@ export class Output {
     if (!this.opts.json) process.stdout.write(sanitizeForTerminal(text) + "\n");
   }
 
+  /**
+   * Render a long Markdown body for a human, optionally through a pager.
+   *
+   * Non-TTY output keeps the original Markdown so pipes/files receive stable,
+   * reusable text. JSON mode writes nothing — callers normally put this inside
+   * `emit(value, () => output.markdown(...))`, but the guard prevents an
+   * accidental second stdout value. Both human paths remain terminal-sanitized.
+   */
+  markdown(text: string, options: MarkdownOutputOptions = {}): void {
+    if (this.opts.json) return;
+
+    const isTTY = this.opts.isTTY ?? process.stdout.isTTY === true;
+    const columns = this.opts.terminalColumns ?? process.stdout.columns ?? 80;
+    const rows = this.opts.terminalRows ?? process.stdout.rows;
+    const content =
+      isTTY && options.raw !== true
+        ? renderMarkdown(text, { color: this.opts.color, width: columns })
+        : sanitizeForTerminal(text);
+    const output = content.endsWith("\n") ? content : `${content}\n`;
+
+    if (
+      shouldUsePager(output, {
+        enabled: options.pager,
+        json: this.opts.json,
+        isTTY,
+        rows,
+        columns,
+      }) &&
+      pageOutput(output, { env: this.opts.env })
+    ) {
+      return;
+    }
+    process.stdout.write(output);
+  }
+
   /** Status/progress to stderr. Suppressed by --quiet. */
   info(text: string): void {
     if (!this.opts.quiet) process.stderr.write(sanitizeForTerminal(text) + "\n");
@@ -91,13 +172,11 @@ export class Output {
 
   success(text: string): void {
     if (!this.opts.quiet)
-      process.stderr.write(
-        (this.opts.color ? pc.green("✓ ") : "✓ ") + sanitizeForTerminal(text) + "\n",
-      );
+      process.stderr.write(this.colors.green("✓ ") + sanitizeForTerminal(text) + "\n");
   }
 
   warn(text: string): void {
-    process.stderr.write((this.opts.color ? pc.yellow("! ") : "! ") + sanitizeForTerminal(text) + "\n");
+    process.stderr.write(this.colors.yellow("! ") + sanitizeForTerminal(text) + "\n");
   }
 
   /**
@@ -117,7 +196,7 @@ export class Output {
     }
     if (!this.opts.quiet) {
       process.stderr.write(
-        (this.opts.color ? pc.yellow("! ") : "! ") + `Cancelled: ${sanitizeForTerminal(action)}\n`,
+        this.colors.yellow("! ") + `Cancelled: ${sanitizeForTerminal(action)}\n`,
       );
     }
   }
@@ -137,20 +216,19 @@ export class Output {
       // `message` and `code` keep their positions; `detail` is additive, and
       // absent entirely without --debug.
       const error: Record<string, unknown> = { message: err.message, code: err.code };
+      if (err.suggestion !== undefined) error.suggestion = err.suggestion;
       if (showDetail) error.detail = err.detail;
       process.stderr.write(JSON.stringify({ error }) + "\n");
       return;
     }
     // An error message can quote API data (a name that matched several, …).
-    process.stderr.write(
-      (this.opts.color ? pc.red("error: ") : "error: ") + sanitizeForTerminal(err.message) + "\n",
-    );
+    process.stderr.write(this.colors.red("error: ") + sanitizeForTerminal(err.message) + "\n");
+    if (err.suggestion !== undefined) {
+      process.stderr.write(this.colors.dim("hint: ") + sanitizeForTerminal(err.suggestion) + "\n");
+    }
     if (showDetail) {
-      process.stderr.write(
-        (this.opts.color ? pc.dim("detail: ") : "detail: ") +
-          JSON.stringify(err.detail, null, 2) +
-          "\n",
-      );
+      const detail = JSON.stringify(err.detail, null, 2) ?? String(err.detail);
+      process.stderr.write(this.colors.dim("detail: ") + sanitizeForTerminal(detail) + "\n");
     }
   }
 

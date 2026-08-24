@@ -2,7 +2,7 @@
  * Faithful stand-ins for the two SDK shapes the unit tests fake most often.
  *
  * Both used to be ad-hoc object literals, and both were wrong in ways that hid
- * real defects (AUDIT #5 and #6):
+ * real defects:
  *
  *  - a *connection* was faked as `{ nodes }`, or with a `fetchNext()` that
  *    returned a **fresh object**. The SDK's `fetchNext()` appends to

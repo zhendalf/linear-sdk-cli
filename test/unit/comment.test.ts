@@ -10,6 +10,7 @@ import {
   deleteComment,
   setResolved,
 } from "../../src/services/comment.js";
+import { connection } from "./_fakes.js";
 
 /**
  * The comment service is a thin SDK passthrough, so these tests focus on its
@@ -42,8 +43,26 @@ describe("listComments", () => {
         issue: {
           comments: {
             nodes: [
-              { id: "c1", body: "hello\nworld", url: "u1", createdAt: "2026-01-02T03:04:05.000Z", editedAt: null, resolvedAt: null, parent: null, user: { id: "u-ada", displayName: "Ada" } },
-              { id: "c2", body: "anon", url: "u2", createdAt: "2026-02-02T00:00:00.000Z", editedAt: "2026-02-03T00:00:00.000Z", resolvedAt: null, parent: { id: "c1" }, user: null },
+              {
+                id: "c1",
+                body: "hello\nworld",
+                url: "u1",
+                createdAt: "2026-01-02T03:04:05.000Z",
+                editedAt: null,
+                resolvedAt: null,
+                parent: null,
+                user: { id: "u-ada", displayName: "Ada" },
+              },
+              {
+                id: "c2",
+                body: "anon",
+                url: "u2",
+                createdAt: "2026-02-02T00:00:00.000Z",
+                editedAt: "2026-02-03T00:00:00.000Z",
+                resolvedAt: null,
+                parent: { id: "c1" },
+                user: null,
+              },
             ],
             pageInfo: { hasNextPage: false },
           },
@@ -55,8 +74,26 @@ describe("listComments", () => {
 
     const rows = await listComments(client, ISSUE_UUID, 50);
     expect(rows).toEqual([
-      { id: "c1", body: "hello\nworld", user: { id: "u-ada", displayName: "Ada" }, createdAt: "2026-01-02T03:04:05.000Z", editedAt: null, resolvedAt: null, parent: null, url: "u1" },
-      { id: "c2", body: "anon", user: null, createdAt: "2026-02-02T00:00:00.000Z", editedAt: "2026-02-03T00:00:00.000Z", resolvedAt: null, parent: { id: "c1" }, url: "u2" },
+      {
+        id: "c1",
+        body: "hello\nworld",
+        user: { id: "u-ada", displayName: "Ada" },
+        createdAt: "2026-01-02T03:04:05.000Z",
+        editedAt: null,
+        resolvedAt: null,
+        parent: null,
+        url: "u1",
+      },
+      {
+        id: "c2",
+        body: "anon",
+        user: null,
+        createdAt: "2026-02-02T00:00:00.000Z",
+        editedAt: "2026-02-03T00:00:00.000Z",
+        resolvedAt: null,
+        parent: { id: "c1" },
+        url: "u2",
+      },
     ]);
   });
 });
@@ -65,7 +102,9 @@ describe("addComment", () => {
   it("creates a comment on the resolved issue and unwraps the payload", async () => {
     const issue = issueModel();
     const created = { id: "new", url: "url" };
-    const createComment = vi.fn().mockResolvedValue({ success: true, comment: Promise.resolve(created) });
+    const createComment = vi
+      .fn()
+      .mockResolvedValue({ success: true, comment: Promise.resolve(created) });
     const client = { issue: vi.fn().mockResolvedValue(issue), createComment } as any;
 
     const res = await addComment(client, ISSUE_UUID, "hi");
@@ -82,6 +121,26 @@ describe("addComment", () => {
     await expect(addComment(client, ISSUE_UUID, "hi")).rejects.toMatchObject({
       code: "api",
       exitCode: 1,
+    });
+  });
+
+  it("prepends explicitly resolved mentions and never parses literal @name text", async () => {
+    const createComment = vi.fn().mockResolvedValue({
+      success: true,
+      comment: Promise.resolve({ id: "new", url: "url" }),
+    });
+    const user = { id: "u-ada", displayName: "ada", email: "ada@example.com" };
+    const client = {
+      issue: vi.fn().mockResolvedValue(issueModel()),
+      users: vi.fn().mockResolvedValue(connection([user])),
+      user: vi.fn().mockResolvedValue(user),
+      createComment,
+    } as any;
+
+    await addComment(client, ISSUE_UUID, "literal @grace", { mentions: ["ada"] });
+    expect(createComment).toHaveBeenCalledWith({
+      issueId: ISSUE_UUID,
+      body: "@[ada](u-ada)\n\nliteral @grace",
     });
   });
 
@@ -147,7 +206,9 @@ describe("addComment", () => {
 
     it("uploads, then appends the embeds to the body — image inline, text as a link", async () => {
       const createComment = vi.fn();
-      const res = await addComment(client(createComment), ISSUE_UUID, "Look:", { attachments: [png, txt] });
+      const res = await addComment(client(createComment), ISSUE_UUID, "Look:", {
+        attachments: [png, txt],
+      });
       expect(createComment).toHaveBeenCalledWith({
         issueId: ISSUE_UUID,
         body: "Look:\n\n![shot.png](https://uploads.linear.app/ws/1)\n[notes.txt](https://uploads.linear.app/ws/2)",
@@ -173,7 +234,9 @@ describe("addComment", () => {
     it("validates every file before uploading any", async () => {
       const createComment = vi.fn();
       await expect(
-        addComment(client(createComment), ISSUE_UUID, "x", { attachments: [png, join(dir, "nope.txt")] }),
+        addComment(client(createComment), ISSUE_UUID, "x", {
+          attachments: [png, join(dir, "nope.txt")],
+        }),
       ).rejects.toMatchObject({ code: "usage" });
       expect(calls).toEqual([]);
       expect(createComment).not.toHaveBeenCalled();
@@ -216,7 +279,9 @@ describe("replyToComment", () => {
     const parentIssue = { id: "issue-id", identifier: "TES-9" };
     const node = { id: "parent-id", issueId: "issue-id", issue: parentIssue };
     const created = { id: "reply-id", url: "url" };
-    const createComment = vi.fn().mockResolvedValue({ success: true, comment: Promise.resolve(created) });
+    const createComment = vi
+      .fn()
+      .mockResolvedValue({ success: true, comment: Promise.resolve(created) });
     const client = clientWithParent(node, createComment);
 
     const res = await replyToComment(client, "parent-id", "re");
@@ -229,9 +294,31 @@ describe("replyToComment", () => {
     expect(res.issue).toBe(parentIssue);
   });
 
+  it("prepends an explicitly requested mention to a reply", async () => {
+    const parentIssue = { id: "issue-id", identifier: "TES-9" };
+    const node = { id: "parent-id", issueId: "issue-id", issue: parentIssue };
+    const createComment = vi.fn().mockResolvedValue({
+      success: true,
+      comment: Promise.resolve({ id: "reply-id", url: "url" }),
+    });
+    const client = clientWithParent(node, createComment);
+    const user = { id: "u-ada", displayName: "ada", email: "ada@example.com" };
+    client.users = vi.fn().mockResolvedValue(connection([user]));
+    client.user = vi.fn().mockResolvedValue(user);
+
+    await replyToComment(client, "parent-id", "Please look.", ["ada"]);
+    expect(createComment).toHaveBeenCalledWith({
+      parentId: "parent-id",
+      issueId: "issue-id",
+      body: "@[ada](u-ada)\n\nPlease look.",
+    });
+  });
+
   it("throws not_found when the parent comment does not exist", async () => {
     const client = clientWithParent(null);
-    await expect(replyToComment(client, "missing", "x")).rejects.toMatchObject({ code: "not_found" });
+    await expect(replyToComment(client, "missing", "x")).rejects.toMatchObject({
+      code: "not_found",
+    });
   });
 
   it("throws a usage error when the parent has no owning issue", async () => {
@@ -243,12 +330,32 @@ describe("replyToComment", () => {
 describe("updateComment", () => {
   it("passes a body-only update input and unwraps the payload", async () => {
     const updated = { id: "c1", url: "u" };
-    const updateCommentFn = vi.fn().mockResolvedValue({ success: true, comment: Promise.resolve(updated) });
+    const updateCommentFn = vi
+      .fn()
+      .mockResolvedValue({ success: true, comment: Promise.resolve(updated) });
     const client = { updateComment: updateCommentFn } as any;
 
     const res = await updateComment(client, "c1", "new body");
     expect(updateCommentFn).toHaveBeenCalledWith("c1", { body: "new body" });
     expect(res).toBe(updated as any);
+  });
+
+  it("prepends an explicitly requested mention to an updated body", async () => {
+    const updateCommentFn = vi.fn().mockResolvedValue({
+      success: true,
+      comment: Promise.resolve({ id: "c1", url: "u" }),
+    });
+    const user = { id: "u-ada", displayName: "ada", email: "ada@example.com" };
+    const client = {
+      users: vi.fn().mockResolvedValue(connection([user])),
+      user: vi.fn().mockResolvedValue(user),
+      updateComment: updateCommentFn,
+    } as any;
+
+    await updateComment(client, "c1", "Revised.", "old", ["ada"]);
+    expect(updateCommentFn).toHaveBeenCalledWith("c1", {
+      body: "@[ada](u-ada)\n\nRevised.",
+    });
   });
 });
 
@@ -271,7 +378,9 @@ describe("deleteComment", () => {
 describe("setResolved", () => {
   it("dispatches to commentResolve when resolving", async () => {
     const resolved = { id: "c1" };
-    const commentResolve = vi.fn().mockResolvedValue({ success: true, comment: Promise.resolve(resolved) });
+    const commentResolve = vi
+      .fn()
+      .mockResolvedValue({ success: true, comment: Promise.resolve(resolved) });
     const commentUnresolve = vi.fn();
     const client = { commentResolve, commentUnresolve } as any;
 
@@ -284,7 +393,9 @@ describe("setResolved", () => {
   it("dispatches to commentUnresolve when unresolving", async () => {
     const unresolved = { id: "c1" };
     const commentResolve = vi.fn();
-    const commentUnresolve = vi.fn().mockResolvedValue({ success: true, comment: Promise.resolve(unresolved) });
+    const commentUnresolve = vi
+      .fn()
+      .mockResolvedValue({ success: true, comment: Promise.resolve(unresolved) });
     const client = { commentResolve, commentUnresolve } as any;
 
     const res = await setResolved(client, "c1", false);

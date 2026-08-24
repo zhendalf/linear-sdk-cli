@@ -9,8 +9,8 @@
 import { type LinearClient, WebhookResourceType } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { shape } from "../lib/shape.js";
-import { collect } from "../lib/pagination.js";
-import { usageError, notFound } from "../lib/errors.js";
+import { collect, inheritPaginationMetadata, pageSize } from "../lib/pagination.js";
+import { usageError, notFound, normalizeError } from "../lib/errors.js";
 import { assertMutation, unwrapMutation } from "../lib/mutation.js";
 import { resolveTeam } from "../lib/resolve.js";
 
@@ -56,17 +56,18 @@ export const WEBHOOK_ROW_SHAPE = shape<WebhookRow>({
 
 /** All webhooks in the workspace (relation-light, so no N+1). */
 export async function listWebhooks(client: LinearClient, limit: number): Promise<WebhookRow[]> {
-  const conn = await withRetry(() =>
-    client.webhooks({ first: limit === Infinity ? 100 : Math.min(limit, 100) }),
-  );
+  const conn = await withRetry(() => client.webhooks({ first: pageSize(limit) }));
   const nodes = await collect(conn as any, limit);
-  return nodes.map((w: any) => ({
-    id: w.id,
-    url: w.url ?? null,
-    enabled: w.enabled,
-    resourceTypes: w.resourceTypes ?? [],
-    label: w.label ?? null,
-  }));
+  return inheritPaginationMetadata(
+    nodes.map((w: any) => ({
+      id: w.id,
+      url: w.url ?? null,
+      enabled: w.enabled,
+      resourceTypes: w.resourceTypes ?? [],
+      label: w.label ?? null,
+    })),
+    nodes,
+  );
 }
 
 export interface WebhookDetail {
@@ -174,7 +175,9 @@ export async function updateWebhook(client: LinearClient, id: string, opts: Upda
   if (opts.secret !== undefined) input.secret = opts.secret;
 
   if (Object.keys(input).length === 0)
-    throw usageError("Nothing to update; pass at least one of --url, --enabled/--disabled, --resource.");
+    throw usageError(
+      "Nothing to update; pass at least one of --url, --enabled/--disabled, --resource.",
+    );
 
   return unwrapMutation(
     withRetry(() => client.updateWebhook(id, input as any)),
@@ -184,9 +187,17 @@ export async function updateWebhook(client: LinearClient, id: string, opts: Upda
 }
 
 export async function deleteWebhook(client: LinearClient, id: string): Promise<WebhookDetail> {
-  const webhook = await getWebhookDetail(client, id).catch(() => {
-    throw notFound(`No webhook matching '${id}'.`);
-  });
-  await assertMutation(withRetry(() => client.deleteWebhook(id)), "Webhook deletion");
+  let webhook: WebhookDetail;
+  try {
+    webhook = await getWebhookDetail(client, id);
+  } catch (err) {
+    const normalized = normalizeError(err);
+    if (normalized.code === "not_found") throw notFound(`No webhook matching '${id}'.`);
+    throw normalized;
+  }
+  await assertMutation(
+    withRetry(() => client.deleteWebhook(id)),
+    "Webhook deletion",
+  );
   return webhook;
 }

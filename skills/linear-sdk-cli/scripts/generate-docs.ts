@@ -70,7 +70,10 @@ const GLOBAL_OPTIONS = new Map([
   ["-t, --team <key>", "default team key (e.g. TES)"],
   ["-n, --limit <n>", "max results (positive integer; 0 = all)"],
   ["--all", "fetch all results (exhaust pagination)"],
-  ["-f, --fields <a,b,c>", "select fields: table columns or detail lines (human), top-level keys (--json)"],
+  [
+    "-f, --fields <a,b,c>",
+    "select fields: table columns or detail lines (human), top-level keys (--json)",
+  ],
   ["-y, --yes", "skip confirmation prompts"],
   ["-q, --quiet", "suppress status output"],
   ["--no-input", "never prompt; fail instead"],
@@ -190,7 +193,8 @@ function formatOutput(out: OutputShape, heading = "**Output (`--json`)**"): stri
       lines.push(`With \`${when}\`: the same${drop}, plus:`);
       lines.push("");
       lines.push("```text");
-      for (const [key, shape] of Object.entries(delta.added)) lines.push(`${key}: ${renderShape(shape)}`);
+      for (const [key, shape] of Object.entries(delta.added))
+        lines.push(`${key}: ${renderShape(shape)}`);
       lines.push("```");
       lines.push("");
       continue;

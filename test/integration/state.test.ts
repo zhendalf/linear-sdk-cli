@@ -8,11 +8,9 @@ suite("workflow state (live, read-only)", () => {
   beforeAll(() => ensureBuilt());
 
   it("lists a team's workflow states with the expected columns, sorted by position", () => {
-    const rows = runJson<Array<{ id: string; name: string; type: string; position: number; color: string }>>([
-      "state",
-      "list",
-      TEAM,
-    ]);
+    const rows = runJson<
+      Array<{ id: string; name: string; type: string; position: number; color: string }>
+    >(["state", "list", TEAM]);
     expect(Array.isArray(rows)).toBe(true);
     expect(rows.length).toBeGreaterThan(0);
     const first = rows[0]!;
@@ -35,7 +33,11 @@ suite("workflow state (live, read-only)", () => {
   it("views a single workflow state by id", () => {
     const rows = runJson<Array<{ id: string }>>(["state", "list", TEAM]);
     const id = rows[0]!.id;
-    const d = runJson<{ id: string; name: string; type: string; team: string }>(["state", "view", id]);
+    const d = runJson<{ id: string; name: string; type: string; team: string }>([
+      "state",
+      "view",
+      id,
+    ]);
     expect(d.id).toBe(id);
     expect(d.name).toBeTruthy();
     expect(d.team).toContain(TEAM);

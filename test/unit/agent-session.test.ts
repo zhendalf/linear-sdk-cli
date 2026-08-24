@@ -85,10 +85,17 @@ describe("listIssueAgentSessions", () => {
   it("pages through every comment and applies the limit to the sessions", async () => {
     const seen: any[] = [];
     const many = Array.from({ length: 150 }, (_, i) => ({
-      agentSession: i % 3 === 0 ? session(`s${i}`, "complete", `2026-01-01T00:00:${String(i % 60).padStart(2, "0")}.${String(i).padStart(3, "0")}Z`) : null,
+      agentSession:
+        i % 3 === 0
+          ? session(
+              `s${i}`,
+              "complete",
+              `2026-01-01T00:00:${String(i % 60).padStart(2, "0")}.${String(i).padStart(3, "0")}Z`,
+            )
+          : null,
     }));
     const rows = await listIssueAgentSessions(fakeClient({ comments: many }, seen), "TES-1", 2);
-    expect(seen.length).toBe(2); // 100 + 50 comments
+    expect(seen.length).toBe(1); // one 250-node page covers 150 comments
     expect(rows.length).toBe(2);
   });
 
@@ -100,7 +107,9 @@ describe("listIssueAgentSessions", () => {
   });
 
   it("returns an empty list for an issue with no sessions", async () => {
-    expect(await listIssueAgentSessions(fakeClient({ comments: [{ agentSession: null }] }), "TES-1", 50)).toEqual([]);
+    expect(
+      await listIssueAgentSessions(fakeClient({ comments: [{ agentSession: null }] }), "TES-1", 50),
+    ).toEqual([]);
   });
 });
 
@@ -122,8 +131,10 @@ describe("listAllAgentSessions", () => {
   // read the whole feed or it would hide matches beyond the first page.
   it("exhausts the feed when a status filter is set, then limits", async () => {
     const seen: any[] = [];
-    const rows = await listAllAgentSessions(fakeClient({ sessions }, seen), 1, { status: "complete" });
-    expect(seen[0].vars.first).toBe(100);
+    const rows = await listAllAgentSessions(fakeClient({ sessions }, seen), 1, {
+      status: "complete",
+    });
+    expect(seen[0].vars.first).toBe(250);
     expect(rows.map((r) => r.id)).toEqual(["s1"]);
   });
 
@@ -171,7 +182,11 @@ describe("getAgentSessionDetail", () => {
         {
           id: "act1",
           createdAt: "2026-08-01T00:02:00.000Z",
-          content: { __typename: "AgentActivityThoughtContent", type: "thought", body: "Look around" },
+          content: {
+            __typename: "AgentActivityThoughtContent",
+            type: "thought",
+            body: "Look around",
+          },
         },
       ],
       pageInfo: { hasNextPage: true },
@@ -204,13 +219,20 @@ describe("getAgentSessionDetail", () => {
       parameter: null,
       result: null,
     });
-    expect(d.activities[1]).toMatchObject({ type: "action", body: null, action: "Running command", parameter: "ls" });
+    expect(d.activities[1]).toMatchObject({
+      type: "action",
+      body: null,
+      action: "Running command",
+      parameter: "ls",
+    });
   });
 
   it("is a not-found error when the API returns no session", async () => {
-    await expect(getAgentSessionDetail(fakeClient({ detail: null }), "nope")).rejects.toMatchObject({
-      code: "not_found",
-    });
+    await expect(getAgentSessionDetail(fakeClient({ detail: null }), "nope")).rejects.toMatchObject(
+      {
+        code: "not_found",
+      },
+    );
   });
 });
 

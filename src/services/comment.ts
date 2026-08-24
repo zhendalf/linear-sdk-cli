@@ -26,6 +26,7 @@ import { usageError, notFound } from "../lib/errors.js";
 import { assertMutation, unwrapMutation } from "../lib/mutation.js";
 import { resolveIssue } from "../lib/resolve.js";
 import { appendEmbeds, uploadFile, validateUploads, type UploadResult } from "../lib/upload.js";
+import { prependMentions } from "../lib/mentions.js";
 
 export interface CommentRow {
   id: string;
@@ -139,6 +140,8 @@ export interface AddCommentOptions {
   attachments?: string[];
   /** Upload the attachments to public, world-readable URLs (raster images only). */
   public?: boolean;
+  /** Explicit user references to emit as real Linear mentions before the body. */
+  mentions?: string[];
 }
 
 /** Add a comment to an issue, optionally with uploaded files embedded in it. */
@@ -152,10 +155,13 @@ export async function addComment(
   // Every file first — a missing one fails before anything is uploaded or resolved.
   validateUploads(paths, { public: opts.public });
   const issue = await resolveIssue(client, issueArg);
+  const mentionedBody = await prependMentions(client, body, opts.mentions);
   const uploads: UploadResult[] = [];
   for (const path of paths) uploads.push(await uploadFile(client, path, { public: opts.public }));
   const comment = await unwrapMutation(
-    withRetry(() => client.createComment({ issueId: issue.id, body: appendEmbeds(body, uploads) })),
+    withRetry(() =>
+      client.createComment({ issueId: issue.id, body: appendEmbeds(mentionedBody, uploads) }),
+    ),
     "comment",
     "Comment creation",
   );
@@ -184,11 +190,23 @@ export interface CommentLookup {
  * still requires the owning entity, so we look the parent up (for its issueId)
  * and pass both. Returns the new comment plus the parent's issue for output.
  */
-export async function replyToComment(client: LinearClient, commentId: string, body: string) {
+export async function replyToComment(
+  client: LinearClient,
+  commentId: string,
+  body: string,
+  mentions: string[] = [],
+) {
   const parent = await getComment(client, commentId);
   if (!parent.issueId) throw usageError("Can only reply to comments that belong to an issue.");
+  const mentionedBody = await prependMentions(client, body, mentions);
   const comment = await unwrapMutation(
-    withRetry(() => client.createComment({ parentId: parent.id, issueId: parent.issueId!, body })),
+    withRetry(() =>
+      client.createComment({
+        parentId: parent.id,
+        issueId: parent.issueId!,
+        body: mentionedBody,
+      }),
+    ),
     "comment",
     "Reply creation",
   );
@@ -208,27 +226,37 @@ export async function updateComment(
   commentId: string,
   body: string,
   current?: string,
+  mentions: string[] = [],
 ) {
-  if (body.trim() === "") {
-    throw usageError("Refusing to blank the comment body. To remove a comment, use 'comment delete'.");
+  const mentionedBody = await prependMentions(client, body, mentions);
+  if (mentionedBody.trim() === "") {
+    throw usageError(
+      "Refusing to blank the comment body. To remove a comment, use 'comment delete'.",
+    );
   }
-  if (current !== undefined && body === current) throw usageError("Comment body unchanged; nothing to update.");
+  if (current !== undefined && mentionedBody === current)
+    throw usageError("Comment body unchanged; nothing to update.");
   return unwrapMutation(
-    withRetry(() => client.updateComment(commentId, { body })),
+    withRetry(() => client.updateComment(commentId, { body: mentionedBody })),
     "comment",
     "Comment update",
   );
 }
 
 export async function deleteComment(client: LinearClient, commentId: string) {
-  await assertMutation(withRetry(() => client.deleteComment(commentId)), "Comment deletion");
+  await assertMutation(
+    withRetry(() => client.deleteComment(commentId)),
+    "Comment deletion",
+  );
   return { id: commentId };
 }
 
 /** Resolve (or unresolve) a comment thread. */
 export async function setResolved(client: LinearClient, commentId: string, resolved: boolean) {
   return unwrapMutation(
-    withRetry(() => (resolved ? client.commentResolve(commentId) : client.commentUnresolve(commentId))),
+    withRetry(() =>
+      resolved ? client.commentResolve(commentId) : client.commentUnresolve(commentId),
+    ),
     "comment",
     `Comment ${resolved ? "resolve" : "unresolve"}`,
   );

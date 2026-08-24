@@ -137,23 +137,23 @@ suite("multi-workspace auth (live, isolated config)", () => {
     afterAll(() => {
       // Never leave a test item behind, whatever the assertions did.
       try {
-        execFileSync("/usr/bin/security", ["delete-generic-password", "-a", kcSlug, "-s", "linear-cli"], {
-          stdio: "ignore",
-        });
+        execFileSync(
+          "/usr/bin/security",
+          ["delete-generic-password", "-a", kcSlug, "-s", "linear-cli"],
+          {
+            stdio: "ignore",
+          },
+        );
       } catch {
         // Already gone — that is the point.
       }
     });
 
     it("login stores the key in the Keychain and the file keeps only a marker", () => {
-      const out = jsonIn<{ storage: string; workspace: string; path: string }>([
-        "auth",
-        "login",
-        "--key",
-        KEY,
-        "--workspace",
-        kcSlug,
-      ], { keepHome: true });
+      const out = jsonIn<{ storage: string; workspace: string; path: string }>(
+        ["auth", "login", "--key", KEY, "--workspace", kcSlug],
+        { keepHome: true },
+      );
       expect(out.storage).toBe("keychain");
       expect(out.workspace).toBe(kcSlug);
       const file = readFileSync(out.path, "utf8");
@@ -171,12 +171,10 @@ suite("multi-workspace auth (live, isolated config)", () => {
     });
 
     it("status resolves it with Source: keychain and it authenticates", () => {
-      const st = jsonIn<{ authenticated: boolean; source: string; workspace: string }>([
-        "auth",
-        "status",
-        "--workspace",
-        kcSlug,
-      ], { keepHome: true });
+      const st = jsonIn<{ authenticated: boolean; source: string; workspace: string }>(
+        ["auth", "status", "--workspace", kcSlug],
+        { keepHome: true },
+      );
       expect(st).toMatchObject({ authenticated: true, source: "keychain", workspace: kcSlug });
       const me = jsonIn<{ organization: { urlKey: string } }>(["whoami", "--workspace", kcSlug], {
         keepHome: true,
@@ -193,9 +191,13 @@ suite("multi-workspace auth (live, isolated config)", () => {
       expect(JSON.parse(res.stdout).authenticated).toBe(false);
       const gone = (() => {
         try {
-          execFileSync("/usr/bin/security", ["find-generic-password", "-a", kcSlug, "-s", "linear-cli"], {
-            stdio: "ignore",
-          });
+          execFileSync(
+            "/usr/bin/security",
+            ["find-generic-password", "-a", kcSlug, "-s", "linear-cli"],
+            {
+              stdio: "ignore",
+            },
+          );
           return false;
         } catch {
           return true;

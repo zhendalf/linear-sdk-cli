@@ -29,6 +29,7 @@ import { registerRoadmap } from "./commands/roadmap.js";
 import { registerNotification } from "./commands/notification.js";
 import { registerOrganization } from "./commands/organization.js";
 import { registerWebhook } from "./commands/webhook.js";
+import { registerOpen } from "./commands/open.js";
 import { registerCommands, registerSchema } from "./commands/discover.js";
 import { Context, type GlobalOptions } from "./context.js";
 import { currentIssueId } from "./git.js";
@@ -58,6 +59,7 @@ export function createProgram(): Command {
   registerMeta(program);
   registerApi(program);
   registerCompletion(program);
+  registerOpen(program);
   // Phase 1: issues. Agent sessions live on issues, so their group is mounted
   // under `issue` (`linear issue agent-session …`); so is file upload
   // (`linear issue attach <issue> <file...>`, TES-602).
@@ -108,7 +110,7 @@ export function createProgram(): Command {
       return;
     }
     const detail = await getIssueDetail(ctx.client, id);
-    await renderIssueDetail(ctx, detail, false);
+    await renderIssueDetail(ctx, detail, true);
   });
 
   // Make global options usable in any position (e.g. `linear whoami --json`),

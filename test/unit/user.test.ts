@@ -29,12 +29,13 @@ function fakeUser(over: Record<string, any> = {}): Record<string, any> {
 
 // A faithful SDK connection (see _fakes.ts): fetchNext() mutates and returns
 // `this`, which is what the real one does and what an ad-hoc literal did not.
-const conn = <T,>(nodes: T[]) => connection(nodes) as any;
+const conn = <T>(nodes: T[]) => connection(nodes) as any;
 
 describe("listUsers", () => {
   it("maps the user connection to display rows", async () => {
     const client = {
-      users: async () => conn([fakeUser(), fakeUser({ id: "u2", displayName: "grace", admin: true })]),
+      users: async () =>
+        conn([fakeUser(), fakeUser({ id: "u2", displayName: "grace", admin: true })]),
     } as any;
     const rows = await listUsers(client, 50);
     expect(rows).toEqual([
@@ -68,7 +69,7 @@ describe("listUsers", () => {
       },
     } as any;
     await listUsers(client, Infinity);
-    expect(requested).toBe(100);
+    expect(requested).toBe(250);
   });
 
   // Linear defaults includeDisabled to false, so omitting it hides deactivated
@@ -169,7 +170,10 @@ describe("`user list --all` / `team members --all` warn that deactivated users a
     process.env.LINEAR_API_KEY = "lin_api_test000000000000";
     process.env.LINEAR_TEAM = "TES";
     clientDescriptor = Object.getOwnPropertyDescriptor(Context.prototype, "client");
-    Object.defineProperty(Context.prototype, "client", { get: () => fakeClient(), configurable: true });
+    Object.defineProperty(Context.prototype, "client", {
+      get: () => fakeClient(),
+      configurable: true,
+    });
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -199,7 +203,9 @@ describe("`user list --all` / `team members --all` warn that deactivated users a
 
   it("user list --all: exhausts pagination (as documented) AND warns, naming --include-disabled", async () => {
     const stderr = await run(["user", "list", "--all"]);
-    expect(stderr).toMatch(/--all exhausts pagination here; deactivated users are still excluded.*--include-disabled/);
+    expect(stderr).toMatch(
+      /--all exhausts pagination here; deactivated users are still excluded.*--include-disabled/,
+    );
   });
 
   it("team members --all: the same warning", async () => {
@@ -221,8 +227,12 @@ describe("`user list --all` / `team members --all` warn that deactivated users a
 
   it("--help says it up front on both commands", () => {
     const program = createProgram();
-    const userList = program.commands.find((c) => c.name() === "user")!.commands.find((c) => c.name() === "list")!;
-    const teamMembers = program.commands.find((c) => c.name() === "team")!.commands.find((c) => c.name() === "members")!;
+    const userList = program.commands
+      .find((c) => c.name() === "user")!
+      .commands.find((c) => c.name() === "list")!;
+    const teamMembers = program.commands
+      .find((c) => c.name() === "team")!
+      .commands.find((c) => c.name() === "members")!;
     for (const cmd of [userList, teamMembers]) {
       // The note is `addHelpText("after")`, which only `outputHelp()` renders.
       let help = "";

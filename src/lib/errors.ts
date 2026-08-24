@@ -2,7 +2,7 @@
  * Error handling: a single `CliError` type the whole app throws, plus a
  * normalizer that maps Linear SDK errors into stable codes + exit codes.
  *
- * Exit codes (documented in PLAN.md):
+ * Exit codes (documented in README.md):
  *   0 ok · 1 runtime/API · 2 usage · 3 not-found/ambiguous · 4 auth · 5 rate-limited
  */
 
@@ -50,21 +50,28 @@ export class CliError extends Error {
   readonly exitCode: ExitCodeValue;
   /** Extra detail surfaced only with --debug (e.g. raw GraphQL errors). */
   readonly detail?: unknown;
+  /** A separately actionable hint; machine callers never have to parse prose. */
+  readonly suggestion?: string;
 
-  constructor(message: string, code: ErrorCode = "runtime", detail?: unknown) {
+  constructor(message: string, code: ErrorCode = "runtime", detail?: unknown, suggestion?: string) {
     super(message);
     this.name = "CliError";
     this.code = code;
     this.exitCode = EXIT_BY_CODE[code];
     this.detail = detail;
+    this.suggestion = suggestion;
   }
 }
 
 /** Convenience constructors for the common cases. */
-export const usageError = (m: string) => new CliError(m, "usage");
-export const notFound = (m: string) => new CliError(m, "not_found");
-export const ambiguous = (m: string) => new CliError(m, "ambiguous");
-export const authError = (m: string) => new CliError(m, "auth");
+export const usageError = (m: string, suggestion?: string) =>
+  new CliError(m, "usage", undefined, suggestion);
+export const notFound = (m: string, suggestion?: string) =>
+  new CliError(m, "not_found", undefined, suggestion);
+export const ambiguous = (m: string, suggestion?: string) =>
+  new CliError(m, "ambiguous", undefined, suggestion);
+export const authError = (m: string, suggestion?: string) =>
+  new CliError(m, "auth", undefined, suggestion);
 
 /**
  * Map an unknown thrown value (typically a Linear SDK error) into a CliError
@@ -77,7 +84,10 @@ export function normalizeError(err: unknown): CliError {
   if (err instanceof Error) {
     const name = err.constructor?.name ?? err.name ?? "";
     const anyErr = err as Record<string, any>;
-    const gqlErrors: any[] = anyErr.errors ?? anyErr.raw?.response?.errors ?? [];
+    const gqlErrors: any[] =
+      [anyErr.errors, anyErr.response?.errors, anyErr.raw?.response?.errors].find(
+        (errors) => Array.isArray(errors) && errors.length > 0,
+      ) ?? [];
     const type: string | undefined =
       anyErr.type ?? gqlErrors[0]?.extensions?.type ?? gqlErrors[0]?.extensions?.code;
     const message = pickMessage(err, gqlErrors);
@@ -91,7 +101,9 @@ export function normalizeError(err: unknown): CliError {
     // semantically it is a not-found — reclassify so `view <bad-id>` exits 3.
     if (
       (code === "validation" || code === "api") &&
-      /could ?n[o']t find|not found|does not exist|no such|referenced \w+\.?$/i.test(message)
+      /could ?n[o']t find|not found|does not exist|no such|referenced \w+\.?$/i.test(
+        messageCandidates(err, gqlErrors).join("; "),
+      )
     ) {
       code = "not_found";
     }
@@ -162,9 +174,22 @@ function classify(name: string, type: string | undefined): ErrorCode {
 }
 
 function pickMessage(err: Error, gqlErrors: any[]): string {
+  const presentable = gqlErrors
+    .map((e) => e?.extensions?.userPresentableMessage)
+    .find((message) => typeof message === "string" && message.trim().length > 0);
+  if (presentable) return presentable;
+
   const fromGql = gqlErrors
     .map((e) => e?.message)
     .filter(Boolean)
     .join("; ");
   return fromGql || err.message || "Unknown error";
+}
+
+/** All message forms are retained for classification even when a nicer one is displayed. */
+function messageCandidates(err: Error, gqlErrors: any[]): string[] {
+  return [
+    err.message,
+    ...gqlErrors.flatMap((error) => [error?.message, error?.extensions?.userPresentableMessage]),
+  ].filter((message): message is string => typeof message === "string" && message.length > 0);
 }

@@ -5,8 +5,5 @@
   "author": {
     "name": "Eugene Beloded"
   },
-  "skills": [
-    "./skills/linear-sdk-cli",
-    "./skills/linear-sdk-cli-maintenance"
-  ]
+  "skills": ["./skills/linear-sdk-cli", "./skills/linear-sdk-cli-maintenance"]
 }

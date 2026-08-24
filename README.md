@@ -3,7 +3,7 @@
 **An ergonomic command-line interface for [Linear](https://linear.app), built on the official
 [`@linear/sdk`](https://www.npmjs.com/package/@linear/sdk).**
 
-It's designed to be pleasant for humans *and* dependable for scripts and agents. By default you
+It's designed to be pleasant for humans _and_ dependable for scripts and agents. By default you
 get clean, aligned tables and detail views; add `--json` to any command for a stable,
 machine-readable shape. It's git-aware (the "current issue" comes from your branch name) and
 forgiving about input (`--assignee me`, team key `TES`, state and label by name). Anything the
@@ -21,7 +21,8 @@ linear issue list --json | jq -r '.[].identifier'  # ready for scripts
 
 ## Highlights
 
-- **Human-first by default** — aligned tables and readable detail views, color-aware, paged sanely.
+- **Human-first by default** — aligned tables, rendered Markdown, safe paging for long detail,
+  color controls, and a clear notice when a list was truncated.
 - **Agent- and script-friendly** — every data command takes `--json` and emits a stable, documented envelope on stdout; status text stays on stderr.
 - **Git-aware** — the current issue is inferred from your branch (`tes-123-fix` → `TES-123`), so most issue commands let you drop the id.
 - **Git + GitHub workflow** — `issue start` checks out the branch and marks the issue started, `issue describe` prints a commit message with Linear-issue trailers, `issue pr` opens a GitHub PR — all linked back to the issue.
@@ -36,8 +37,8 @@ Requires [Bun](https://bun.sh) **1.1 or newer** and a Linear API key
 directly on Bun — no build step, no bundle, no Node.
 
 ```sh
-bun add -g linear-sdk-cli      # or, for a one-off: bunx linear-sdk-cli --help
-linear --help
+bun add --global linear-sdk-cli
+lin --help
 ```
 
 This installs two equivalent binaries: **`linear`** and the shorter **`lin`**. If you already
@@ -65,6 +66,7 @@ the other is silently shadowed — `linear --version` tells you which you got (`
   ```
 
   (A package-manager upgrade of theirs may put `linear` back; re-run the line for your channel.)
+
 - **Uninstall theirs** once you no longer need it. Your credentials survive: they are in the OS
   keyring under the same service and account, and we read them — see [Authentication](#authentication).
 
@@ -76,10 +78,11 @@ collide with a global install of ours; inside such a project `bunx linear` is th
 <summary>Run from source instead</summary>
 
 ```sh
-git clone <this-repo> && cd linear-sdk-cli
+git clone https://github.com/zhendalf/linear-sdk-cli.git && cd linear-sdk-cli
 bun install
 bun run src/bin/linear.ts --help     # or: bun run dev -- --help
 ```
+
 </details>
 
 ## Quickstart
@@ -154,7 +157,7 @@ A few ideas run through every command:
   `issue view TES-123`), and nearly every issue subcommand infers the id from the branch — so
   `linear issue comment "…"`, `linear issue start`, `linear issue pr` all "just work" in context.
 - **Human by default, `--json` for machines.** Without `--json` you get tables and detail views
-  meant to be read. With `--json`, stdout carries *only* machine JSON (a [stable
+  meant to be read. With `--json`, stdout carries _only_ machine JSON (a [stable
   envelope](#scripting--agents)); status and progress always go to stderr.
 - **Forgiving inputs.** Resolve things by how you think about them: `--assignee me`, assignee by
   email or name, team key `TES`, `--cycle current`, workflow state and label by name (case-
@@ -195,6 +198,19 @@ so the PR and issue reference each other; the issue description stays in Linear.
 or creates branches for you, and fails with a clear error (not a stack trace) when `gh` is
 missing, unauthenticated, or the branch isn't pushed.
 
+**Comments & explicit mentions** — ordinary `@name` text stays literal and never notifies anyone.
+Use repeatable `--mention <name|email|me|id>` when a real Linear mention is intentional; the CLI
+resolves each user exactly, deduplicates repeats, and prepends the mentions as their own Markdown
+paragraph. The flag works on `issue comment`, `comment add`, `comment reply`, and `comment update`
+(including the `issue comment add/update` aliases).
+
+```sh
+linear issue comment TES-123 "Please review this." --mention ada
+linear comment add TES-123 --mention ada --mention grace --body-file - <<'EOF'
+The migration plan is ready for review.
+EOF
+```
+
 **Projects & status updates**
 
 ```sh
@@ -211,55 +227,55 @@ Status updates (`project-update`/`pu`, `initiative-update`/`iu`) take the body f
 ## Command overview
 
 Every group has `--help` with full options and (for the busy ones) an Examples section. Aliases
-are shown in parentheses. For a machine-readable tree of *every* command, run
+are shown in parentheses. For a machine-readable tree of _every_ command, run
 `linear commands --json`.
 
-| Group | What you can do |
-| --- | --- |
-| **`issue`** (`i`) | `view` · `list` · `mine` · `search` · `create` · `update` · `delete` · `archive`/`unarchive` · `start` (git branch) · `describe` · `pull-request`/`pr` · `assign` · `state` · `label` · `comment`/`comments` · `relation` · `subscribe`/`unsubscribe` · `id`/`title`/`url`/`branch` |
-| **`team`** (`t`) | `list` · `view` · `members` · `states` · `labels` · `cycles` · `create` · `update` |
-| **`project`** (`p`) | `list` · `view` · `create` · `update` · `archive` · `milestones` |
-| **`project-update`** (`pu`) | `create` · `list` (project status updates, with `--health`) |
-| **`milestone`** (`m`) | `list` · `view` · `create` · `update` · `delete` |
-| **`cycle`** (`c`) | `list` · `view` · `current` · `create` · `update` |
-| **`user`** (`u`) | `list` · `view` · `me` |
-| **`label`** (`lb`) | `list` · `create` · `update` · `delete` |
-| **`state`** (`st`) | `list` · `view` (workflow states) |
-| **`comment`** (`cm`) | `list` · `add` · `reply` · `update` · `delete` · `resolve`/`unresolve` |
-| **`document`** (`doc`) | `list` · `view` · `create` · `update` · `delete` |
-| **`attachment`** (`at`) | `list` · `create` · `delete` |
-| **`favorite`** (`fav`) | `list` · `add` · `remove` |
-| **`initiative`** (`init`) | `list` · `view` · `create` · `update` · `archive` · `delete` |
-| **`initiative-update`** (`iu`) | `create` · `list` (initiative status updates, with `--health`) |
-| **`roadmap`** (`rm`) | `list` · `view` · `create` · `update` · `delete` &nbsp;<sup>†</sup> |
-| **`notification`** (`notif`) | `list` · `read`/`unread` · `read-all` · `archive` · `snooze` |
-| **`organization`** (`org`) | `view` · `members` · `invites` |
-| **`webhook`** (`wh`) | `list` · `view` · `create` · `update` · `delete` |
-| **top-level** | `whoami` · `auth` (`login` · `list` · `default` · `token` · `status` · `logout`) · `config` · `api` · `commands` · `schema` · `completion` |
+| Group                          | What you can do                                                                                                                                                                                                                                                                     |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`issue`** (`i`)              | `view` · `list` · `mine` · `search` · `create` · `update` · `delete` · `archive`/`unarchive` · `start` (git branch) · `describe` · `pull-request`/`pr` · `assign` · `state` · `label` · `comment`/`comments` · `relation` · `subscribe`/`unsubscribe` · `id`/`title`/`url`/`branch` |
+| **`team`** (`t`)               | `list` · `view` · `members` · `states` · `labels` · `cycles` · `create` · `update`                                                                                                                                                                                                  |
+| **`project`** (`p`)            | `list` · `view` · `create` · `update` · `archive` · `milestones`                                                                                                                                                                                                                    |
+| **`project-update`** (`pu`)    | `create` · `list` (project status updates, with `--health`)                                                                                                                                                                                                                         |
+| **`milestone`** (`m`)          | `list` · `view` · `create` · `update` · `delete`                                                                                                                                                                                                                                    |
+| **`cycle`** (`c`)              | `list` · `view` · `current` · `create` · `update`                                                                                                                                                                                                                                   |
+| **`user`** (`u`)               | `list` · `view` · `me`                                                                                                                                                                                                                                                              |
+| **`label`** (`lb`)             | `list` · `create` · `update` · `delete`                                                                                                                                                                                                                                             |
+| **`state`** (`st`)             | `list` · `view` (workflow states)                                                                                                                                                                                                                                                   |
+| **`comment`** (`cm`)           | `list` · `add` · `reply` · `update` · `delete` · `resolve`/`unresolve`                                                                                                                                                                                                              |
+| **`document`** (`doc`)         | `list` · `view` · `create` · `update` · `delete`                                                                                                                                                                                                                                    |
+| **`attachment`** (`at`)        | `list` · `create` · `delete`                                                                                                                                                                                                                                                        |
+| **`favorite`** (`fav`)         | `list` · `add` · `remove`                                                                                                                                                                                                                                                           |
+| **`initiative`** (`init`)      | `list` · `view` · `create` · `update` · `archive` · `delete`                                                                                                                                                                                                                        |
+| **`initiative-update`** (`iu`) | `create` · `list` (initiative status updates, with `--health`)                                                                                                                                                                                                                      |
+| **`roadmap`** (`rm`)           | `list` · `view` · `create` · `update` · `delete` &nbsp;<sup>†</sup>                                                                                                                                                                                                                 |
+| **`notification`** (`notif`)   | `list` · `read`/`unread` · `read-all` · `archive` · `snooze`                                                                                                                                                                                                                        |
+| **`organization`** (`org`)     | `view` · `members` · `invites`                                                                                                                                                                                                                                                      |
+| **`webhook`** (`wh`)           | `list` · `view` · `create` · `update` · `delete`                                                                                                                                                                                                                                    |
+| **top-level**                  | `whoami` · `auth` (`login` · `list` · `default` · `token` · `status` · `logout`) · `config` · `api` · `commands` · `schema` · `completion`                                                                                                                                          |
 
 <sup>†</sup> Linear has **deprecated roadmaps** in favor of initiatives — reads still work, but the
 API rejects roadmap mutations with a deprecation notice. Use `initiative` for new work.
 
 ### Global flags
 
-| Flag | Effect |
-| --- | --- |
-| `--json` | Emit machine JSON only on stdout (see [the contract](#scripting--agents)). |
-| `-f, --fields a,b,c` | Choose which columns to show (table output), detail lines, or JSON keys. Refused on a command that prints only a receipt. |
-| `-n, --limit <n>` / `--all` | Cap results, or fetch every page. Refused on a command that pages nothing. |
-| `-t, --team <key>` | Set the default team for the command. |
-| `--workspace <slug>` | Select which stored workspace credential to use. |
-| `-y, --yes` | Skip confirmation prompts (required for destructive actions when not a TTY). |
-| `--no-input` | Never prompt; fail with a usage error instead of hanging. |
-| `--no-ansi` | Disable colored output (`--no-color` is accepted as an alias). |
-| `-q, --quiet` · `--debug` | Silence status output · verbose errors. |
+| Flag                        | Effect                                                                                                                    |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `--json`                    | Emit machine JSON only on stdout (see [the contract](#scripting--agents)).                                                |
+| `-f, --fields a,b,c`        | Choose which columns to show (table output), detail lines, or JSON keys. Refused on a command that prints only a receipt. |
+| `-n, --limit <n>` / `--all` | Cap results, or fetch every page. Refused on a command that pages nothing.                                                |
+| `-t, --team <key>`          | Set the default team for the command.                                                                                     |
+| `--workspace <slug>`        | Select which stored workspace credential to use.                                                                          |
+| `-y, --yes`                 | Skip confirmation prompts (required for destructive actions when not a TTY).                                              |
+| `--no-input`                | Never prompt; fail with a usage error instead of hanging.                                                                 |
+| `--no-ansi`                 | Disable colored output (`--no-color` is accepted as an alias).                                                            |
+| `-q, --quiet` · `--debug`   | Silence status output · verbose errors.                                                                                   |
 
 ## Scripting & agents
 
 The CLI is built to be driven by scripts and agents. Everything in this section is a stable
 contract.
 
-**The `--json` envelope.** With `--json`, stdout carries *only* machine JSON, pretty-printed, one
+**The `--json` envelope.** With `--json`, stdout carries _only_ machine JSON, pretty-printed, one
 value per command:
 
 - **list** commands emit a **bare array** (`[...]`) — even when empty (`[]`) and even for a single result.
@@ -268,7 +284,7 @@ value per command:
   small shape like `{ "id", "identifier", "url" }`, or `{ "id", "success": true }` when the API
   returns no body. Destructive commands add a flag such as `{ "deleted": true }` / `{ "archived": true }`.
 - **errors** go to **stderr** as `{"error":{"message":"…","code":"…"}}` and never to stdout. With
-  `--debug`, the extra detail is carried *inside* that object as `error.detail` rather than appended
+  `--debug`, the extra detail is carried _inside_ that object as `error.detail` rather than appended
   after it, so `--json --debug` output stays parseable.
 
 Status, progress, and pagination notes always go to **stderr**, so `cmd --json` is safe to pipe
@@ -282,15 +298,15 @@ ID=$(linear issue create --title "Fix" --team TES --json | jq -r '.id')
 
 **Exit codes** are stable and distinct, so a script can branch on the failure class:
 
-| Code | Name | When |
-| ---: | --- | --- |
-| `0` | ok | success |
-| `1` | runtime/API | network/GraphQL/other runtime failure (also feature-not-accessible) |
-| `2` | usage | bad flags/arguments, missing required input, validation |
-| `3` | not-found/ambiguous | the referenced resource doesn't exist, or a name matched many |
-| `4` | auth | missing/invalid API key, or forbidden |
-| `5` | rate-limited | Linear rate limit hit |
-| `6` | cancelled | a confirmation prompt was declined — nothing was changed |
+| Code | Name                | When                                                                |
+| ---: | ------------------- | ------------------------------------------------------------------- |
+|  `0` | ok                  | success                                                             |
+|  `1` | runtime/API         | network/GraphQL/other runtime failure (also feature-not-accessible) |
+|  `2` | usage               | bad flags/arguments, missing required input, validation             |
+|  `3` | not-found/ambiguous | the referenced resource doesn't exist, or a name matched many       |
+|  `4` | auth                | missing/invalid API key, or forbidden                               |
+|  `5` | rate-limited        | Linear rate limit hit                                               |
+|  `6` | cancelled           | a confirmation prompt was declined — nothing was changed            |
 
 The error `code` field in the JSON envelope is one of: `usage`, `auth`, `not_found`, `ambiguous`,
 `forbidden`, `validation`, `rate_limited`, `network`, `feature_not_accessible`, `api`, `runtime`.
@@ -304,7 +320,7 @@ so prefer the `code` field for fine-grained handling and the exit code for coars
   implies this**, as does a stdout that is not a TTY: a prompt inside a pipeline is a hang, not a
   question, so you never have to remember both flags.
 - **`-y, --yes`** — pre-confirm destructive actions (`delete`/`archive`). Without a TTY,
-  destructive commands *require* `--yes` (they refuse rather than block). If a human declines the
+  destructive commands _require_ `--yes` (they refuse rather than block). If a human declines the
   prompt, the command exits **`6`** and reports `{"cancelled": true, "action": "…"}` under `--json`
   — never `0`, so `linear issue delete X && …` cannot run the `&&` side after a "no".
 - **`-q, --quiet`** — suppress success/status lines on stderr (errors still print).
@@ -334,7 +350,10 @@ grep 'type Issue ' /tmp/linear.graphql
 **File-based bodies & stdin.** Long text (issue descriptions, comments, status updates) can come
 from a file or stdin instead of a flag — e.g. `--body-file <path>` with `-` for stdin, or
 `--editor` to open `$EDITOR`. The raw `linear api` reads from `--query-file -` and `--vars-file -`
-too, so you can pipe GraphQL straight in.
+too, so you can pipe GraphQL straight in. Inline bodies containing literal `\n` sequences are
+rejected with this guidance: ordinary shell quotes do not convert them into line breaks.
+Literal `@name` text is also preserved. To create a notification-capable Linear mention, pass the
+repeatable `--mention <name|email|me|id>` option on a comment-writing command.
 
 **Agent skills.** This repo ships portable agent skills in `skills/`: `linear-sdk-cli` teaches an
 agent to drive the CLI, while `linear-sdk-cli-maintenance` defines the repository's safe upkeep
@@ -372,39 +391,39 @@ If your fingers or your scripts learned the other `linear-cli`, most of its spel
 unchanged. The left column is theirs, the right is the canonical one this CLI documents and prints
 in `--help`; both are accepted, and passing both at once is a usage error rather than a silent pick.
 
-| linear-cli | here | where |
-| --- | --- | --- |
-| `-j, --json` | same | every command (global) |
-| `-w, --web` | same | `issue view`, `issue pull-request` |
-| `--due-date` | `--due` | `issue create`, `issue update` |
-| `--target-date` | `--target` | `project`/`milestone`/`initiative` create & update |
-| `--start-date` | `--start` | `project create`, `project update` |
-| `--search` | `--query` | `issue list`, `issue mine` |
-| `--status` | `--state` | `project list` |
-| `--all-states` | (no-op) | `issue list` — it already spans every state |
-| `--limit 0` | `--all` | every list; `--all` is the spelling we teach |
-| `--assignee self` | `me` / `@me` | anywhere a user is named |
-| `--cycle active` | `current` | anywhere a cycle is named |
-| `--cycle "<name>"` | number, name, or id | all three resolve |
-| `issue query` | `issue list` | same command |
-| `auth whoami` | `whoami` | both spellings registered |
-| `issue comment add\|list\|update\|delete` | `comment add\|list\|…` | both mounted on one implementation |
+| linear-cli                                | here                   | where                                              |
+| ----------------------------------------- | ---------------------- | -------------------------------------------------- |
+| `-j, --json`                              | same                   | every command (global)                             |
+| `-w, --web`                               | same                   | `issue view`, `issue pull-request`                 |
+| `--due-date`                              | `--due`                | `issue create`, `issue update`                     |
+| `--target-date`                           | `--target`             | `project`/`milestone`/`initiative` create & update |
+| `--start-date`                            | `--start`              | `project create`, `project update`                 |
+| `--search`                                | `--query`              | `issue list`, `issue mine`                         |
+| `--status`                                | `--state`              | `project list`                                     |
+| `--all-states`                            | (no-op)                | `issue list` — it already spans every state        |
+| `--limit 0`                               | `--all`                | every list; `--all` is the spelling we teach       |
+| `--assignee self`                         | `me` / `@me`           | anywhere a user is named                           |
+| `--cycle active`                          | `current`              | anywhere a cycle is named                          |
+| `--cycle "<name>"`                        | number, name, or id    | all three resolve                                  |
+| `issue query`                             | `issue list`           | same command                                       |
+| `auth whoami`                             | `whoami`               | both spellings registered                          |
+| `issue comment add\|list\|update\|delete` | `comment add\|list\|…` | both mounted on one implementation                 |
 
 Their query filters all exist here too, under the same names — `issue list`, `issue mine` and
 `issue search` share one filter set:
 
-| linear-cli | here | notes |
-| --- | --- | --- |
-| `-U, --unassigned` | same | `issue list`/`search`; passing it with `--assignee` is a usage error |
-| `--team A --team B` | same | repeatable **on the three issue queries only**; elsewhere `--team` is the single default-team global |
-| `--state a --state b` | same | repeatable; several states OR together (an issue is in one state), and each value is a state name *or* type |
-| `--created-after`, `--updated-after` | same | `YYYY-MM-DD` or ISO 8601, inclusive; a malformed date is rejected locally instead of returning an empty list |
-| `--project-label` | same | matches the *project's* label; mutually exclusive with `--project` |
-| `--milestone` | same | theirs requires `--project`; here that scoping is optional — without it the milestone is matched by name across projects |
-| `--search-comments` | `--search-comments` | `issue search` only — the plain list query has nowhere to put it |
-| `issue update --team` | same | a real team move: the issue is renumbered, and Linear remaps its state while dropping the cycle, team-scoped labels and any project the new team is not part of |
+| linear-cli                           | here                | notes                                                                                                                                                           |
+| ------------------------------------ | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-U, --unassigned`                   | same                | `issue list`/`search`; passing it with `--assignee` is a usage error                                                                                            |
+| `--team A --team B`                  | same                | repeatable **on the three issue queries only**; elsewhere `--team` is the single default-team global                                                            |
+| `--state a --state b`                | same                | repeatable; several states OR together (an issue is in one state), and each value is a state name _or_ type                                                     |
+| `--created-after`, `--updated-after` | same                | `YYYY-MM-DD` or ISO 8601, inclusive; a malformed date is rejected locally instead of returning an empty list                                                    |
+| `--project-label`                    | same                | matches the _project's_ label; mutually exclusive with `--project`                                                                                              |
+| `--milestone`                        | same                | theirs requires `--project`; here that scoping is optional — without it the milestone is matched by name across projects                                        |
+| `--search-comments`                  | `--search-comments` | `issue search` only — the plain list query has nowhere to put it                                                                                                |
+| `issue update --team`                | same                | a real team move: the issue is renumbered, and Linear remaps its state while dropping the cycle, team-scoped labels and any project the new team is not part of |
 
-Four differences we deliberately did **not** adopt (see `ALIGNMENT.md` for the reasoning): their
+Four differences we deliberately did **not** adopt: their
 `issue list` is an alias of `mine` (a `list` that silently filters to you and hides started work is
 the worst transition hazard, so we added `issue mine` instead of changing `list`); their JSON shape
 wraps results in connection envelopes and `mine` has no `--json` at all (our uniform bare
@@ -421,7 +440,7 @@ env, the user config, or the OS keyring.
 Precedence, highest first — `linear config` prints each value with the tier and file it came from:
 
 1. the flag (`--team`, `--workspace`, `--sort`)
-2. the environment (`LINEAR_TEAM`/`LINEAR_TEAM_ID`, `LINEAR_WORKSPACE`, `LINEAR_ISSUE_SORT`, `LINEAR_VCS`)
+2. the environment (`LINEAR_TEAM`/`LINEAR_TEAM_ID`, `LINEAR_WORKSPACE`, `LINEAR_ISSUE_SORT`)
 3. the **project config**: the first file found walking up from the working directory, checking in
    each directory `linear.toml`, then `.linear.toml`, then `.config/linear.toml` — the same
    names and order as [schpet/linear-cli](https://github.com/schpet/linear-cli), so a repo set
@@ -430,7 +449,7 @@ Precedence, highest first — `linear config` prints each value with the tier an
 5. schpet/linear-cli's **global config**, `~/.config/linear/linear.toml` — read for non-secret
    settings only, so a migrating user's defaults carry over
 
-Keys: `team` (or `team_id`), `workspace`, `sort` (or `issue_sort`), `vcs`. You can write these from
+Keys: `team` (or `team_id`), `workspace`, and `sort` (or `issue_sort`). You can write these from
 the CLI — comments and layout in an existing file are preserved, and the write is atomic:
 
 ```sh
@@ -449,7 +468,6 @@ is what `auth login` is for.
 default_workspace = "acme"     # which stored credential is active
 team = "TES"                   # default team key
 sort = "priority"              # default issue-list sort: priority | updated | created
-vcs = "git"
 
 [workspaces."acme"]            # per-workspace credentials (hyphenated slugs are quoted)
 keyring = true                 # secret lives in the OS keyring (service linear-cli, account acme)

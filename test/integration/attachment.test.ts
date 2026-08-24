@@ -56,9 +56,11 @@ suite("attachment lifecycle (live)", () => {
       "--subtitle",
       "a subtitle",
     ]);
-    const rows = runJson<Array<{ id: string; title: string; url: string; source: string | null }>>(
-      ["attachment", "list", issue],
-    );
+    const rows = runJson<Array<{ id: string; title: string; url: string; source: string | null }>>([
+      "attachment",
+      "list",
+      issue,
+    ]);
     expect(Array.isArray(rows)).toBe(true);
     const row = rows.find((r) => r.title === `${FIXTURE_PREFIX}listed`);
     expect(row).toBeTruthy();

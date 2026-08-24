@@ -55,7 +55,16 @@ suite("project-update lifecycle (live)", () => {
   });
 
   it("rejects an invalid --health value (usage error, before any API call)", () => {
-    const res = run(["project-update", "create", "whatever", "--body", "x", "--health", "bogus", "--json"]);
+    const res = run([
+      "project-update",
+      "create",
+      "whatever",
+      "--body",
+      "x",
+      "--health",
+      "bogus",
+      "--json",
+    ]);
     expect(res.code).toBe(2);
   });
 

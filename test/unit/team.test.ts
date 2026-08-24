@@ -14,7 +14,7 @@ import { connection, okPayload, failedPayload, payload } from "./_fakes.js";
 
 // A faithful SDK connection (see _fakes.ts): fetchNext() mutates and returns
 // `this`, which is what the real one does and what an ad-hoc literal did not.
-const conn = <T,>(nodes: T[]) => connection(nodes) as any;
+const conn = <T>(nodes: T[]) => connection(nodes) as any;
 
 const TEAMS = [
   { id: "t1", key: "TES", name: "Test" },
@@ -71,12 +71,24 @@ describe("listMembers", () => {
   it("requests a page no larger than 100 and maps rows", async () => {
     const seen: any[] = [];
     const client = memberClient(seen, [
-      { id: "u1", displayName: "ada", name: "Ada Lovelace", email: "ada@example.com", active: false },
+      {
+        id: "u1",
+        displayName: "ada",
+        name: "Ada Lovelace",
+        email: "ada@example.com",
+        active: false,
+      },
     ]);
     const rows = await listMembers(client, "TES", undefined, Infinity, true);
-    expect(seen[0].first).toBe(100);
+    expect(seen[0].first).toBe(250);
     expect(rows).toEqual([
-      { id: "u1", displayName: "ada", name: "Ada Lovelace", email: "ada@example.com", active: false },
+      {
+        id: "u1",
+        displayName: "ada",
+        name: "Ada Lovelace",
+        email: "ada@example.com",
+        active: false,
+      },
     ]);
   });
 });
@@ -130,7 +142,10 @@ describe("createTeam", () => {
   it("sends private: true only when asked", async () => {
     const inputs: any[] = [];
     const client = {
-      createTeam: async (input: any) => (inputs.push(input), payload("team", { id: "t", key: "K", name: "N" })),
+      createTeam: async (input: any) => (
+        inputs.push(input),
+        payload("team", { id: "t", key: "K", name: "N" })
+      ),
     } as any;
     await createTeam(client, { name: "N" });
     await createTeam(client, { name: "N", private: false });
@@ -225,13 +240,18 @@ describe("team delete", () => {
 
   it("deleteTeam asserts success and reports a refusal as an api error", async () => {
     const seen: string[] = [];
-    await deleteTeam(
-      client({ deleteTeam: async (id: string) => (seen.push(id), okPayload()) }),
-      { id: "t1", key: "TES", name: "Test" },
-    );
+    await deleteTeam(client({ deleteTeam: async (id: string) => (seen.push(id), okPayload()) }), {
+      id: "t1",
+      key: "TES",
+      name: "Test",
+    });
     expect(seen).toEqual(["t1"]);
     await expect(
-      deleteTeam(client({ deleteTeam: async () => failedPayload() }), { id: "t1", key: "TES", name: "Test" }),
+      deleteTeam(client({ deleteTeam: async () => failedPayload() }), {
+        id: "t1",
+        key: "TES",
+        name: "Test",
+      }),
     ).rejects.toMatchObject({ code: "api" });
   });
 });

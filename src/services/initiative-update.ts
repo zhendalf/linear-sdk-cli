@@ -7,7 +7,7 @@
 
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
-import { collect } from "../lib/pagination.js";
+import { collect, inheritPaginationMetadata, pageSize } from "../lib/pagination.js";
 import { normalizeUpdatePayload, type Health, type UpdateRow } from "../lib/status-update.js";
 import { resolveInitiative } from "./initiative.js";
 
@@ -20,21 +20,22 @@ export async function listInitiativeUpdates(
   limit: number,
 ): Promise<UpdateRow[]> {
   const initiative = await resolveInitiative(client, idArg);
-  const conn = await withRetry(() =>
-    initiative.initiativeUpdates({ first: Math.min(limit === Infinity ? 100 : limit, 100) }),
-  );
+  const conn = await withRetry(() => initiative.initiativeUpdates({ first: pageSize(limit) }));
   const nodes = await collect(conn as any, limit);
-  return Promise.all(
-    nodes.map(async (u: any) => {
-      const user = await u.user;
-      return {
-        id: u.id,
-        createdAt: u.createdAt?.toISOString?.() ?? String(u.createdAt),
-        user: user?.displayName ?? "unknown",
-        body: u.body ?? "",
-        health: u.health ?? null,
-      };
-    }),
+  return inheritPaginationMetadata(
+    await Promise.all(
+      nodes.map(async (u: any) => {
+        const user = await u.user;
+        return {
+          id: u.id,
+          createdAt: u.createdAt?.toISOString?.() ?? String(u.createdAt),
+          user: user?.displayName ?? "unknown",
+          body: u.body ?? "",
+          health: u.health ?? null,
+        };
+      }),
+    ),
+    nodes,
   );
 }
 

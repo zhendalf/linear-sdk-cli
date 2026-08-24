@@ -5,6 +5,7 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { CliError } from "./lib/errors.js";
 
 /**
  * Extract a Linear issue identifier (e.g. `TES-123`) from a git branch name.
@@ -74,7 +75,11 @@ export function buildTrailer(identifier: string, opts: { references?: boolean } 
  * word directly before the id and links — and closes — the issue. The URL line is
  * for the humans reading the log.
  */
-export function buildTrailers(identifier: string, url: string, opts: { references?: boolean } = {}): string {
+export function buildTrailers(
+  identifier: string,
+  url: string,
+  opts: { references?: boolean } = {},
+): string {
   return `Linear-issue: ${buildTrailer(identifier, opts)}\nLinear-issue-url: ${url}`;
 }
 
@@ -136,14 +141,34 @@ export interface CheckoutResult {
   created: boolean;
 }
 
+/** Run the mutating checkout command and retain git's explanation on failure. */
+function gitCheckout(args: string[], cwd?: string): void {
+  try {
+    execFileSync("git", args, {
+      cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+      encoding: "utf8",
+    });
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException & { status?: number; stderr?: Buffer | string };
+    if (e.code === "ENOENT")
+      throw new CliError("Git is required to check out an issue branch.", "runtime");
+    const stderr = e.stderr ? e.stderr.toString().trim() : "";
+    throw new CliError(
+      stderr || `git ${args.join(" ")} exited with code ${e.status ?? 1}.`,
+      "runtime",
+    );
+  }
+}
+
 /** Checkout `branch`, creating it if it does not exist. */
 export function checkoutBranch(branch: string, cwd?: string): CheckoutResult {
   const exists =
     git(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], cwd) !== undefined;
   if (exists) {
-    execFileSync("git", ["checkout", branch], { cwd, stdio: "ignore" });
+    gitCheckout(["checkout", branch], cwd);
     return { branch, created: false };
   }
-  execFileSync("git", ["checkout", "-b", branch], { cwd, stdio: "ignore" });
+  gitCheckout(["checkout", "-b", branch], cwd);
   return { branch, created: true };
 }

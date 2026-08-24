@@ -5,7 +5,7 @@ import { connection } from "./_fakes.js";
 
 // A faithful SDK connection (see _fakes.ts): fetchNext() mutates and returns
 // `this`, which is what the real one does and what an ad-hoc literal did not.
-const conn = <T,>(nodes: T[]) => connection(nodes) as any;
+const conn = <T>(nodes: T[]) => connection(nodes) as any;
 
 const TEAMS = [
   { id: "t1", key: "TES", name: "Test" },
@@ -29,7 +29,14 @@ function listClient(nodes: any[]) {
 }
 
 const NODES = [
-  { id: "l1", name: "bug", color: "#EB5757", isGroup: false, team: { key: "TES", name: "Test" }, parent: null },
+  {
+    id: "l1",
+    name: "bug",
+    color: "#EB5757",
+    isGroup: false,
+    team: { key: "TES", name: "Test" },
+    parent: null,
+  },
   { id: "l2", name: "ui", color: "#5E6AD2", isGroup: false, team: null, parent: null },
 ];
 
@@ -77,7 +84,10 @@ describe("createLabel", () => {
     const client = {
       createIssueLabel: async (input: any) => {
         captured = input;
-        return { success: true, issueLabel: Promise.resolve({ id: "l9", name: "x", color: "#000" }) };
+        return {
+          success: true,
+          issueLabel: Promise.resolve({ id: "l9", name: "x", color: "#000" }),
+        };
       },
     } as any;
     const created = await createLabel(client, { name: "x", color: "#000" }, undefined);
@@ -93,7 +103,10 @@ describe("createLabel", () => {
       team: async (id: string) => TEAMS.find((t) => t.id === id),
       createIssueLabel: async (input: any) => {
         captured = input;
-        return { success: true, issueLabel: Promise.resolve({ id: "l9", name: "x", color: "#000" }) };
+        return {
+          success: true,
+          issueLabel: Promise.resolve({ id: "l9", name: "x", color: "#000" }),
+        };
       },
     } as any;
     await createLabel(client, { name: "x", team: "TES" }, undefined);
@@ -123,7 +136,10 @@ describe("updateLabel", () => {
       updateIssueLabel: async (id: string, input: any) => {
         capturedId = id;
         captured = input;
-        return { success: true, issueLabel: Promise.resolve({ id: uuid, name: "renamed", color: "#FFF" }) };
+        return {
+          success: true,
+          issueLabel: Promise.resolve({ id: uuid, name: "renamed", color: "#FFF" }),
+        };
       },
     } as any;
     const updated = await updateLabel(client, uuid, { name: "renamed", color: "#FFF" });
@@ -147,7 +163,11 @@ describe("updateLabel", () => {
 
   it("throws ambiguous when a name matches multiple labels", async () => {
     const client = {
-      issueLabels: async () => conn([{ id: "l1", name: "dup" }, { id: "l2", name: "dup" }]),
+      issueLabels: async () =>
+        conn([
+          { id: "l1", name: "dup" },
+          { id: "l2", name: "dup" },
+        ]),
     } as any;
     await expect(updateLabel(client, "dup", { color: "#000" })).rejects.toMatchObject({
       code: "ambiguous",

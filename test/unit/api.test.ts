@@ -172,7 +172,8 @@ describe("api --paginate operation kind guard", () => {
 
   it("refuses to paginate a subscription", async () => {
     const { ctx, rawRequest } = harness();
-    const sub = "subscription S($after: String) { issues { nodes { id } pageInfo { hasNextPage } } }";
+    const sub =
+      "subscription S($after: String) { issues { nodes { id } pageInfo { hasNextPage } } }";
     await expect(silently(() => runApi(ctx, { paginate: true }, sub))).rejects.toThrow(
       /this document is a subscription/,
     );
@@ -197,7 +198,11 @@ describe("api --paginate operation kind guard", () => {
       { data: { issues: { nodes: ["b"], pageInfo: { hasNextPage: false } } } },
     ]);
     await silently(() =>
-      runApi(ctx, { paginate: true }, "query($after: String){ issues(after:$after){ nodes pageInfo{hasNextPage endCursor} } }"),
+      runApi(
+        ctx,
+        { paginate: true },
+        "query($after: String){ issues(after:$after){ nodes pageInfo{hasNextPage endCursor} } }",
+      ),
     );
     expect(calls).toHaveLength(2);
     expect(calls[0]!.variables).toEqual({ after: undefined });

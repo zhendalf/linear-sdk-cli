@@ -25,6 +25,7 @@ let created: any[];
 
 function fakeClient(exists = true) {
   const issue = { id: "issue-uuid-123", identifier: "TES-123", title: "x" };
+  const users = [{ id: "u-ada", displayName: "ada", name: "Ada", email: "ada@example.com" }];
   return {
     issues: async (args: any) => {
       issueQueries.push(args);
@@ -34,6 +35,8 @@ function fakeClient(exists = true) {
       created.push(input);
       return payload("comment", { id: "comment-uuid", url: "https://linear.app/c/1" });
     },
+    users: async () => connection(users),
+    user: async (id: string) => users.find((u) => u.id === id),
   };
 }
 
@@ -65,7 +68,10 @@ beforeEach(() => {
   issueQueries = [];
   created = [];
   clientDescriptor = Object.getOwnPropertyDescriptor(Context.prototype, "client");
-  Object.defineProperty(Context.prototype, "client", { get: () => fakeClient(), configurable: true });
+  Object.defineProperty(Context.prototype, "client", {
+    get: () => fakeClient(),
+    configurable: true,
+  });
 });
 
 afterEach(() => {
@@ -95,7 +101,7 @@ async function runJson(args: string[]): Promise<any> {
 const run = (args: string[]) => createProgram().parseAsync(["node", "linear", ...args, "--json"]);
 
 describe("issue comment on a matching branch (tes-123-x)", () => {
-  it("`issue comment \"<body>\"` — one operand that is not an id is the body; the id comes from the branch", async () => {
+  it('`issue comment "<body>"` — one operand that is not an id is the body; the id comes from the branch', async () => {
     const out = await runJson(["issue", "comment", "shipped — please review"]);
     expect(out).toEqual({ id: "comment-uuid", issue: "TES-123" });
     // Resolved TES-123 from the branch, and posted exactly that body.
@@ -107,6 +113,16 @@ describe("issue comment on a matching branch (tes-123-x)", () => {
     await runJson(["issue", "comment", "TES-7", "hello"]);
     expect(issueQueries[0].filter.number).toEqual({ eq: 7 });
     expect(created[0].body).toBe("hello");
+  });
+
+  it("--mention emits a real Linear mention while literal @name text stays literal", async () => {
+    await runJson(["issue", "comment", "TES-7", "literal @grace stays prose", "--mention", "@ada"]);
+    expect(created[0].body).toBe("@[ada](u-ada)\n\nliteral @grace stays prose");
+  });
+
+  it("allows an intentional mention-only comment", async () => {
+    await runJson(["issue", "comment", "TES-7", "--mention", "ada"]);
+    expect(created[0].body).toBe("@[ada](u-ada)");
   });
 
   it("a lone operand that looks like an id IS the id; the body then comes from --body-file", async () => {

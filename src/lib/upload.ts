@@ -294,7 +294,9 @@ function redact(text: string, uploadUrl: string): string {
 }
 
 /** Markdown for a comment body: images embed inline, anything else links. */
-export function formatEmbed(r: Pick<UploadResult, "filename" | "assetUrl" | "contentType">): string {
+export function formatEmbed(
+  r: Pick<UploadResult, "filename" | "assetUrl" | "contentType">,
+): string {
   return `${isImage(r.contentType) ? "!" : ""}[${r.filename}](${r.assetUrl})`;
 }
 

@@ -143,7 +143,7 @@ export interface ListFilters {
 export const MINE_STATE_TYPES = ["unstarted"];
 
 /** The sort orders `issue list` accepts, in `--sort`, env, and config alike. */
-export const ISSUE_SORTS = ["priority", "updated", "created"] as const;
+export const ISSUE_SORTS = ["priority", "manual", "updated", "created"] as const;
 export type IssueSort = (typeof ISSUE_SORTS)[number];
 
 type SortConfig = Pick<
@@ -237,7 +237,9 @@ export async function buildFilter(
   // --all-teams wins over both the flag and the configured default.
   // Uppercase first, then dedupe: `--team tes --team TES` is one team.
   const teamKeys = [
-    ...new Set(asList(f.allTeams ? undefined : (f.team ?? defaultTeamKey)).map((k) => k.toUpperCase())),
+    ...new Set(
+      asList(f.allTeams ? undefined : (f.team ?? defaultTeamKey)).map((k) => k.toUpperCase()),
+    ),
   ];
   // One team keeps the exact `eq` shape it has always sent; several use `in`
   // (the reference CLI spells the same thing as `or: [{ key: { eq } }, …]`).
@@ -358,7 +360,7 @@ export function sortSpec(sort: IssueSort = "priority"): Array<Record<string, unk
       // against the API, where Descending returns Backlog BEFORE In Progress.
       // The reference CLI hardcodes Descending, so a Low-priority backlog issue
       // sorts above an Urgent in-progress one there; we deliberately diverge
-      // rather than copy that. See ALIGNMENT.md.
+      // because workflow state should take precedence over backlog urgency.
       //
       // Descending priority is urgency order (Urgent…Low); `nulls: "last"` keeps
       // "No priority" at the bottom, which is what `noPriorityFirst: false` did.
@@ -369,6 +371,11 @@ export function sortSpec(sort: IssueSort = "priority"): Array<Record<string, unk
       ];
     case "created":
       return [{ createdAt: { order: "Descending" } }];
+    case "manual":
+      // Linear's board order, without injecting workflow-state or priority
+      // grouping. This is the reference CLI's `issue_sort = "manual"` and is
+      // useful when a carefully curated backlog should read exactly as arranged.
+      return [{ manual: { nulls: "last", order: "Ascending" } }];
     case "updated":
       return [{ updatedAt: { order: "Descending" } }];
   }
@@ -486,6 +493,57 @@ function lifecycle(n: any) {
  * flattened to strings here: `team: "TES Test-workspace-bla"` is not even
  * parseable, since a team name can contain spaces.)
  */
+export interface IssueDetailRef {
+  id: string;
+  identifier: string;
+  title: string;
+  state: { id: string; name: string; type: string } | null;
+}
+
+export interface IssueAttachmentDetail {
+  id: string;
+  title: string;
+  url: string;
+  subtitle: string | null;
+  sourceType: string | null;
+  createdAt: string;
+}
+
+export interface IssueDocumentDetail {
+  id: string;
+  title: string;
+  slugId: string;
+  url: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface IssueRelationDetail {
+  id: string;
+  type: string;
+  issue: IssueDetailRef;
+  relatedIssue: IssueDetailRef;
+}
+
+/**
+ * A comment embedded in `IssueDetail`. It is a superset of the shared comment
+ * row: external authors and resolution metadata are retained so a caller can
+ * reconstruct threads without another request.
+ */
+export interface IssueCommentDetail {
+  id: string;
+  body: string;
+  url: string;
+  createdAt: string;
+  editedAt: string | null;
+  resolvedAt: string | null;
+  parent: { id: string } | null;
+  user: { id: string; displayName: string } | null;
+  externalUser: { id: string; displayName: string } | null;
+  resolvingCommentId: string | null;
+  resolvingUser: { id: string; displayName: string } | null;
+}
+
 export interface IssueDetail {
   id: string;
   identifier: string;
@@ -510,9 +568,15 @@ export interface IssueDetail {
   project: { id: string; name: string } | null;
   milestone: { id: string; name: string } | null;
   cycle: { id: string; number: number; name: string | null } | null;
-  parent: { id: string; identifier: string } | null;
+  parent: IssueDetailRef | null;
+  children: IssueDetailRef[];
   labels: Array<{ id: string; name: string }>;
   subscribers: Array<{ id: string; displayName: string }>;
+  attachments: IssueAttachmentDetail[];
+  documents: IssueDocumentDetail[];
+  relations: IssueRelationDetail[];
+  inverseRelations: IssueRelationDetail[];
+  comments: IssueCommentDetail[];
 }
 
 /** The detail's shape as `linear commands` advertises it; checked against `IssueDetail`. */
@@ -540,9 +604,95 @@ export const ISSUE_DETAIL_SHAPE = shape<IssueDetail>({
   project: { nullable: { id: "string", name: "string" } },
   milestone: { nullable: { id: "string", name: "string" } },
   cycle: { nullable: { id: "string", number: "number", name: "string|null" } },
-  parent: { nullable: { id: "string", identifier: "string" } },
+  parent: {
+    nullable: {
+      id: "string",
+      identifier: "string",
+      title: "string",
+      state: { nullable: { id: "string", name: "string", type: "string" } },
+    },
+  },
+  children: [
+    {
+      id: "string",
+      identifier: "string",
+      title: "string",
+      state: { nullable: { id: "string", name: "string", type: "string" } },
+    },
+  ],
   labels: [{ id: "string", name: "string" }],
   subscribers: [{ id: "string", displayName: "string" }],
+  attachments: [
+    {
+      id: "string",
+      title: "string",
+      url: "string",
+      subtitle: "string|null",
+      sourceType: "string|null",
+      createdAt: "string",
+    },
+  ],
+  documents: [
+    {
+      id: "string",
+      title: "string",
+      slugId: "string",
+      url: "string",
+      createdAt: "string",
+      updatedAt: "string",
+    },
+  ],
+  relations: [
+    {
+      id: "string",
+      type: "string",
+      issue: {
+        id: "string",
+        identifier: "string",
+        title: "string",
+        state: { nullable: { id: "string", name: "string", type: "string" } },
+      },
+      relatedIssue: {
+        id: "string",
+        identifier: "string",
+        title: "string",
+        state: { nullable: { id: "string", name: "string", type: "string" } },
+      },
+    },
+  ],
+  inverseRelations: [
+    {
+      id: "string",
+      type: "string",
+      issue: {
+        id: "string",
+        identifier: "string",
+        title: "string",
+        state: { nullable: { id: "string", name: "string", type: "string" } },
+      },
+      relatedIssue: {
+        id: "string",
+        identifier: "string",
+        title: "string",
+        state: { nullable: { id: "string", name: "string", type: "string" } },
+      },
+    },
+  ],
+  comments: [
+    {
+      id: "string",
+      body: "string",
+      url: "string",
+      createdAt: "string",
+      editedAt: "string|null",
+      resolvedAt: "string|null",
+      parent: { nullable: { id: "string" } },
+      user: { nullable: { id: "string", displayName: "string" } },
+      externalUser: { nullable: { id: "string", displayName: "string" } },
+      resolvingCommentId: "string|null",
+      resolvingUser: { nullable: { id: "string", displayName: "string" } },
+    },
+  ],
 });
 
 /**
@@ -557,7 +707,7 @@ export const ISSUE_DETAIL_SHAPE = shape<IssueDetail>({
  * depends on the API accepting human identifiers in `issue(id:)`.
  */
 const DETAIL_QUERY = `
-query CliIssueDetail($filter: IssueFilter!) {
+query CliIssueDetail($filter: IssueFilter!, $includeComments: Boolean!) {
   issues(filter: $filter, first: 1, includeArchived: true) {
     nodes {
       id identifier title description priority priorityLabel estimate url branchName dueDate
@@ -568,9 +718,39 @@ query CliIssueDetail($filter: IssueFilter!) {
       project { id name }
       projectMilestone { id name }
       cycle { id number name }
-      parent { id identifier }
+      parent { id identifier title state { id name type } }
+      children(first: 250) { nodes { id identifier title state { id name type } } }
       labels(first: 50) { nodes { id name } }
       subscribers(first: 50) { nodes { id displayName } }
+      attachments(first: 50) {
+        nodes { id title url subtitle sourceType createdAt }
+      }
+      documents(first: 50) {
+        nodes { id title slugId url createdAt updatedAt }
+      }
+      relations(first: 50) {
+        nodes {
+          id type
+          issue { id identifier title state { id name type } }
+          relatedIssue { id identifier title state { id name type } }
+        }
+      }
+      inverseRelations(first: 50) {
+        nodes {
+          id type
+          issue { id identifier title state { id name type } }
+          relatedIssue { id identifier title state { id name type } }
+        }
+      }
+      comments(first: 50, orderBy: createdAt) @include(if: $includeComments) {
+        nodes {
+          id body url createdAt editedAt resolvedAt resolvingCommentId
+          parent { id }
+          user { id displayName }
+          externalUser { id displayName }
+          resolvingUser { id displayName }
+        }
+      }
     }
   }
 }`;
@@ -581,15 +761,28 @@ const IDENTIFIER_RE = /^([a-zA-Z][a-zA-Z0-9]*)-(\d+)$/;
 function detailFilter(input: string): { filter: Record<string, unknown>; label: string } {
   if (isUuid(input)) return { filter: { id: { eq: input } }, label: input };
   const match = input.match(IDENTIFIER_RE);
-  if (!match) throw usageError(`'${input}' is not a valid issue id (expected e.g. TES-123 or a UUID).`);
+  if (!match)
+    throw usageError(`'${input}' is not a valid issue id (expected e.g. TES-123 or a UUID).`);
   const key = match[1]!.toUpperCase();
   const number = Number.parseInt(match[2]!, 10);
-  return { filter: { team: { key: { eq: key } }, number: { eq: number } }, label: `${key}-${number}` };
+  return {
+    filter: { team: { key: { eq: key } }, number: { eq: number } },
+    label: `${key}-${number}`,
+  };
 }
 
-export async function getIssueDetail(client: LinearClient, idArg: string): Promise<IssueDetail> {
+export async function getIssueDetail(
+  client: LinearClient,
+  idArg: string,
+  opts: { includeComments?: boolean } = {},
+): Promise<IssueDetail> {
   const { filter, label } = detailFilter(idArg);
-  const data: any = await withRetry(() => (client as any).client.rawRequest(DETAIL_QUERY, { filter }));
+  const data: any = await withRetry(() =>
+    (client as any).client.rawRequest(DETAIL_QUERY, {
+      filter,
+      includeComments: opts.includeComments !== false,
+    }),
+  );
   const n = data.data?.issues?.nodes?.[0];
   if (!n) throw notFound(`No issue ${label}.`);
   return {
@@ -613,8 +806,38 @@ export async function getIssueDetail(client: LinearClient, idArg: string): Promi
     milestone: n.projectMilestone ?? null,
     cycle: cycleRef(n.cycle),
     parent: n.parent ?? null,
+    children: n.children?.nodes ?? [],
     labels: n.labels?.nodes ?? [],
     subscribers: n.subscribers?.nodes ?? [],
+    attachments: (n.attachments?.nodes ?? []).map((a: any) => ({
+      id: a.id,
+      title: a.title,
+      url: a.url,
+      subtitle: a.subtitle ?? null,
+      sourceType: a.sourceType ?? null,
+      createdAt: a.createdAt,
+    })),
+    documents: n.documents?.nodes ?? [],
+    relations: n.relations?.nodes ?? [],
+    inverseRelations: n.inverseRelations?.nodes ?? [],
+    comments: (n.comments?.nodes ?? []).map(toIssueCommentDetail),
+  };
+}
+
+/** Normalize nullable comment relations while preserving thread metadata. */
+function toIssueCommentDetail(c: any): IssueCommentDetail {
+  return {
+    id: c.id,
+    body: c.body,
+    url: c.url,
+    createdAt: c.createdAt,
+    editedAt: c.editedAt ?? null,
+    resolvedAt: c.resolvedAt ?? null,
+    parent: c.parent ?? null,
+    user: c.user ?? null,
+    externalUser: c.externalUser ?? null,
+    resolvingCommentId: c.resolvingCommentId ?? null,
+    resolvingUser: c.resolvingUser ?? null,
   };
 }
 
@@ -673,7 +896,8 @@ export async function createIssue(
   }
   if (opts.milestone) {
     // Resolved after the parent so a milestone can name one in the inherited project.
-    if (!input.projectId) throw usageError("A milestone requires --project (or a --parent in a project).");
+    if (!input.projectId)
+      throw usageError("A milestone requires --project (or a --parent in a project).");
     input.projectMilestoneId = await resolveMilestoneId(client, input.projectId, opts.milestone);
   }
   if (opts.cycle) input.cycleId = await resolveCycleId(client, team.id, opts.cycle);
@@ -703,6 +927,8 @@ export interface UpdateOptions {
   estimate?: number;
   parent?: string;
   dueDate?: string;
+  /** Replace the complete label set (including `[]` to clear it). */
+  label?: string[];
   addLabel?: string[];
   removeLabel?: string[];
   /** Clear the assignee. Mutually exclusive with `assignee`. */
@@ -717,6 +943,8 @@ export async function updateIssue(client: LinearClient, idArg: string, opts: Upd
     throw usageError("Pass either --assignee or --unassign, not both.");
   if (opts.clearCycle && opts.cycle)
     throw usageError("Pass either --cycle or --clear-cycle, not both.");
+  if (opts.label !== undefined && (opts.addLabel !== undefined || opts.removeLabel !== undefined))
+    throw usageError("Pass either --label (replace all) or --add-label/--remove-label, not both.");
 
   const issue = await resolveIssue(client, idArg);
   const currentTeamId = (await issue.team)?.id;
@@ -745,7 +973,9 @@ export async function updateIssue(client: LinearClient, idArg: string, opts: Upd
   if (opts.project) input.projectId = await resolveProjectId(client, opts.project);
   if (opts.cycle && teamId) input.cycleId = await resolveCycleId(client, teamId, opts.cycle);
   if (opts.parent) input.parentId = (await resolveIssue(client, opts.parent)).id;
-  if (opts.addLabel?.length) input.addedLabelIds = await resolveLabelIds(client, opts.addLabel, teamId);
+  if (opts.label !== undefined) input.labelIds = await resolveLabelIds(client, opts.label, teamId);
+  if (opts.addLabel?.length)
+    input.addedLabelIds = await resolveLabelIds(client, opts.addLabel, teamId);
   if (opts.removeLabel?.length)
     input.removedLabelIds = await resolveLabelIds(client, opts.removeLabel, teamId);
   if (opts.milestone) {
@@ -755,7 +985,8 @@ export async function updateIssue(client: LinearClient, idArg: string, opts: Upd
     input.projectMilestoneId = await resolveMilestoneId(client, projectId, opts.milestone);
   }
 
-  if (Object.keys(input).length === 0) throw usageError("Nothing to update; pass at least one field.");
+  if (Object.keys(input).length === 0)
+    throw usageError("Nothing to update; pass at least one field.");
   // The updated issue comes from the payload, never from `issue` — falling back
   // to the pre-mutation entity would print "Updated TES-1" for a write the API
   // refused.
@@ -777,14 +1008,19 @@ export async function archiveIssue(client: LinearClient, idArg: string, unarchiv
 
 export async function deleteIssue(client: LinearClient, idArg: string) {
   const issue = await resolveIssue(client, idArg);
-  await assertMutation(withRetry(() => client.deleteIssue(issue.id)), "Issue deletion");
+  await assertMutation(
+    withRetry(() => client.deleteIssue(issue.id)),
+    "Issue deletion",
+  );
   return issue;
 }
 
 export async function setSubscription(client: LinearClient, idArg: string, subscribe: boolean) {
   const issue = await resolveIssue(client, idArg);
   await assertMutation(
-    withRetry(() => (subscribe ? client.issueSubscribe(issue.id) : client.issueUnsubscribe(issue.id))),
+    withRetry(() =>
+      subscribe ? client.issueSubscribe(issue.id) : client.issueUnsubscribe(issue.id),
+    ),
     subscribe ? "Issue subscribe" : "Issue unsubscribe",
   );
   return issue;
@@ -811,7 +1047,10 @@ export async function moveIssueState(client: LinearClient, issue: Issue, opts: S
   const stateId = opts.stateInput
     ? await resolveStateId(client, teamId, opts.stateInput)
     : await firstStateOfType(client, teamId, "started");
-  await assertMutation(withRetry(() => client.updateIssue(issue.id, { stateId })), "Issue update");
+  await assertMutation(
+    withRetry(() => client.updateIssue(issue.id, { stateId })),
+    "Issue update",
+  );
 }
 
 export async function startIssue(client: LinearClient, idArg: string, opts: StartMove) {
@@ -835,7 +1074,11 @@ export async function addRemoveRelation(
   if (op === "add") {
     await assertMutation(
       withRetry(() =>
-        client.createIssueRelation({ issueId: from.id, relatedIssueId: to.id, type: apiType as any }),
+        client.createIssueRelation({
+          issueId: from.id,
+          relatedIssueId: to.id,
+          type: apiType as any,
+        }),
       ),
       "Relation creation",
     );
@@ -848,7 +1091,8 @@ export async function addRemoveRelation(
       collect((await withRetry(() => from.inverseRelations())) as any, Infinity),
     ]);
     const match = await findRelation([...direct, ...inverse] as any[], from.id, to.id, apiType);
-    if (!match) throw notFound(`No ${type} relation between ${issue.identifier} and ${other.identifier}.`);
+    if (!match)
+      throw notFound(`No ${type} relation between ${issue.identifier} and ${other.identifier}.`);
     await assertMutation(
       withRetry(() => client.deleteIssueRelation(match.id)),
       "Relation removal",

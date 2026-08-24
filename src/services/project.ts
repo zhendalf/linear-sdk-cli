@@ -8,7 +8,12 @@
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { shape } from "../lib/shape.js";
-import { collect, collectRawQuery } from "../lib/pagination.js";
+import {
+  collect,
+  collectRawQuery,
+  inheritPaginationMetadata,
+  pageSize,
+} from "../lib/pagination.js";
 import { usageError, notFound, ambiguous } from "../lib/errors.js";
 import { assertMutation, unwrapMutation } from "../lib/mutation.js";
 import {
@@ -206,7 +211,10 @@ query CliProjectDetail($filter: ProjectFilter!, $includeArchived: Boolean!) {
   }
 }`;
 
-export async function getProjectDetail(client: LinearClient, idArg: string): Promise<ProjectDetail> {
+export async function getProjectDetail(
+  client: LinearClient,
+  idArg: string,
+): Promise<ProjectDetail> {
   const byId = isUuid(idArg);
   const filter = byId ? { id: { eq: idArg } } : { name: { eqIgnoreCase: idArg } };
   const data: any = await withRetry(() =>
@@ -337,7 +345,10 @@ export async function updateProject(client: LinearClient, idArg: string, opts: U
 export async function archiveProject(client: LinearClient, idArg: string) {
   const projectId = await resolveProjectId(client, idArg);
   const project = await withRetry(() => client.project(projectId));
-  await assertMutation(withRetry(() => client.archiveProject(projectId)), "Project archive");
+  await assertMutation(
+    withRetry(() => client.archiveProject(projectId)),
+    "Project archive",
+  );
   return project;
 }
 
@@ -350,7 +361,10 @@ export async function archiveProject(client: LinearClient, idArg: string) {
 export async function deleteProject(client: LinearClient, idArg: string) {
   const projectId = await resolveProjectId(client, idArg);
   const project = await withRetry(() => client.project(projectId));
-  await assertMutation(withRetry(() => client.deleteProject(projectId)), "Project deletion");
+  await assertMutation(
+    withRetry(() => client.deleteProject(projectId)),
+    "Project deletion",
+  );
   return project;
 }
 
@@ -376,16 +390,17 @@ export async function listMilestones(
 ): Promise<MilestoneRow[]> {
   const projectId = await resolveProjectId(client, idArg);
   const project = await withRetry(() => client.project(projectId));
-  const conn = await withRetry(() =>
-    project.projectMilestones({ first: Math.min(limit === Infinity ? 100 : limit, 100) }),
-  );
+  const conn = await withRetry(() => project.projectMilestones({ first: pageSize(limit) }));
   const nodes = await collect(conn as any, limit);
-  return nodes.map((m: any) => ({
-    id: m.id,
-    name: m.name,
-    targetDate: m.targetDate ?? null,
-    progress: m.progress ?? null,
-  }));
+  return inheritPaginationMetadata(
+    nodes.map((m: any) => ({
+      id: m.id,
+      name: m.name,
+      targetDate: m.targetDate ?? null,
+      progress: m.progress ?? null,
+    })),
+    nodes,
+  );
 }
 
 export interface UpdateRow {
@@ -403,21 +418,22 @@ export async function listUpdates(
 ): Promise<UpdateRow[]> {
   const projectId = await resolveProjectId(client, idArg);
   const project = await withRetry(() => client.project(projectId));
-  const conn = await withRetry(() =>
-    project.projectUpdates({ first: Math.min(limit === Infinity ? 100 : limit, 100) }),
-  );
+  const conn = await withRetry(() => project.projectUpdates({ first: pageSize(limit) }));
   const nodes = await collect(conn as any, limit);
-  return Promise.all(
-    nodes.map(async (u: any) => {
-      const user = await u.user;
-      return {
-        id: u.id,
-        createdAt: u.createdAt?.toISOString?.() ?? String(u.createdAt),
-        user: user?.displayName ?? "unknown",
-        body: u.body ?? "",
-        health: u.health ?? null,
-      };
-    }),
+  return inheritPaginationMetadata(
+    await Promise.all(
+      nodes.map(async (u: any) => {
+        const user = await u.user;
+        return {
+          id: u.id,
+          createdAt: u.createdAt?.toISOString?.() ?? String(u.createdAt),
+          user: user?.displayName ?? "unknown",
+          body: u.body ?? "",
+          health: u.health ?? null,
+        };
+      }),
+    ),
+    nodes,
   );
 }
 
@@ -457,17 +473,22 @@ async function resolveTeamIds(
 /** Resolve a project status (by name or type) to a status id. */
 async function resolveStatusId(client: LinearClient, input: string): Promise<string> {
   if (isUuid(input)) return input;
-  const statuses = await withRetry(() => client.projectStatuses({ first: 100 }));
+  const conn = await withRetry(() => client.projectStatuses({ first: 250 }));
+  const statuses = (await collect(conn as any, Infinity)) as Array<{
+    id: string;
+    name: string;
+    type: string;
+  }>;
   const lower = input.toLowerCase();
-  const byName = statuses.nodes.filter((s) => s.name.toLowerCase() === lower);
-  const matches = byName.length
-    ? byName
-    : statuses.nodes.filter((s) => s.type.toLowerCase() === lower);
+  const byName = statuses.filter((s) => s.name.toLowerCase() === lower);
+  const matches = byName.length ? byName : statuses.filter((s) => s.type.toLowerCase() === lower);
   if (matches.length === 0)
     throw notFound(
-      `No project status '${input}'. Available: ${statuses.nodes.map((s) => s.name).join(", ")}`,
+      `No project status '${input}'. Available: ${statuses.map((s) => s.name).join(", ")}`,
     );
   if (matches.length > 1)
-    throw ambiguous(`Multiple project statuses match '${input}': ${matches.map((s) => s.name).join(", ")}`);
+    throw ambiguous(
+      `Multiple project statuses match '${input}': ${matches.map((s) => s.name).join(", ")}`,
+    );
   return matches[0]!.id;
 }

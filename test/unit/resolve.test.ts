@@ -8,6 +8,7 @@ import {
   resolveStateId,
   resolveMilestoneId,
   firstStateOfType,
+  normalizeIssueReference,
   STATE_TYPES,
 } from "../../src/lib/resolve.js";
 import { CliError } from "../../src/lib/errors.js";
@@ -20,6 +21,37 @@ describe("isUuid", () => {
     expect(isUuid(UUID)).toBe(true);
     expect(isUuid("TES-1")).toBe(false);
     expect(isUuid("backlog")).toBe(false);
+  });
+});
+
+describe("normalizeIssueReference", () => {
+  it("expands a bare number with the configured team and canonicalizes leading zeros", () => {
+    expect(normalizeIssueReference("0042", "tes")).toBe("TES-42");
+  });
+
+  it("leaves identifiers and UUIDs untouched", () => {
+    expect(normalizeIssueReference("eng-7", "TES")).toBe("eng-7");
+    expect(normalizeIssueReference(UUID, "TES")).toBe(UUID);
+  });
+
+  it("refuses a bare number when no team key can disambiguate it", () => {
+    expect(() => normalizeIssueReference("42")).toThrow(/needs a default team/);
+    expect(() => normalizeIssueReference("42", UUID)).toThrow(/configure a team key/);
+  });
+});
+
+describe("resolveStateId name precedence", () => {
+  it("prefers an exact state name before treating the same token as a type alias", async () => {
+    const client = {
+      team: async () => ({
+        states: async () =>
+          connection([
+            { id: "named", name: "Started", type: "unstarted", position: 0 },
+            { id: "typed", name: "In Progress", type: "started", position: 1 },
+          ]),
+      }),
+    } as any;
+    expect(await resolveStateId(client, "team-1", "started")).toBe("named");
   });
 });
 
@@ -46,7 +78,9 @@ describe("resolveTeam", () => {
     await expect(resolveTeam(client, undefined, undefined)).rejects.toBeInstanceOf(CliError);
   });
   it("throws not_found for unknown team", async () => {
-    await expect(resolveTeam(client, "NOPE", undefined)).rejects.toMatchObject({ code: "not_found" });
+    await expect(resolveTeam(client, "NOPE", undefined)).rejects.toMatchObject({
+      code: "not_found",
+    });
   });
 });
 
@@ -244,7 +278,8 @@ describe("resolveCycleId — relative references", () => {
         let out = cycles;
         if (f.number?.eq !== undefined) out = out.filter((c) => c.number === f.number.eq);
         if (f.isNext?.eq !== undefined) out = out.filter((c) => c.isNext === f.isNext.eq);
-        if (f.isPrevious?.eq !== undefined) out = out.filter((c) => c.isPrevious === f.isPrevious.eq);
+        if (f.isPrevious?.eq !== undefined)
+          out = out.filter((c) => c.isPrevious === f.isPrevious.eq);
         return connection(out);
       },
     };
@@ -426,9 +461,7 @@ describe("not-found messages point somewhere", () => {
           { id: "t2", key: "ENG", name: "Engineering" },
         ]),
     } as any;
-    await expect(resolveTeam(client, "NOPE", undefined)).rejects.toThrow(
-      /Available: TES, ENG\./,
-    );
+    await expect(resolveTeam(client, "NOPE", undefined)).rejects.toThrow(/Available: TES, ENG\./);
   });
 
   it("points at the list command instead of dumping hundreds of teams", async () => {

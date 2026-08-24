@@ -70,7 +70,10 @@ describe("createInitiative (mocked client)", () => {
       users: () => Promise.resolve(connection([{ id: "owner-id", email: "a@b.c" }])),
       createInitiative: (input: any) => {
         captured = input;
-        return Promise.resolve({ success: true, initiative: Promise.resolve({ id: "i1", name: input.name }) });
+        return Promise.resolve({
+          success: true,
+          initiative: Promise.resolve({ id: "i1", name: input.name }),
+        });
       },
     } as any;
 
@@ -97,7 +100,10 @@ describe("createInitiative (mocked client)", () => {
     const client = {
       createInitiative: (input: any) => {
         captured = input;
-        return Promise.resolve({ success: true, initiative: Promise.resolve({ id: "i2", name: input.name }) });
+        return Promise.resolve({
+          success: true,
+          initiative: Promise.resolve({ id: "i2", name: input.name }),
+        });
       },
     } as any;
 
@@ -148,7 +154,10 @@ describe("updateInitiative (mocked client)", () => {
         ),
       updateInitiative: (_id: string, input: any) => {
         captured = input;
-        return Promise.resolve({ success: true, initiative: Promise.resolve({ id: "i1", name: "n" }) });
+        return Promise.resolve({
+          success: true,
+          initiative: Promise.resolve({ id: "i1", name: "n" }),
+        });
       },
     });
 
@@ -162,7 +171,8 @@ describe("updateInitiative (mocked client)", () => {
   it("rejects an unknown label", async () => {
     const client = idClient({
       initiativeLabels: () => Promise.resolve(connection([])),
-      updateInitiative: () => Promise.resolve({ success: true, initiative: Promise.resolve({ id: "i1" }) }),
+      updateInitiative: () =>
+        Promise.resolve({ success: true, initiative: Promise.resolve({ id: "i1" }) }),
     });
     await expect(
       updateInitiative(client, "00000000-0000-4000-8000-000000000000", { label: ["nope"] }),
@@ -174,7 +184,10 @@ describe("updateInitiative (mocked client)", () => {
     const client = idClient({
       updateInitiative: (_id: string, input: any) => {
         captured = input;
-        return Promise.resolve({ success: true, initiative: Promise.resolve({ id: "i1", name: "n" }) });
+        return Promise.resolve({
+          success: true,
+          initiative: Promise.resolve({ id: "i1", name: "n" }),
+        });
       },
     });
     await updateInitiative(client, "00000000-0000-4000-8000-000000000000", {
@@ -209,7 +222,9 @@ describe("initiative list filters", () => {
   });
 
   it("rejects an unknown status before the round-trip", async () => {
-    await expect(buildFilter(client, { status: "sideways" })).rejects.toMatchObject({ code: "usage" });
+    await expect(buildFilter(client, { status: "sideways" })).rejects.toMatchObject({
+      code: "usage",
+    });
   });
 
   it("passes the filter and --archived through to the query", async () => {
@@ -219,12 +234,22 @@ describe("initiative list filters", () => {
       client: {
         rawRequest: async (_q: string, vars: any) => {
           seen.push(vars);
-          return { data: { initiatives: rawPage([{ id: "i1", name: "Old", status: "Completed", url: "u" }], vars) } };
+          return {
+            data: {
+              initiatives: rawPage(
+                [{ id: "i1", name: "Old", status: "Completed", url: "u" }],
+                vars,
+              ),
+            },
+          };
         },
       },
     } as any;
     const rows = await listInitiatives(c, 50, { status: "completed", archived: true });
-    expect(seen[0]).toMatchObject({ filter: { status: { eq: "Completed" } }, includeArchived: true });
+    expect(seen[0]).toMatchObject({
+      filter: { status: { eq: "Completed" } },
+      includeArchived: true,
+    });
     expect(rows[0]).toMatchObject({ id: "i1", status: "Completed", priority: 0 });
     // Without --archived the API default (live only) is made explicit.
     await listInitiatives(c, 50, {});
@@ -237,15 +262,18 @@ describe("createInitiative / updateInitiative --icon/--color", () => {
     const inputs: any[] = [];
     const client = {
       initiative: async () => ({ id: UUID }),
-      createInitiative: async (input: any) => (inputs.push(input), payload("initiative", { id: "i1" })),
-      updateInitiative: async (_id: string, input: any) => (inputs.push(input), payload("initiative", { id: "i1" })),
+      createInitiative: async (input: any) => (
+        inputs.push(input),
+        payload("initiative", { id: "i1" })
+      ),
+      updateInitiative: async (_id: string, input: any) => (
+        inputs.push(input),
+        payload("initiative", { id: "i1" })
+      ),
     } as any;
     await createInitiative(client, { name: "N", icon: "Rocket", color: "#5E6AD2" });
     await updateInitiative(client, UUID, { color: "#000000" });
-    expect(inputs).toEqual([
-      { name: "N", icon: "Rocket", color: "#5E6AD2" },
-      { color: "#000000" },
-    ]);
+    expect(inputs).toEqual([{ name: "N", icon: "Rocket", color: "#5E6AD2" }, { color: "#000000" }]);
   });
 });
 
@@ -312,7 +340,8 @@ describe("initiative add-project / remove-project", () => {
     const inputs: any[] = [];
     const c = client({
       createInitiativeToProject: async (input: any) => (
-        inputs.push(input), payload("initiativeToProject", { id: "link-new" })
+        inputs.push(input),
+        payload("initiativeToProject", { id: "link-new" })
       ),
     });
     const link = await addProject(c, UUID, PROJ);
@@ -329,13 +358,17 @@ describe("initiative add-project / remove-project", () => {
   });
 
   it("add-project fails when the API refuses", async () => {
-    const c = client({ createInitiativeToProject: async () => failedPayload("initiativeToProject") });
+    const c = client({
+      createInitiativeToProject: async () => failedPayload("initiativeToProject"),
+    });
     await expect(addProject(c, UUID, PROJ)).rejects.toMatchObject({ code: "api" });
   });
 
   it("finds the link on the project's side and deletes exactly that one", async () => {
     const seen: string[] = [];
-    const c = client({ deleteInitiativeToProject: async (id: string) => (seen.push(id), okPayload()) });
+    const c = client({
+      deleteInitiativeToProject: async (id: string) => (seen.push(id), okPayload()),
+    });
     const link = await findProjectLink(c, UUID, PROJ);
     expect(link.id).toBe("link-1");
     await removeProjectLink(c, link);
@@ -344,7 +377,11 @@ describe("initiative add-project / remove-project", () => {
 
   it("is a not-found when the project is not in the initiative", async () => {
     const c = client({
-      project: async (id: string) => ({ id, name: "Loose", initiativeToProjects: async () => connection([]) }),
+      project: async (id: string) => ({
+        id,
+        name: "Loose",
+        initiativeToProjects: async () => connection([]),
+      }),
     });
     await expect(findProjectLink(c, UUID, PROJ)).rejects.toMatchObject({ code: "not_found" });
   });

@@ -14,7 +14,7 @@ import { withRetry } from "../client.js";
 import { shape } from "../lib/shape.js";
 import { collectRawQuery } from "../lib/pagination.js";
 import { assertMutation } from "../lib/mutation.js";
-import { normalizeError } from "../lib/errors.js";
+import { normalizeError, usageError } from "../lib/errors.js";
 
 export interface NotificationRow {
   id: string;
@@ -122,7 +122,11 @@ export interface MarkAllItem {
   error?: string;
 }
 
-export const MARK_ALL_ITEM_SHAPE = shape<MarkAllItem>({ id: "string", read: "boolean", "error?": "string" });
+export const MARK_ALL_ITEM_SHAPE = shape<MarkAllItem>({
+  id: "string",
+  read: "boolean",
+  "error?": "string",
+});
 
 /**
  * Mark all of the viewer's unread notifications as read. The SDK's
@@ -168,6 +172,16 @@ export async function archiveNotification(client: LinearClient, id: string): Pro
 
 /** Snooze a notification until the given ISO timestamp. */
 export async function snoozeNotification(client: LinearClient, id: string, untilISO: string) {
+  if (
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2})$/.test(
+      untilISO,
+    ) ||
+    !Number.isFinite(Date.parse(untilISO))
+  ) {
+    throw usageError(
+      `Invalid snooze timestamp '${untilISO}'. Use ISO 8601 with a timezone, e.g. 2026-07-01T09:00:00Z.`,
+    );
+  }
   await assertMutation(
     withRetry(() => client.updateNotification(id, { snoozedUntilAt: untilISO } as any)),
     "Notification snooze",

@@ -1,5 +1,13 @@
 import { describe, it, expect } from "bun:test";
-import { renderTable, renderDetail, selectColumns, selectPairs, projectFields, cell, type Column } from "../../src/output/table.js";
+import {
+  renderTable,
+  renderDetail,
+  selectColumns,
+  selectPairs,
+  projectFields,
+  cell,
+  type Column,
+} from "../../src/output/table.js";
 import { CliError } from "../../src/lib/errors.js";
 
 interface Row {
@@ -29,6 +37,13 @@ describe("renderTable", () => {
   it("shows a placeholder for empty result sets", () => {
     expect(renderTable([], columns)).toBe("(no results)");
   });
+
+  it("supports a terminal-sanitized contextual empty message", () => {
+    const escape = String.fromCharCode(27);
+    expect(renderTable([], columns, { empty: `No ${escape}[31mactive${escape}[0m issues.` })).toBe(
+      "No active issues.",
+    );
+  });
 });
 
 describe("selectColumns", () => {
@@ -38,7 +53,9 @@ describe("selectColumns", () => {
   });
   it("throws a usage error on an unknown field, listing available keys", () => {
     expect(() => selectColumns(columns, ["nope"])).toThrow(CliError);
-    expect(() => selectColumns(columns, ["nope"])).toThrow(/Unknown field 'nope'\. Available: id, title\./);
+    expect(() => selectColumns(columns, ["nope"])).toThrow(
+      /Unknown field 'nope'\. Available: id, title\./,
+    );
   });
   it("matches by header (case-insensitive) as well as key", () => {
     expect(selectColumns(columns, ["TITLE"]).map((c) => c.key)).toEqual(["title"]);
@@ -83,7 +100,13 @@ describe("--fields as a projection", () => {
     { key: "id", header: "ID", value: (r) => r.id },
     { key: "title", header: "Title", value: (r) => r.title },
   ];
-  const row: Full = { id: "TES-1", title: "T", labels: ["a", "b"], project: { name: "Auth" }, url: "u" };
+  const row: Full = {
+    id: "TES-1",
+    title: "T",
+    labels: ["a", "b"],
+    project: { name: "Auth" },
+    url: "u",
+  };
 
   it("selectColumns: a row key that is not a column becomes one, rendering arrays and objects readably", () => {
     const picked = selectColumns(cols, ["id", "labels", "project"], row);
@@ -107,14 +130,25 @@ describe("--fields as a projection", () => {
 
   it("projectFields: an unknown key is a usage error naming the real ones; an empty list is fine", () => {
     expect(() => projectFields([row], ["nope"])).toThrow(CliError);
-    expect(() => projectFields([row], ["nope"])).toThrow(/Available: id, title, labels, project, url\./);
+    expect(() => projectFields([row], ["nope"])).toThrow(
+      /Available: id, title, labels, project, url\./,
+    );
     expect(projectFields([], ["nope"])).toEqual([]);
   });
 
   it("selectPairs (human detail): matches labels case-insensitively, in the order asked", () => {
-    const pairs: Array<[string, unknown]> = [["Issue", "TES-1"], ["State", "Done"], ["URL", "u"]];
-    expect(selectPairs(pairs, ["url", "state"])).toEqual([["URL", "u"], ["State", "Done"]]);
-    expect(() => selectPairs(pairs, ["nope"])).toThrow(/Unknown field 'nope'\. Available: Issue, State, URL\./);
+    const pairs: Array<[string, unknown]> = [
+      ["Issue", "TES-1"],
+      ["State", "Done"],
+      ["URL", "u"],
+    ];
+    expect(selectPairs(pairs, ["url", "state"])).toEqual([
+      ["URL", "u"],
+      ["State", "Done"],
+    ]);
+    expect(() => selectPairs(pairs, ["nope"])).toThrow(
+      /Unknown field 'nope'\. Available: Issue, State, URL\./,
+    );
   });
 
   it("cell renders a relation object by its human name, and an unknown object as JSON", () => {

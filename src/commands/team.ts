@@ -59,6 +59,19 @@ export function registerTeam(program: Command): void {
       }),
     );
 
+  // id ----------------------------------------------------------------------
+  team
+    .command("id [key]")
+    .description("Print a team's UUID (defaults to the configured team)")
+    .action(
+      action(async (ctx: Context, _opts, keyArg?: string) => {
+        const resolved = await svc.getTeamIdentity(ctx.client, keyArg, ctx.defaultTeam);
+        // Human mode is deliberately a single UUID for command substitution;
+        // JSON retains the resolved key and name as useful context.
+        ctx.output.emit(resolved, () => process.stdout.write(resolved.id + "\n"));
+      }),
+    );
+
   // view --------------------------------------------------------------------
   team
     .command("view [key]")

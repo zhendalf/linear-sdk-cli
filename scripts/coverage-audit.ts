@@ -7,6 +7,7 @@
  */
 
 import { LinearClient } from "@linear/sdk";
+import { format } from "prettier";
 import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -64,15 +65,16 @@ const CURATED: Record<string, string[]> = {
   // phase 3 — users, labels, workflow states, comments, documents, attachments, favorites
   // (viewer is already curated under `meta`; createComment under `issue` — not duplicated here)
   user: ["users", "user"],
-  label: [
-    "issueLabels",
-    "issueLabel",
-    "createIssueLabel",
-    "updateIssueLabel",
-    "deleteIssueLabel",
-  ],
+  label: ["issueLabels", "issueLabel", "createIssueLabel", "updateIssueLabel", "deleteIssueLabel"],
   state: ["workflowStates", "workflowState"],
-  comment: ["comments", "comment", "updateComment", "deleteComment", "commentResolve", "commentUnresolve"],
+  comment: [
+    "comments",
+    "comment",
+    "updateComment",
+    "deleteComment",
+    "commentResolve",
+    "commentUnresolve",
+  ],
   document: ["documents", "document", "createDocument", "updateDocument", "deleteDocument"],
   // `fileUpload` is the signed-URL step behind `issue attach` and `comment add --attach` (TES-602).
   attachment: ["attachments", "attachment", "createAttachment", "deleteAttachment", "fileUpload"],
@@ -114,11 +116,28 @@ const CURATED: Record<string, string[]> = {
  * reported as `raw-only` (reachable via `linear api`).
  */
 const EXCLUDED: Array<{ pattern: RegExp; reason: string }> = [
-  { pattern: /^(paginate|options|client|rateLimitStatus|applicationInfo)$/, reason: "SDK plumbing" },
-  { pattern: /Auth|auth(entication)?Session|ssoUrl|samlToken|emailToken|googleUser|logout/i, reason: "auth/session flows (out of scope)" },
-  { pattern: /^(suspendUser|unsuspendUser|userChangeRole|userRevoke|userUnlink|deleteOrganization|organizationDeleteChallenge|createOrganizationInvite|deleteOrganizationInvite)/, reason: "admin/enterprise (raw api only)" },
-  { pattern: /integration|airbyte|trackAnonymousEvent|imageUpload|importFile|issueImport/i, reason: "integration/import (raw api only)" },
-  { pattern: /release|customer|agent|emoji|template|timeSchedule|triage|pushSubscription|customView|gitAutomation|entityExternalLink|notificationSubscription|viewPreferences|slaConfig|auditEntr|semanticSearch|externalUser|contact|csvExport/i, reason: "specialized/raw api only" },
+  {
+    pattern: /^(paginate|options|client|rateLimitStatus|applicationInfo)$/,
+    reason: "SDK plumbing",
+  },
+  {
+    pattern: /Auth|auth(entication)?Session|ssoUrl|samlToken|emailToken|googleUser|logout/i,
+    reason: "auth/session flows (out of scope)",
+  },
+  {
+    pattern:
+      /^(suspendUser|unsuspendUser|userChangeRole|userRevoke|userUnlink|deleteOrganization|organizationDeleteChallenge|createOrganizationInvite|deleteOrganizationInvite)/,
+    reason: "admin/enterprise (raw api only)",
+  },
+  {
+    pattern: /integration|airbyte|trackAnonymousEvent|imageUpload|importFile|issueImport/i,
+    reason: "integration/import (raw api only)",
+  },
+  {
+    pattern:
+      /release|customer|agent|emoji|template|timeSchedule|triage|pushSubscription|customView|gitAutomation|entityExternalLink|notificationSubscription|viewPreferences|slaConfig|auditEntr|semanticSearch|externalUser|contact|csvExport/i,
+    reason: "specialized/raw api only",
+  },
 ];
 
 function clientMembers(): string[] {
@@ -144,7 +163,7 @@ function classify(member: string): { status: Status; note: string } {
   return { status: "raw-only", note: "reachable via `linear api`" };
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const members = clientMembers();
   const rows = members.map((m) => ({ member: m, ...classify(m) }));
 
@@ -192,7 +211,8 @@ function main(): void {
   const here = dirname(fileURLToPath(import.meta.url));
   const outPath = join(here, "..", "COVERAGE.md");
   const snapshotPath = join(here, "coverage.snapshot.json");
-  writeFileSync(outPath, md);
+  const formattedMd = await format(md, { filepath: outPath });
+  writeFileSync(outPath, formattedMd);
 
   console.error(
     `coverage: ${counts.curated} curated, ${counts["raw-only"]} raw-only, ${counts.excluded} excluded ` +
@@ -213,7 +233,9 @@ function main(): void {
   }
 
   if (!existsSync(snapshotPath)) {
-    console.error("No coverage snapshot found. Run `bun run audit:coverage --update` to create it.");
+    console.error(
+      "No coverage snapshot found. Run `bun run audit:coverage --update` to create it.",
+    );
     process.exit(1);
   }
 
@@ -236,4 +258,4 @@ function main(): void {
   console.error("coverage snapshot is up to date.");
 }
 
-main();
+await main();

@@ -34,7 +34,10 @@ function addTargetOptions(cmd: Command, verb: string): Command {
     .option("-p, --project <name>", `${verb} a project (name or id)`)
     .option("--issue <id>", `${verb} an issue (identifier or id)`)
     .option("--initiative <name>", `${verb} an initiative (name or id)`)
-    .option(CYCLE_FLAG, `${verb} a cycle (number, name, id, or 'current'; team from --team or config)`)
+    .option(
+      CYCLE_FLAG,
+      `${verb} a cycle (number, name, id, or 'current'; team from --team or config)`,
+    )
     .option("--release <name>", `${verb} a release (name, version, or id)`);
 }
 

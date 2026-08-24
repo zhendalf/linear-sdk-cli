@@ -18,7 +18,12 @@ const ROW_COLUMNS: Column<svc.AgentSessionRow>[] = [
   { key: "agent", header: "Agent", value: (r) => r.agent?.displayName ?? "—", max: 20 },
   { key: "issue", header: "Issue", value: (r) => r.issue?.identifier ?? "—" },
   { key: "createdAt", header: "Created", value: (r) => r.createdAt.slice(0, 10) },
-  { key: "summary", header: "Summary", value: (r) => r.summary?.replace(/\n/g, " ") ?? "—", max: 60 },
+  {
+    key: "summary",
+    header: "Summary",
+    value: (r) => r.summary?.replace(/\n/g, " ") ?? "—",
+    max: 60,
+  },
   { key: "id", header: "ID", value: (r) => r.id },
 ];
 
@@ -88,7 +93,12 @@ export function registerAgentSession(issue: Command): void {
           ["Created", d.createdAt],
           ["Started", d.startedAt],
           ["Ended", d.endedAt],
-          ["Dismissed", d.dismissedAt ? `${d.dismissedAt}${d.dismissedBy ? ` by ${d.dismissedBy.displayName}` : ""}` : null],
+          [
+            "Dismissed",
+            d.dismissedAt
+              ? `${d.dismissedAt}${d.dismissedBy ? ` by ${d.dismissedBy.displayName}` : ""}`
+              : null,
+          ],
           ["External link", d.externalLink],
           ["URL", d.url],
           ["Summary", d.summary ? `\n${d.summary}` : null],
@@ -103,9 +113,7 @@ function renderActivities(d: svc.AgentSessionDetail): string {
   const lines = d.activities.map((a) => {
     const when = a.createdAt.slice(11, 19);
     const text =
-      a.action !== null
-        ? `${a.action}${a.parameter ? `: ${a.parameter}` : ""}`
-        : (a.body ?? "");
+      a.action !== null ? `${a.action}${a.parameter ? `: ${a.parameter}` : ""}` : (a.body ?? "");
     return `- ${when} ${a.type}: ${text.replace(/\s*\n\s*/g, " ")}`;
   });
   if (d.activitiesTruncated) lines.push(`… more activities not shown (use --json)`);

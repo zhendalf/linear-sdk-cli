@@ -11,7 +11,7 @@ import { connection } from "./_fakes.js";
 
 // A faithful SDK connection (see _fakes.ts): fetchNext() mutates and returns
 // `this`, which is what the real one does and what an ad-hoc literal did not.
-const conn = <T,>(nodes: T[]) => connection(nodes) as any;
+const conn = <T>(nodes: T[]) => connection(nodes) as any;
 
 describe("toRow", () => {
   it("projects a roadmap to the row shape, normalizing missing description", () => {
@@ -28,9 +28,7 @@ describe("toRow", () => {
 describe("listRoadmaps", () => {
   it("maps the connection nodes to rows", async () => {
     const client = {
-      roadmaps: vi.fn(async () =>
-        conn([{ id: "r1", name: "H1", description: "d", url: "u" }]),
-      ),
+      roadmaps: vi.fn(async () => conn([{ id: "r1", name: "H1", description: "d", url: "u" }])),
     } as any;
     const rows = await listRoadmaps(client, 50);
     expect(rows).toEqual([{ id: "r1", name: "H1", description: "d", url: "u" }]);

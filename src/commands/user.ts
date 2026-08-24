@@ -25,8 +25,8 @@ const ROW_COLUMNS: Column<svc.UserRow>[] = [
  * list` and `team members`. Ours is the global `--all` — exhaust pagination —
  * so a transplanted `linear user list --all` succeeds, and the deactivated
  * users it was asking for are quietly missing (TES-637 item 1). The global
- * keeps its one meaning (making it mean "and deactivated" here alone would be a
- * second meaning for one flag, the thing ALIGNMENT.md refuses); instead the
+ * keeps its one meaning (making it mean "and deactivated" here alone would give
+ * one flag two meanings); instead the
  * combination says what it did and names the flag that does the other thing.
  * A warning, not `info`: it survives `--quiet`, because a script is exactly
  * where a wrong result set goes unnoticed. Shared with `team members`.

@@ -13,7 +13,7 @@
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { shape } from "../lib/shape.js";
-import { collect } from "../lib/pagination.js";
+import { collect, inheritPaginationMetadata, pageSize } from "../lib/pagination.js";
 import { usageError, notFound, ambiguous } from "../lib/errors.js";
 import { assertMutation, unwrapMutation } from "../lib/mutation.js";
 import { resolveUserId, isUuid } from "../lib/resolve.js";
@@ -44,11 +44,9 @@ export function toRow(r: any): RoadmapRow {
 }
 
 export async function listRoadmaps(client: LinearClient, limit: number): Promise<RoadmapRow[]> {
-  const conn = await withRetry(() =>
-    client.roadmaps({ first: limit === Infinity ? 100 : Math.min(limit, 100) }),
-  );
+  const conn = await withRetry(() => client.roadmaps({ first: pageSize(limit) }));
   const nodes = await collect(conn as any, limit);
-  return nodes.map(toRow);
+  return inheritPaginationMetadata(nodes.map(toRow), nodes);
 }
 
 export interface RoadmapDetail {
@@ -153,7 +151,10 @@ export async function updateRoadmap(client: LinearClient, idArg: string, opts: U
 
 export async function deleteRoadmap(client: LinearClient, idArg: string) {
   const roadmap = await resolveRoadmap(client, idArg);
-  await assertMutation(withRetry(() => client.deleteRoadmap(roadmap.id)), "Roadmap deletion");
+  await assertMutation(
+    withRetry(() => client.deleteRoadmap(roadmap.id)),
+    "Roadmap deletion",
+  );
   return roadmap;
 }
 

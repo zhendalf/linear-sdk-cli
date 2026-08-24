@@ -13,7 +13,7 @@
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { shape } from "../lib/shape.js";
-import { collect, pageSize } from "../lib/pagination.js";
+import { collect, inheritPaginationMetadata, pageSize } from "../lib/pagination.js";
 import { usageError } from "../lib/errors.js";
 import { assertMutation, unwrapMutation } from "../lib/mutation.js";
 import { resolveIssue, resolveProjectId, isUuid } from "../lib/resolve.js";
@@ -69,13 +69,16 @@ export function entityLabel(entity: any): string {
 export async function listFavorites(client: LinearClient, limit: number): Promise<FavoriteRow[]> {
   const conn = await withRetry(() => client.favorites({ first: pageSize(limit) }));
   const nodes = await collect(conn as any, limit);
-  return Promise.all(
-    nodes.map(async (f: any) => ({
-      id: f.id,
-      type: f.type,
-      name: await favoriteName(f),
-      url: f.url ?? null,
-    })),
+  return inheritPaginationMetadata(
+    await Promise.all(
+      nodes.map(async (f: any) => ({
+        id: f.id,
+        type: f.type,
+        name: await favoriteName(f),
+        url: f.url ?? null,
+      })),
+    ),
+    nodes,
   );
 }
 
@@ -136,6 +139,9 @@ export async function addFavorite(client: LinearClient, opts: AddOptions) {
 
 /** Delete a favorite by id. */
 export async function removeFavorite(client: LinearClient, id: string) {
-  await assertMutation(withRetry(() => client.deleteFavorite(id)), "Favorite removal");
+  await assertMutation(
+    withRetry(() => client.deleteFavorite(id)),
+    "Favorite removal",
+  );
   return { id };
 }

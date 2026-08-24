@@ -14,14 +14,14 @@ Run a raw GraphQL query or mutation against the Linear API
 linear api [options] [query]
 ```
 
-| Option                | Description                                                       |
-| --------------------- | ----------------------------------------------------------------- |
-| `--query-file <path>` | read the query from a file ('-' for stdin)                        |
-| `--var <k=v...>`      | set a variable (repeatable; string value)                         |
-| `--vars <json>`       | variables as a JSON object                                        |
-| `--vars-file <path>`  | read variables from a JSON file ('-' for stdin)                   |
-| `--operation <name>`  | run this operation of a multi-operation document                  |
-| `--paginate`          | auto-follow the first connection's pageInfo cursor (queries only) |
-| `--raw`               | print the full GraphQL response (data + extensions)               |
+| Option                | Description                                                                    |
+| --------------------- | ------------------------------------------------------------------------------ |
+| `--query-file <path>` | read the query from a file ('-' for stdin)                                     |
+| `--var <k=v...>`      | set a variable (repeatable; JSON literals are typed, other values are strings) |
+| `--vars <json>`       | variables as a JSON object                                                     |
+| `--vars-file <path>`  | read variables from a JSON file ('-' for stdin)                                |
+| `--operation <name>`  | run this operation of a multi-operation document                               |
+| `--paginate`          | auto-follow the first connection's pageInfo cursor (queries only)              |
+| `--raw`               | print the full GraphQL response (data + extensions)                            |
 
 **Output (`--json`)**: raw JSON (keys depend on the request) — the response `data` as the API returned it (`--raw`: {data, extensions}); `--paginate` prints one array of every page's nodes

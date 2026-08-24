@@ -14,6 +14,8 @@ import {
   readAlias,
   parseList,
   parseIntOption,
+  parsePriority,
+  collectArray,
   CYCLE_FLAG,
   CYCLE_DESC,
   suggestSubcommand,
@@ -33,27 +35,34 @@ import {
   buildPrArgs,
 } from "../git.js";
 import { execFileSync } from "node:child_process";
-import { CliError } from "../lib/errors.js";
+import { readFileSync } from "node:fs";
+import { CliError, normalizeError } from "../lib/errors.js";
+import { openUrl } from "../lib/open.js";
 import type { Context } from "../context.js";
 import * as svc from "../services/issue.js";
 import * as commentSvc from "../services/comment.js";
-import { isSelf } from "../lib/resolve.js";
+import { isSelf, normalizeIssueReference, resolveIssue } from "../lib/resolve.js";
 import type { Column } from "../output/table.js";
 
-/** Resolve the target issue id from an argument or the current git branch. */
-function requireId(idArg: string | undefined): string {
+/** Resolve the target issue id from an argument/current branch, expanding `42` via the default team. */
+function requireId(idArg: string | undefined, defaultTeam?: string): string {
   const id = idArg ?? currentIssueId();
   if (!id) {
     throw usageError("No issue id given and none could be inferred from the current branch.");
   }
-  return id;
+  return normalizeIssueReference(id, defaultTeam);
 }
 
 const ROW_COLUMNS: Column<svc.IssueRow>[] = [
   { key: "id", header: "ID", value: (r) => r.identifier },
   // `--include-archived` mixes live, archived and trashed rows; mark the latter
   // two so they cannot pass for live. The state name alone stays under 14.
-  { key: "state", header: "State", value: (r) => `${r.state?.name ?? ""}${lifecycleMark(r)}`, max: 26 },
+  {
+    key: "state",
+    header: "State",
+    value: (r) => `${r.state?.name ?? ""}${lifecycleMark(r)}`,
+    max: 26,
+  },
   { key: "priority", header: "Pri", value: (r) => shortPriority(r.priority) },
   { key: "assignee", header: "Assignee", value: (r) => r.assignee?.displayName ?? "—", max: 16 },
   { key: "title", header: "Title", value: (r) => r.title, max: 60 },
@@ -88,6 +97,16 @@ function lifecycleMark(r: Pick<svc.IssueRow, "trashed" | "archivedAt">): string 
   return r.trashed ? " (trashed)" : r.archivedAt ? " (archived)" : "";
 }
 
+/** A removed reference flag whose meaning is already this CLI's query default. */
+function addNoopAllAssignees(command: Command): void {
+  command.addOption(
+    new Option(
+      "--all-assignees",
+      "accepted for compatibility (does not change the query)",
+    ).hideHelp(),
+  );
+}
+
 /**
  * schpet/linear-cli `issue` subcommands that a migrating user may type and that
  * do not exist under that name here. Since `view` is the default subcommand,
@@ -97,7 +116,8 @@ function lifecycleMark(r: Pick<svc.IssueRow, "trashed" | "archivedAt">): string 
  */
 const SCHPET_ISSUE_SUBCOMMANDS: Record<string, string> = {
   link: "Use 'linear attachment create <issue> --url <url>'.",
-  commits: "'issue commits' is not available here (jj/git log integration is not adopted). Use 'git log --grep <ID>'.",
+  commits:
+    "'issue commits' is not available here (jj/git log integration is not adopted). Use 'git log --grep <ID>'.",
   "agent-session": "Use 'linear issue agent-session list|view <issue>'.",
 };
 
@@ -109,7 +129,16 @@ export function registerIssue(program: Command): void {
     .command("view [id]", { isDefault: true })
     .description("Show an issue (defaults to the current branch's issue)")
     .option("-w, --web", "open the issue in the browser instead of printing")
-    .option("--comments", "include recent comments")
+    .option("--app", "open the issue in Linear.app instead of printing")
+    .option("--no-comments", "exclude comments from the output")
+    // The old opt-in spelling remains accepted; comments are now on by default.
+    .addOption(
+      new Option(
+        "--comments",
+        "accepted for compatibility: comments are included by default",
+      ).hideHelp(),
+    )
+    .option("--show-resolved-threads", "include resolved comment threads")
     .action(
       action(async (ctx: Context, opts, idArg?: string) => {
         // `view` is the default subcommand, so `linear issue lst` lands here
@@ -121,21 +150,28 @@ export function registerIssue(program: Command): void {
           const ported = SCHPET_ISSUE_SUBCOMMANDS[idArg.toLowerCase()];
           const guess = ported ? undefined : suggestSubcommand(issue, idArg);
           throw usageError(
-            `'${idArg}' is not a valid issue id (expected e.g. TES-123 or a UUID).${
+            `'${idArg}' is not a valid issue id (expected e.g. TES-123, 123 with a default team, or a UUID).${
               ported ? ` ${ported}` : guess ? ` Did you mean 'linear issue ${guess}'?` : ""
             }`,
           );
         }
-        const detail = await svc.getIssueDetail(ctx.client, requireId(idArg));
-        if (opts.web) {
-          await openUrl(detail.url);
+        if (opts.web && opts.app) throw usageError("Pass either --web or --app, not both.");
+        const includeComments = opts.comments !== false && !opts.web && !opts.app;
+        const detail = await svc.getIssueDetail(ctx.client, requireId(idArg, ctx.defaultTeam), {
+          includeComments,
+        });
+        if (opts.web || opts.app) {
+          await openUrl(detail.url, { app: opts.app === true });
           ctx.output.emit(
             { id: detail.id, identifier: detail.identifier, url: detail.url, opened: true },
-            () => ctx.output.success(`Opened ${detail.identifier}`),
+            () =>
+              ctx.output.success(
+                `Opened ${detail.identifier} in ${opts.app ? "Linear.app" : "the browser"}`,
+              ),
           );
           return;
         }
-        await renderIssueDetail(ctx, detail, !!opts.comments);
+        await renderIssueDetail(ctx, detail, includeComments, opts.showResolvedThreads === true);
       }),
     );
 
@@ -196,8 +232,12 @@ export function registerIssue(program: Command): void {
   addFilterOptions(list).addOption(
     // Not an alias of anything here — `list` already spans every state — but
     // the reference ships it, so accept it as a no-op instead of erroring.
-    new Option("--all-states", "accepted for compatibility (list is all-states already)").hideHelp(),
+    new Option(
+      "--all-states",
+      "accepted for compatibility (list is all-states already)",
+    ).hideHelp(),
   );
+  addNoopAllAssignees(list);
 
   // mine --------------------------------------------------------------------
   // `list` stays general; `mine` is the opinionated "what's on my plate" view
@@ -260,6 +300,7 @@ export function registerIssue(program: Command): void {
   addFilterOptions(mine, { assignee: false }).addOption(
     new Option("--all-states", "include every workflow state, not just unstarted"),
   );
+  addNoopAllAssignees(mine);
 
   // search ------------------------------------------------------------------
   const search = issue
@@ -309,6 +350,7 @@ export function registerIssue(program: Command): void {
     "--search-comments",
     "match comment bodies as well as titles and descriptions",
   );
+  addNoopAllAssignees(search);
 
   // create ------------------------------------------------------------------
   const create = issue
@@ -321,13 +363,16 @@ export function registerIssue(program: Command): void {
     .option("--editor", "compose the description in $EDITOR")
     .option("-a, --assignee <who>", "assignee (me|email|name|id)")
     .option("-s, --state <name>", "workflow state name or type")
-    .option("-P, --priority <0-4>", "priority", parseIntOption)
+    .option("-P, --priority <0-4>", "priority", parsePriority)
     .option("-l, --label <name>", "label (repeatable / comma-separated)", parseList)
     .option("-p, --project <name>", "project name or id")
     .option("--milestone <name>", "project milestone (requires --project)")
     .option(CYCLE_FLAG, CYCLE_DESC)
     .option("--estimate <n>", "estimate points", parseIntOption)
-    .option("--parent <id>", "parent issue id (the sub-issue joins the parent's project unless --project says otherwise)")
+    .option(
+      "--parent <id>",
+      "parent issue id (the sub-issue joins the parent's project unless --project says otherwise)",
+    )
     .option("--due <date>", "due date (YYYY-MM-DD)")
     .option("--template <name|id>", "create from an issue template (the team's or a shared one)")
     .option("--no-default-template", "do not apply the team's default issue template")
@@ -380,7 +425,7 @@ export function registerIssue(program: Command): void {
             milestone: opts.milestone,
             cycle: opts.cycle,
             estimate: opts.estimate,
-            parent: opts.parent,
+            parent: opts.parent ? normalizeIssueReference(opts.parent, ctx.defaultTeam) : undefined,
             dueDate: readAlias(opts, "--due", "--due-date"),
             template: opts.template,
             // Both spellings: ours, and the reference CLI's `--no-use-default-template`.
@@ -389,8 +434,9 @@ export function registerIssue(program: Command): void {
           ctx.defaultTeam,
         );
         if (!opts.start) {
-          ctx.output.emit({ id: created.id, identifier: created.identifier, url: created.url }, () =>
-            ctx.output.success(`Created ${created.identifier}: ${created.url}`),
+          ctx.output.emit(
+            { id: created.id, identifier: created.identifier, url: created.url },
+            () => ctx.output.success(`Created ${created.identifier}: ${created.url}`),
           );
           return;
         }
@@ -398,8 +444,10 @@ export function registerIssue(program: Command): void {
         // just created. An explicit --state already put it where it belongs, so
         // only the default case moves it (to the team's first `started` state).
         const moved = !opts.state;
-        await svc.moveIssueState(ctx.client, created, { move: moved });
+        // Local checkout is the preflight for starting work. If git refuses
+        // (dirty tree, invalid ref, …), the issue remains in its existing state.
         const branchResult = isGitRepo() ? checkoutBranch(created.branchName) : undefined;
+        await svc.moveIssueState(ctx.client, created, { move: moved });
         ctx.output.emit(
           {
             id: created.id,
@@ -438,13 +486,14 @@ export function registerIssue(program: Command): void {
     .option("-t, --team <key>", "move the issue to another team (changes its identifier)")
     .option("-a, --assignee <who>", "assignee (me|email|name|id)")
     .option("-s, --state <name>", "workflow state name or type")
-    .option("-P, --priority <0-4>", "priority", parseIntOption)
+    .option("-P, --priority <0-4>", "priority", parsePriority)
     .option("-p, --project <name>", "project name or id")
     .option("--milestone <name>", "project milestone")
     .option(CYCLE_FLAG, CYCLE_DESC)
     .option("--estimate <n>", "estimate points", parseIntOption)
     .option("--parent <id>", "parent issue id")
     .option("--due <date>", "due date (YYYY-MM-DD)")
+    .option("-l, --label <name>", "replace all labels (repeatable / comma-separated)", parseList)
     .option("--add-label <name>", "add a label (repeatable)", parseList)
     .option("--remove-label <name>", "remove a label (repeatable)", parseList)
     .option("--unassign", "clear the assignee")
@@ -467,7 +516,7 @@ export function registerIssue(program: Command): void {
           file: opts.descriptionFile,
           interactive: false,
         });
-        const updated = await svc.updateIssue(ctx.client, requireId(idArg), {
+        const updated = await svc.updateIssue(ctx.client, requireId(idArg, ctx.defaultTeam), {
           title: opts.title,
           description,
           // Only the explicit flag moves an issue — never `ctx.defaultTeam`, or
@@ -480,25 +529,29 @@ export function registerIssue(program: Command): void {
           milestone: opts.milestone,
           cycle: opts.cycle,
           estimate: opts.estimate,
-          parent: opts.parent,
+          parent: opts.parent ? normalizeIssueReference(opts.parent, ctx.defaultTeam) : undefined,
           dueDate: readAlias(opts, "--due", "--due-date"),
+          label: opts.label,
           addLabel: opts.addLabel,
           removeLabel: opts.removeLabel,
           unassign: opts.unassign,
           clearCycle: opts.clearCycle,
         });
-        ctx.output.emit({ id: updated.id, identifier: updated.identifier, url: updated.url }, () => {
-          ctx.output.success(`Updated ${updated.identifier}`);
-          // A move renumbers the issue and Linear drops what the destination
-          // team cannot hold. Say so once, rather than letting a script's next
-          // `TES-42` fail with "no such issue". Verified live — see CHANGELOG.
-          if (opts.team) {
-            ctx.output.info(
-              `Moved to team ${updated.identifier.split("-")[0]}: the issue is now ${updated.identifier}. ` +
-                `Its cycle, team-scoped labels, and any project the new team is not part of do not carry over.`,
-            );
-          }
-        });
+        ctx.output.emit(
+          { id: updated.id, identifier: updated.identifier, url: updated.url },
+          () => {
+            ctx.output.success(`Updated ${updated.identifier}`);
+            // A move renumbers the issue and Linear drops what the destination
+            // team cannot hold. Say so once, rather than letting a script's next
+            // `TES-42` fail with "no such issue". Verified live — see CHANGELOG.
+            if (opts.team) {
+              ctx.output.info(
+                `Moved to team ${updated.identifier.split("-")[0]}: the issue is now ${updated.identifier}. ` +
+                  `Its cycle, team-scoped labels, and any project the new team is not part of do not carry over.`,
+              );
+            }
+          },
+        );
       }),
     );
   addAliasOption(update, "--due-date <date>", "--due");
@@ -510,7 +563,9 @@ export function registerIssue(program: Command): void {
     .action(
       action(async (ctx: Context, _opts, a?: string, b?: string) => {
         const { idArg, value } = oneOrTwo(a, b, "assignee");
-        const updated = await svc.updateIssue(ctx.client, requireId(idArg), { assignee: value });
+        const updated = await svc.updateIssue(ctx.client, requireId(idArg, ctx.defaultTeam), {
+          assignee: value,
+        });
         ctx.output.emit({ id: updated.id, identifier: updated.identifier }, () =>
           ctx.output.success(`Assigned ${updated.identifier}`),
         );
@@ -523,7 +578,9 @@ export function registerIssue(program: Command): void {
     .action(
       action(async (ctx: Context, _opts, a?: string, b?: string) => {
         const { idArg, value } = oneOrTwo(a, b, "state");
-        const updated = await svc.updateIssue(ctx.client, requireId(idArg), { state: value });
+        const updated = await svc.updateIssue(ctx.client, requireId(idArg, ctx.defaultTeam), {
+          state: value,
+        });
         ctx.output.emit({ id: updated.id, identifier: updated.identifier }, () =>
           ctx.output.success(`Moved ${updated.identifier} → ${value}`),
         );
@@ -539,7 +596,7 @@ export function registerIssue(program: Command): void {
     .action(
       action(async (ctx: Context, opts, idArg?: string) => {
         if (!opts.add && !opts.remove) throw usageError("Pass --add and/or --remove.");
-        const updated = await svc.updateIssue(ctx.client, requireId(idArg), {
+        const updated = await svc.updateIssue(ctx.client, requireId(idArg, ctx.defaultTeam), {
           addLabel: opts.add,
           removeLabel: opts.remove,
         });
@@ -553,9 +610,14 @@ export function registerIssue(program: Command): void {
   const comment = issue
     .command("comment [id] [body]")
     .description(
-      "Add a comment to an issue; on a matching branch, `issue comment \"<body>\"` is enough (or use the add/list/update/delete subcommands)",
+      'Add a comment to an issue; on a matching branch, `issue comment "<body>"` is enough (or use the add/list/update/delete subcommands)',
     )
     .option("--body-file <path>", "read comment body from a file ('-' = stdin)")
+    .option(
+      "--mention <user>",
+      "prepend a real Linear mention (name, email, me, or id; repeatable)",
+      collectArray,
+    )
     .action(
       action(async (ctx: Context, opts, a?: string, b?: string) => {
         // Both operands are optional, so a lone one is ambiguous: `TES-42` is
@@ -565,10 +627,17 @@ export function registerIssue(program: Command): void {
         const { idArg, bodyArg } = idAndBody(a, b);
         // Settle the id BEFORE the editor can open, so nobody writes a comment
         // only to be told there was nowhere to put it.
-        const id = requireId(idArg);
-        const body = resolveBody({ arg: bodyArg, file: opts.bodyFile, interactive: ctx.isTTY });
-        if (!body) throw usageError("No comment body provided.");
-        const { issue: iss, comment } = await commentSvc.addComment(ctx.client, id, body);
+        const id = requireId(idArg, ctx.defaultTeam);
+        const mentions: string[] = opts.mention ?? [];
+        const body = resolveBody({
+          arg: bodyArg,
+          file: opts.bodyFile,
+          interactive: ctx.isTTY && mentions.length === 0,
+        });
+        if (!body && mentions.length === 0) throw usageError("No comment body provided.");
+        const { issue: iss, comment } = await commentSvc.addComment(ctx.client, id, body ?? "", {
+          mentions,
+        });
         ctx.output.emit({ id: comment?.id, issue: iss.identifier }, () =>
           ctx.output.success(`Commented on ${iss.identifier}`),
         );
@@ -587,7 +656,11 @@ export function registerIssue(program: Command): void {
       action(async (ctx: Context, _opts, idArg?: string) => {
         // Same implementation and row shape as `comment list` — TES-629: this
         // used to be a second, narrower lister with its own JSON.
-        const comments = await commentSvc.listComments(ctx.client, requireId(idArg), ctx.limit);
+        const comments = await commentSvc.listComments(
+          ctx.client,
+          requireId(idArg, ctx.defaultTeam),
+          ctx.limit,
+        );
         ctx.output.list(
           comments,
           [
@@ -612,7 +685,9 @@ export function registerIssue(program: Command): void {
   // is a surprise.
   issue
     .command("start [id]")
-    .description("Start work on an issue: check out its branch and move it to the first 'started' state")
+    .description(
+      "Start work on an issue: check out its branch and move it to the first 'started' state",
+    )
     .option("--state <name>", "move to this state instead of the first 'started' one")
     .option("--no-move", "do not change the state; only check out the branch")
     .addOption(new Option("--move", "accepted for compatibility: moving is the default").hideHelp())
@@ -635,14 +710,17 @@ export function registerIssue(program: Command): void {
           throw usageError("Pass either --state or --no-move, not both.");
         }
         const moved = opts.state !== undefined || opts.move !== false;
-        const issueModel = await svc.startIssue(ctx.client, requireId(idArg), {
-          stateInput: opts.state,
-          move: moved,
-        });
+        const issueModel = await resolveIssue(ctx.client, requireId(idArg, ctx.defaultTeam));
         let branchResult: { branch: string; created: boolean } | undefined;
+        // Branch first, Linear second. A checkout failure is recoverable local
+        // feedback and must never leave the remote issue claiming work started.
         if (opts.checkout !== false && isGitRepo()) {
           branchResult = checkoutBranch(issueModel.branchName);
         }
+        await svc.moveIssueState(ctx.client, issueModel, {
+          stateInput: opts.state,
+          move: moved,
+        });
         ctx.output.emit(
           {
             id: issueModel.id,
@@ -656,7 +734,8 @@ export function registerIssue(program: Command): void {
               ctx.output.success(
                 `${branchResult.created ? "Created and checked out" : "Checked out"} ${branchResult.branch}`,
               );
-            if (moved) ctx.output.success(`Moved ${issueModel.identifier} → ${opts.state ?? "started"}`);
+            if (moved)
+              ctx.output.success(`Moved ${issueModel.identifier} → ${opts.state ?? "started"}`);
             if (!branchResult && !moved) ctx.output.info(`Branch name: ${issueModel.branchName}`);
           },
         );
@@ -675,10 +754,14 @@ export function registerIssue(program: Command): void {
     .option("-r, --references", "link without closing: 'References <ID>' instead of 'Fixes <ID>'")
     .action(
       action(async (ctx: Context, opts, idArg?: string) => {
-        const detail = await svc.getIssueDetail(ctx.client, requireId(idArg));
+        const detail = await svc.getIssueDetail(ctx.client, requireId(idArg, ctx.defaultTeam), {
+          includeComments: false,
+        });
         const references = opts.references === true;
         const trailer = buildTrailer(detail.identifier, { references });
-        const message = buildDescription(detail.identifier, detail.title, detail.url, { references });
+        const message = buildDescription(detail.identifier, detail.title, detail.url, {
+          references,
+        });
         ctx.output.emit(
           {
             identifier: detail.identifier,
@@ -709,7 +792,9 @@ export function registerIssue(program: Command): void {
         if (!isGitRepo()) {
           throw usageError("`issue pr` must be run inside a git repository.");
         }
-        const detail = await svc.getIssueDetail(ctx.client, requireId(idArg));
+        const detail = await svc.getIssueDetail(ctx.client, requireId(idArg, ctx.defaultTeam), {
+          includeComments: false,
+        });
         // Title `ID Title` (a custom --title is prefixed the same way), body the
         // two Linear-issue trailers — schpet/linear-cli's PR, plus the magic word
         // (`buildPrContent`). The issue's *description* is no longer copied in
@@ -750,8 +835,9 @@ export function registerIssue(program: Command): void {
     .option("--duplicate", "relation type: duplicate")
     .action(
       action(async (ctx: Context, opts, id: string, op: string, other?: string) => {
+        const issueId = normalizeIssueReference(id, ctx.defaultTeam);
         if (op === "list") {
-          const rels = await svc.listRelations(ctx.client, id);
+          const rels = await svc.listRelations(ctx.client, issueId);
           ctx.output.list(
             rels,
             [
@@ -772,7 +858,13 @@ export function registerIssue(program: Command): void {
             : opts.duplicate
               ? "duplicate"
               : "related";
-        const { issue: a, other: b } = await svc.addRemoveRelation(ctx.client, id, op, type as any, other);
+        const { issue: a, other: b } = await svc.addRemoveRelation(
+          ctx.client,
+          issueId,
+          op,
+          type as any,
+          normalizeIssueReference(other, ctx.defaultTeam),
+        );
         ctx.output.emit(
           {
             issueId: a.id,
@@ -796,7 +888,7 @@ export function registerIssue(program: Command): void {
     .description("Subscribe to an issue")
     .action(
       action(async (ctx: Context, _opts, idArg?: string) => {
-        const iss = await svc.setSubscription(ctx.client, requireId(idArg), true);
+        const iss = await svc.setSubscription(ctx.client, requireId(idArg, ctx.defaultTeam), true);
         ctx.output.emit({ id: iss.id, identifier: iss.identifier, subscribed: true }, () =>
           ctx.output.success(`Subscribed to ${iss.identifier}`),
         );
@@ -807,7 +899,7 @@ export function registerIssue(program: Command): void {
     .description("Unsubscribe from an issue")
     .action(
       action(async (ctx: Context, _opts, idArg?: string) => {
-        const iss = await svc.setSubscription(ctx.client, requireId(idArg), false);
+        const iss = await svc.setSubscription(ctx.client, requireId(idArg, ctx.defaultTeam), false);
         ctx.output.emit({ id: iss.id, identifier: iss.identifier, subscribed: false }, () =>
           ctx.output.success(`Unsubscribed from ${iss.identifier}`),
         );
@@ -818,13 +910,13 @@ export function registerIssue(program: Command): void {
   issue
     .command("archive [id]")
     .description("Archive an issue")
+    .option("--bulk <ids>", "archive comma-separated issue ids (repeatable)", parseList)
+    .option("--bulk-file <path>", "archive issue ids from a file (one per line)")
+    .option("--bulk-stdin", "archive issue ids read from stdin (one per line)")
     .action(
-      action(async (ctx: Context, _opts, idArg?: string) => {
-        const id = requireId(idArg);
-        if (!(await confirmDestructive(ctx, `Archive issue ${id}?`))) return;
-        const iss = await svc.archiveIssue(ctx.client, id, false);
-        ctx.output.emit({ id: iss.id, identifier: iss.identifier, archived: true }, () =>
-          ctx.output.success(`Archived ${iss.identifier}`),
+      action(async (ctx: Context, opts, idArg?: string) => {
+        await runBulkIssueMutation(ctx, opts, idArg, "archive", (id) =>
+          svc.archiveIssue(ctx.client, id, false),
         );
       }),
     );
@@ -833,7 +925,7 @@ export function registerIssue(program: Command): void {
     .description("Unarchive an issue")
     .action(
       action(async (ctx: Context, _opts, idArg?: string) => {
-        const iss = await svc.archiveIssue(ctx.client, requireId(idArg), true);
+        const iss = await svc.archiveIssue(ctx.client, requireId(idArg, ctx.defaultTeam), true);
         ctx.output.emit({ id: iss.id, identifier: iss.identifier, archived: false }, () =>
           ctx.output.success(`Unarchived ${iss.identifier}`),
         );
@@ -843,13 +935,13 @@ export function registerIssue(program: Command): void {
     .command("delete [id]")
     .alias("rm")
     .description("Delete (trash) an issue")
+    .option("--bulk <ids>", "delete comma-separated issue ids (repeatable)", parseList)
+    .option("--bulk-file <path>", "delete issue ids from a file (one per line)")
+    .option("--bulk-stdin", "delete issue ids read from stdin (one per line)")
     .action(
-      action(async (ctx: Context, _opts, idArg?: string) => {
-        const id = requireId(idArg);
-        if (!(await confirmDestructive(ctx, `Delete issue ${id}?`))) return;
-        const iss = await svc.deleteIssue(ctx.client, id);
-        ctx.output.emit({ id: iss.id, identifier: iss.identifier, deleted: true }, () =>
-          ctx.output.success(`Deleted ${iss.identifier}`),
+      action(async (ctx: Context, opts, idArg?: string) => {
+        await runBulkIssueMutation(ctx, opts, idArg, "delete", (id) =>
+          svc.deleteIssue(ctx.client, id),
         );
       }),
     );
@@ -861,6 +953,115 @@ export function registerIssue(program: Command): void {
   registerScalar(issue, "branch", "Print the suggested git branch name", (d) => d.branchName);
 }
 
+type BulkAction = "archive" | "delete";
+type BulkIssueResult = {
+  input: string;
+  id?: string;
+  identifier?: string;
+  archived?: boolean;
+  deleted?: boolean;
+  error?: { message: string; code: string };
+};
+
+/**
+ * Collect issue ids from one explicit source. A positional id remains the
+ * ergonomic path for one issue (and can still be inferred from the branch),
+ * while bulk sources intentionally never consult the branch: an empty input
+ * must not accidentally mutate the current issue.
+ */
+function bulkIssueIds(
+  opts: Record<string, unknown>,
+  idArg: string | undefined,
+): string[] | undefined {
+  const sources = [
+    Array.isArray(opts.bulk) && opts.bulk.length > 0 ? "--bulk" : undefined,
+    typeof opts.bulkFile === "string" ? "--bulk-file" : undefined,
+    opts.bulkStdin === true ? "--bulk-stdin" : undefined,
+  ].filter((v): v is string => !!v);
+  if (sources.length === 0) return undefined;
+  if (sources.length > 1 || idArg !== undefined) {
+    throw usageError(
+      "Pass either one issue id or exactly one of --bulk, --bulk-file, and --bulk-stdin.",
+    );
+  }
+  let values: string[];
+  if (sources[0] === "--bulk") values = opts.bulk as string[];
+  else {
+    const path = sources[0] === "--bulk-stdin" ? 0 : (opts.bulkFile as string);
+    let text: string;
+    try {
+      text = readFileSync(path, "utf8");
+    } catch (err) {
+      throw new CliError(
+        `Cannot read ${sources[0] === "--bulk-stdin" ? "stdin" : path}: ${(err as Error).message}`,
+        "runtime",
+      );
+    }
+    values = text.split(/[\s,]+/).filter(Boolean);
+  }
+  const ids = [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+  if (ids.length === 0) throw usageError(`${sources[0]} did not contain any issue ids.`);
+  return ids;
+}
+
+async function runBulkIssueMutation(
+  ctx: Context,
+  opts: Record<string, unknown>,
+  idArg: string | undefined,
+  actionName: BulkAction,
+  mutate: (id: string) => Promise<{ id: string; identifier: string }>,
+): Promise<void> {
+  const bulk = bulkIssueIds(opts, idArg);
+  const ids = bulk ?? [requireId(idArg, ctx.defaultTeam)];
+  const single = bulk === undefined;
+  const noun = actionName === "archive" ? "Archive" : "Delete";
+  const message = single ? `${noun} issue ${ids[0]}?` : `${noun} ${ids.length} issues?`;
+  if (!(await confirmDestructive(ctx, message))) return;
+
+  const results: BulkIssueResult[] = [];
+  for (const input of ids) {
+    const id = normalizeIssueReference(input, ctx.defaultTeam);
+    try {
+      const issue = await mutate(id);
+      results.push({
+        input,
+        id: issue.id,
+        identifier: issue.identifier,
+        [actionName === "archive" ? "archived" : "deleted"]: true,
+      });
+    } catch (err) {
+      const normalized = normalizeError(err);
+      results.push({ input, error: { message: normalized.message, code: normalized.code } });
+    }
+  }
+
+  if (single) {
+    const result = results[0]!;
+    if (result.error)
+      throw new CliError(result.error.message, result.error.code as CliError["code"]);
+    ctx.output.emit(
+      actionName === "archive"
+        ? { id: result.id!, identifier: result.identifier!, archived: true }
+        : { id: result.id!, identifier: result.identifier!, deleted: true },
+      () => ctx.output.success(`${noun}d ${result.identifier}`),
+    );
+    return;
+  }
+
+  const failures = results.filter((result) => result.error).length;
+  ctx.output.emit(
+    { action: actionName, results, succeeded: results.length - failures, failed: failures },
+    () => {
+      for (const result of results) {
+        if (result.error) ctx.output.warn(`${result.input}: ${result.error.message}`);
+        else ctx.output.success(`${noun}d ${result.identifier}`);
+      }
+      ctx.output.info(`${results.length - failures}/${results.length} issues ${actionName}d.`);
+    },
+  );
+  if (failures > 0) process.exitCode = 1;
+}
+
 /**
  * Render a single issue's detail block. Shared by `issue view` and the bare
  * `linear` command so `linear --json` === `issue view <id> --json`.
@@ -869,14 +1070,20 @@ export async function renderIssueDetail(
   ctx: Context,
   detail: svc.IssueDetail,
   includeComments: boolean,
+  showResolvedThreads = false,
 ): Promise<void> {
-  const comments = includeComments ? await commentSvc.listComments(ctx.client, detail.id, 10) : [];
   const { cycle, team } = detail;
-  ctx.output.detail({ ...detail, comments: includeComments ? comments : undefined }, [
+  const commentPairs = includeComments
+    ? issueCommentPairs(detail.comments, showResolvedThreads)
+    : [];
+  ctx.output.detail(detail, [
     ["Issue", `${detail.identifier}  ${detail.title}`],
     // A deleted issue used to view exactly like a live one. Say so first, and
     // in capitals: an agent that deletes and re-reads must see the change.
-    ["Trashed", detail.trashed ? `YES (deleted ${detail.archivedAt ?? "at an unknown time"})` : null],
+    [
+      "Trashed",
+      detail.trashed ? `YES (deleted ${detail.archivedAt ?? "at an unknown time"})` : null,
+    ],
     ["Archived", !detail.trashed && detail.archivedAt ? `YES (${detail.archivedAt})` : null],
     ["State", detail.state?.name ?? null],
     ["Priority", detail.priorityLabel],
@@ -885,19 +1092,107 @@ export async function renderIssueDetail(
     ["Project", detail.project?.name ?? null],
     ["Milestone", detail.milestone?.name ?? null],
     ["Cycle", cycle ? `#${cycle.number}${cycle.name ? ` ${cycle.name}` : ""}` : null],
-    ["Parent", detail.parent?.identifier ?? null],
+    ["Parent", detail.parent ? issueRefLabel(detail.parent) : null],
+    [
+      "Sub-issues",
+      detail.children.length ? `\n${detail.children.map(issueRefLabel).join("\n")}` : null,
+    ],
     ["Estimate", detail.estimate],
     ["Labels", detail.labels.length ? detail.labels.map((l) => l.name).join(", ") : null],
+    [
+      "Attachments",
+      detail.attachments.length ? `\n${detail.attachments.map(attachmentLabel).join("\n")}` : null,
+    ],
+    [
+      "Documents",
+      detail.documents.length
+        ? `\n${detail.documents.map((d) => `${d.title}: ${d.url}`).join("\n")}`
+        : null,
+    ],
+    ["Relations", relationLabels(detail)],
     ["Due", detail.dueDate],
     ["URL", detail.url],
     ["Updated", detail.updatedAt],
     ["Description", detail.description ? `\n${detail.description}` : null],
-    ...(includeComments
-      ? comments.map(
-          (c) => [c.createdAt.slice(0, 10) + " " + (c.user?.displayName ?? "—"), c.body] as [string, unknown],
-        )
-      : []),
+    ...commentPairs,
   ]);
+}
+
+function issueRefLabel(issue: svc.IssueDetailRef): string {
+  return `${issue.identifier}  ${issue.title}${issue.state ? ` [${issue.state.name}]` : ""}`;
+}
+
+function attachmentLabel(attachment: svc.IssueAttachmentDetail): string {
+  const source = attachment.sourceType ? ` [${attachment.sourceType}]` : "";
+  const subtitle = attachment.subtitle ? ` — ${attachment.subtitle}` : "";
+  return `${attachment.title}: ${attachment.url}${source}${subtitle}`;
+}
+
+function relationLabels(detail: svc.IssueDetail): string | null {
+  const lines = [
+    ...detail.relations.map(
+      (r) => `${relationVerb(r.type, false)} ${issueRefLabel(r.relatedIssue)}`,
+    ),
+    ...detail.inverseRelations.map(
+      (r) => `${relationVerb(r.type, true)} ${issueRefLabel(r.issue)}`,
+    ),
+  ];
+  return lines.length ? `\n${lines.join("\n")}` : null;
+}
+
+function relationVerb(type: string, inverse: boolean): string {
+  if (type === "blocks") return inverse ? "Blocked by" : "Blocks";
+  if (type === "duplicate") return inverse ? "Duplicated by" : "Duplicates";
+  return type === "related" ? "Related to" : `${inverse ? "Inverse" : "Related"} (${type})`;
+}
+
+/** Human comment rows grouped as threads, hiding resolved roots unless requested. */
+function issueCommentPairs(
+  comments: svc.IssueCommentDetail[],
+  showResolvedThreads: boolean,
+): Array<[string, unknown]> {
+  const byId = new Map(comments.map((comment) => [comment.id, comment]));
+  const rootId = (comment: svc.IssueCommentDetail): string => {
+    const seen = new Set<string>();
+    let current = comment;
+    while (current.parent && !seen.has(current.id)) {
+      seen.add(current.id);
+      const parent = byId.get(current.parent.id);
+      if (!parent) break;
+      current = parent;
+    }
+    return current.id;
+  };
+  const roots = comments.filter((comment) => !comment.parent);
+  const visibleRoots = roots.filter((comment) => showResolvedThreads || !comment.resolvedAt);
+  const visibleIds = new Set(visibleRoots.map((comment) => comment.id));
+  const pairs: Array<[string, unknown]> = [];
+
+  for (const root of visibleRoots) {
+    pairs.push(["Comment", commentLabel(root, false)]);
+    for (const reply of comments) {
+      if (reply.parent && rootId(reply) === root.id && visibleIds.has(root.id)) {
+        pairs.push(["Reply", commentLabel(reply, true)]);
+      }
+    }
+  }
+  const hidden = roots.length - visibleRoots.length;
+  if (hidden > 0) {
+    pairs.push([
+      "Comments",
+      `${hidden} resolved ${hidden === 1 ? "thread" : "threads"} hidden; use --show-resolved-threads to show ${hidden === 1 ? "it" : "them"}.`,
+    ]);
+  }
+  return pairs;
+}
+
+function commentLabel(comment: svc.IssueCommentDetail, reply: boolean): string {
+  const author = comment.user?.displayName ?? comment.externalUser?.displayName ?? "Unknown";
+  const thread = reply ? "" : ` [thread: ${comment.id}]`;
+  const resolved = comment.resolvedAt
+    ? ` [resolved${comment.resolvingUser ? ` by ${comment.resolvingUser.displayName}` : ""}]`
+    : "";
+  return `@${author} ${comment.createdAt.slice(0, 10)}${thread}${resolved}\n${comment.body}`;
 }
 
 function registerScalar(
@@ -911,27 +1206,36 @@ function registerScalar(
     .description(description)
     .action(
       action(async (ctx: Context, _opts, idArg?: string) => {
-        const detail = await svc.getIssueDetail(ctx.client, requireId(idArg));
+        const detail = await svc.getIssueDetail(ctx.client, requireId(idArg, ctx.defaultTeam), {
+          includeComments: false,
+        });
         ctx.output.emit({ [name]: pick(detail) }, () => ctx.output.line(pick(detail)));
       }),
     );
 }
 
-const ISSUE_ID_RE = /^([a-zA-Z][a-zA-Z0-9]*-\d+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+const ISSUE_ID_RE =
+  /^(\d+|[a-zA-Z][a-zA-Z0-9]*-\d+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 
 /**
  * Disambiguate `[id] [value]` where both are optional so the issue id can be
  * inferred from the branch. Two args → (id, value). One arg → it's the value
  * unless it looks like an issue id (then the value is missing → usage error).
  */
-function oneOrTwo(a: string | undefined, b: string | undefined, valueName: string): {
+function oneOrTwo(
+  a: string | undefined,
+  b: string | undefined,
+  valueName: string,
+): {
   idArg?: string;
   value: string;
 } {
   if (a !== undefined && b !== undefined) return { idArg: a, value: b };
   if (a === undefined) throw usageError(`Missing ${valueName}.`);
   if (ISSUE_ID_RE.test(a)) {
-    throw usageError(`Missing ${valueName}. Usage: <id> <${valueName}>  (or just <${valueName}> on a matching branch)`);
+    throw usageError(
+      `Missing ${valueName}. Usage: <id> <${valueName}>  (or just <${valueName}> on a matching branch)`,
+    );
   }
   return { value: a };
 }
@@ -941,7 +1245,10 @@ function oneOrTwo(a: string | undefined, b: string | undefined, valueName: strin
  * legitimately be absent (it can come from --body-file or $EDITOR): a lone
  * operand that looks like an issue id IS the id; anything else is the body.
  */
-function idAndBody(a: string | undefined, b: string | undefined): { idArg?: string; bodyArg?: string } {
+function idAndBody(
+  a: string | undefined,
+  b: string | undefined,
+): { idArg?: string; bodyArg?: string } {
   if (a !== undefined && b !== undefined) return { idArg: a, bodyArg: b };
   if (a === undefined) return {};
   return ISSUE_ID_RE.test(a) ? { idArg: a } : { bodyArg: a };
@@ -966,10 +1273,4 @@ function runGh(args: string[]): string {
     const stderr = e.stderr ? e.stderr.toString().trim() : "";
     throw new CliError(stderr || `gh exited with code ${e.status ?? 1}.`, "runtime");
   }
-}
-
-async function openUrl(url: string): Promise<void> {
-  const { execFile } = await import("node:child_process");
-  const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
-  await new Promise<void>((resolve) => execFile(cmd, [url], () => resolve()));
 }

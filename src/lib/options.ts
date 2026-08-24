@@ -6,12 +6,24 @@
 import { Command, Option } from "commander";
 import { usageError, type CliError } from "./errors.js";
 
-/** Repeatable `--var k=v` collector → { k: v }. */
-export function collectKeyVal(value: string, previous: Record<string, string> = {}): Record<string, string> {
+/**
+ * Repeatable `--var k=v` collector. JSON literals become their real types
+ * (`2`, `true`, `null`, arrays/objects); ordinary text stays a string.
+ */
+export function collectKeyVal(
+  value: string,
+  previous: Record<string, unknown> = {},
+): Record<string, unknown> {
   const eq = value.indexOf("=");
   if (eq === -1) throw usageError(`Expected key=value, got '${value}'`);
   const key = value.slice(0, eq);
-  previous[key] = value.slice(eq + 1);
+  if (!key) throw usageError(`Expected a non-empty key in key=value, got '${value}'`);
+  const raw = value.slice(eq + 1);
+  try {
+    previous[key] = JSON.parse(raw);
+  } catch {
+    previous[key] = raw;
+  }
   return previous;
 }
 
@@ -376,6 +388,7 @@ export const FIELDS_COMMANDS: ReadonlySet<string> = new Set([
   "state view",
   "team list",
   "team view",
+  "team id",
   "team members",
   "team states",
   "team labels",
@@ -423,6 +436,65 @@ export const LIMIT_COMMANDS: ReadonlySet<string> = new Set([
   "webhook list",
 ]);
 
+/** Commands where the global team changes resolution, filtering, or a mutation. */
+export const TEAM_COMMANDS: ReadonlySet<string> = new Set([
+  "config show",
+  "config init",
+  "issue view",
+  "issue list",
+  "issue mine",
+  "issue search",
+  "issue create",
+  "issue update",
+  "team view",
+  "team members",
+  "team states",
+  "team labels",
+  "team cycles",
+  "team update",
+  "project list",
+  "project create",
+  // Registered locally by project update so it can reject the dangerous
+  // singular spelling with a tailored `--teams` explanation.
+  "project update",
+  "cycle list",
+  "cycle view",
+  "cycle current",
+  "cycle create",
+  "cycle update",
+  "state list",
+  "state view",
+  "label list",
+  "label create",
+  "document list",
+  "document create",
+  "document update",
+  "webhook create",
+]);
+
+/** Commands whose confirmation prompt is bypassed by `--yes`. */
+export const YES_COMMANDS: ReadonlySet<string> = new Set([
+  "attachment delete",
+  "auth logout",
+  "comment delete",
+  "issue comment delete",
+  "document delete",
+  "favorite remove",
+  "initiative archive",
+  "initiative remove-project",
+  "initiative delete",
+  "issue archive",
+  "issue delete",
+  "label delete",
+  "milestone delete",
+  "notification archive",
+  "project archive",
+  "project delete",
+  "roadmap delete",
+  "team delete",
+  "webhook delete",
+]);
+
 /** `project list` for the `list` command under `project` — the path without the program name. */
 export function subcommandPath(cmd: Command): string {
   const names: string[] = [];
@@ -461,7 +533,9 @@ export function assertGlobalsApply(cmd: Command): void {
     const files = fileOptionsOf(cmd);
     throw usageError(
       `--fields does not apply to \`linear ${path}\`: it prints a receipt, not a table or detail block to select fields from.` +
-        (files.length ? ` To read from a file, use ${files.join(" or ")} (-f is --fields here, not a file).` : ""),
+        (files.length
+          ? ` To read from a file, use ${files.join(" or ")} (-f is --fields here, not a file).`
+          : ""),
     );
   }
   if (!LIMIT_COMMANDS.has(path)) {
@@ -476,6 +550,12 @@ export function assertGlobalsApply(cmd: Command): void {
     if (merged.all === true) {
       throw usageError(`--all does not apply to \`linear ${path}\`: it is not a paged query.`);
     }
+  }
+  if (merged.team !== undefined && !TEAM_COMMANDS.has(path)) {
+    throw usageError(`--team does not apply to \`linear ${path}\`.`);
+  }
+  if (merged.yes === true && !YES_COMMANDS.has(path)) {
+    throw usageError(`--yes does not apply to \`linear ${path}\`: it has no confirmation prompt.`);
   }
 }
 
@@ -502,9 +582,10 @@ export interface FilterOptionSet {
  */
 export function addCoreFilterOptions(cmd: Command, set: FilterOptionSet = {}): Command {
   cmd.addOption(
-    new Option("-t, --team <key>", "filter by team key (repeatable; default: configured team)").argParser(
-      collectArray,
-    ),
+    new Option(
+      "-t, --team <key>",
+      "filter by team key (repeatable; default: configured team)",
+    ).argParser(collectArray),
   );
   cmd.addOption(
     new Option("-s, --state <name>", "filter by workflow state name/type (repeatable)").argParser(
@@ -521,11 +602,19 @@ export function addCoreFilterOptions(cmd: Command, set: FilterOptionSet = {}): C
       new Option("--project-label <name>", "filter by the project's label (excludes --project)"),
     )
     .addOption(new Option("--milestone <name>", "filter by project milestone"))
-    .addOption(new Option("-l, --label <name>", "filter by label (repeat to narrow)").argParser(parseList))
-    .addOption(new Option("-P, --priority <0-4>", "filter by priority").argParser(parsePriorityFilter))
+    .addOption(
+      new Option("-l, --label <name>", "filter by label (repeat to narrow)").argParser(parseList),
+    )
+    .addOption(
+      new Option("-P, --priority <0-4>", "filter by priority").argParser(parsePriorityFilter),
+    )
     .addOption(new Option(CYCLE_FLAG, CYCLE_DESC))
-    .addOption(new Option("--created-after <date>", "only issues created at/after a date (YYYY-MM-DD)"))
-    .addOption(new Option("--updated-after <date>", "only issues updated at/after a date (YYYY-MM-DD)"))
+    .addOption(
+      new Option("--created-after <date>", "only issues created at/after a date (YYYY-MM-DD)"),
+    )
+    .addOption(
+      new Option("--updated-after <date>", "only issues updated at/after a date (YYYY-MM-DD)"),
+    )
     .addOption(new Option("--all-teams", "search every team, ignoring the default team"))
     .addOption(new Option("--include-archived", "include archived issues"));
 }
@@ -538,7 +627,14 @@ export function addCoreFilterOptions(cmd: Command, set: FilterOptionSet = {}): C
 export function addFilterOptions(cmd: Command, set: FilterOptionSet = {}): Command {
   addCoreFilterOptions(cmd, set)
     .addOption(new Option("--query <text>", "full-text search"))
-    .addOption(new Option("--sort <field>", "sort order").choices(["priority", "updated", "created"]));
+    .addOption(
+      new Option("--sort <field>", "sort order").choices([
+        "priority",
+        "manual",
+        "updated",
+        "created",
+      ]),
+    );
   // `--search` is the reference CLI's spelling of the same filter.
   return addAliasOption(cmd, "--search <text>", "--query");
 }

@@ -10,6 +10,7 @@ import { createProgram, parsedGlobalOptions, usageHint, suppressedHelp } from ".
 import { Output } from "../output/format.js";
 import { CliError, ExitCode, normalizeError } from "../lib/errors.js";
 import { commandPath } from "../lib/options.js";
+import { isDebugEnabled, shouldUseColor } from "../output/color.js";
 
 // `linear schema | head -2` is a reader that stops early, and stdout closing
 // under us is that reader's business, not an error: exit quietly, as every
@@ -53,9 +54,14 @@ program.parseAsync(process.argv).catch((err) => {
   const json = globals.json === true;
   const out = new Output({
     json,
-    color: globals.noAnsi !== true && !json && process.stderr.isTTY === true,
+    color: shouldUseColor({
+      disabled: globals.noAnsi,
+      json,
+      isTTY: process.stderr.isTTY === true,
+    }),
     quiet: globals.quiet === true,
-    debug: globals.debug === true,
+    debug: isDebugEnabled(globals.debug),
+    isTTY: process.stderr.isTTY === true,
   });
   out.error(cliError);
   process.exit(cliError.exitCode);
@@ -70,14 +76,18 @@ function fromCommander(err: CommanderError): CliError {
   if (err.code === "commander.help") {
     const help = suppressedHelp(program);
     const path = help ? commandPath(help.command) : "linear";
-    return new CliError(`Missing subcommand. Run '${path} --help' to see the commands.`, "usage", err.code);
+    return new CliError(
+      "Missing subcommand.",
+      "usage",
+      err.code,
+      `Run '${path} --help' to see the commands.`,
+    );
   }
   return new CliError(
-    [stripErrorPrefix(err.message).replace(/\.?$/, "."), usageHint(program)]
-      .filter(Boolean)
-      .join(" "),
+    stripErrorPrefix(err.message).replace(/\.?$/, "."),
     "usage",
     err.code,
+    usageHint(program),
   );
 }
 

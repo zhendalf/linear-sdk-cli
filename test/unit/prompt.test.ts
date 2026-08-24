@@ -33,9 +33,8 @@ mock.module("@inquirer/prompts", () => ({
   },
 }));
 
-const { confirmDestructive, promptSecret, promptInput, EXIT_CANCELLED } = await import(
-  "../../src/lib/prompt.js"
-);
+const { confirmDestructive, promptSecret, promptInput, EXIT_CANCELLED } =
+  await import("../../src/lib/prompt.js");
 
 /**
  * A Context that really is interactive. Built by making the process look like a
@@ -84,11 +83,11 @@ async function captureStreams(fn: () => Promise<unknown>): Promise<{ out: string
 }
 
 /**
- * AUDIT #9 — `auth login` echoed the API key. The assertion is against the
+ * `auth login` once echoed the API key. The assertion is against the
  * library: inquirer's `password` prompt is what does not render the value, so
  * "masked" means "that function ran", not "our wrapper is named nicely".
  */
-describe("promptSecret (AUDIT #9)", () => {
+describe("promptSecret", () => {
   it("uses inquirer's password prompt — not input, which echoes", async () => {
     const ctx = interactiveContext();
     await promptSecret(ctx, "Linear API key:", { required: true });
@@ -116,9 +115,9 @@ describe("promptSecret (AUDIT #9)", () => {
   });
 
   it("refuses rather than hangs when there is nobody to prompt", async () => {
-    await expect(promptSecret(new Context({ noInput: true } as any), "Key:")).rejects.toBeInstanceOf(
-      CliError,
-    );
+    await expect(
+      promptSecret(new Context({ noInput: true } as any), "Key:"),
+    ).rejects.toBeInstanceOf(CliError);
   });
 
   it("promptInput still uses the echoing prompt — it is for non-secrets", async () => {
@@ -133,7 +132,7 @@ describe("promptSecret (AUDIT #9)", () => {
  * that matters and cannot be satisfied by accident: the key prompt is the
  * masked one, and the echoing prompt is not reachable from this file at all.
  */
-describe("auth login is wired to the masked prompt (AUDIT #9)", () => {
+describe("auth login is wired to the masked prompt", () => {
   const source = readFileSync(new URL("../../src/commands/meta.ts", import.meta.url), "utf8");
 
   it("prompts for the API key with promptSecret", () => {

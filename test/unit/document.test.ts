@@ -19,6 +19,7 @@ import {
   describeTarget,
 } from "../../src/services/document.js";
 import { connection } from "./_fakes.js";
+import { CliError } from "../../src/lib/errors.js";
 
 const UUID = "01234567-89ab-cdef-0123-456789abcdef";
 const TEAM_ID = "aaaaaaaa-0000-0000-0000-000000000001";
@@ -49,7 +50,10 @@ function fakeClient(sent: { creates: any[]; updates: any[]; raw: any[] }) {
     document: async (id: string) => ({ id, title: "Doc" }),
     createDocument: async (input: any) => {
       sent.creates.push(input);
-      return { success: true, document: Promise.resolve({ id: "d1", title: input.title, url: "u" }) };
+      return {
+        success: true,
+        document: Promise.resolve({ id: "d1", title: input.title, url: "u" }),
+      };
     },
     updateDocument: async (id: string, input: any) => {
       sent.updates.push({ id, input });
@@ -121,7 +125,9 @@ describe("createDocument — one target, resolved to its one input id", () => {
   it("requires a target, naming all six flags", async () => {
     await expect(createDocument(fakeClient(sent), { title: "Spec" })).rejects.toMatchObject({
       code: "usage",
-      message: expect.stringMatching(/--project, --issue, --initiative, --team, --cycle, or --release/),
+      message: expect.stringMatching(
+        /--project, --issue, --initiative, --team, --cycle, or --release/,
+      ),
     });
     expect(sent.creates).toEqual([]);
   });
@@ -154,7 +160,9 @@ describe("createDocument — one target, resolved to its one input id", () => {
   it("--cycle without --team uses the configured team; without either it is a usage error", async () => {
     await createDocument(fakeClient(sent), { title: "T", cycle: "current" }, "TES");
     expect(sent.creates[0]).toEqual({ title: "T", cycleId: CYCLE_ID });
-    await expect(createDocument(fakeClient(sent), { title: "T", cycle: "current" })).rejects.toMatchObject({
+    await expect(
+      createDocument(fakeClient(sent), { title: "T", cycle: "current" }),
+    ).rejects.toMatchObject({
       code: "usage",
       message: expect.stringMatching(/--cycle needs a team/),
     });
@@ -232,9 +240,11 @@ describe("updateDocument — metadata, and re-pointing", () => {
       looked = true;
       return { id: UUID };
     };
-    await expect(updateDocument(client, UUID, { team: "TES", project: "p" })).rejects.toMatchObject({
-      code: "usage",
-    });
+    await expect(updateDocument(client, UUID, { team: "TES", project: "p" })).rejects.toMatchObject(
+      {
+        code: "usage",
+      },
+    );
     expect(looked).toBe(false);
   });
 });
@@ -263,7 +273,9 @@ describe("listDocuments — the one relation clause per target", () => {
   });
 
   it("two filters could never match — usage error, no request", async () => {
-    await expect(listDocuments(fakeClient(sent), 50, { project: "p", issue: "TES-1" })).rejects.toMatchObject({
+    await expect(
+      listDocuments(fakeClient(sent), 50, { project: "p", issue: "TES-1" }),
+    ).rejects.toMatchObject({
       code: "usage",
     });
     expect(sent.raw).toEqual([]);
@@ -296,7 +308,9 @@ describe("listDocuments — the one relation clause per target", () => {
       };
     };
     const rows = await listDocuments(client, 50);
-    expect(sent.raw[0].query).toMatch(/project \{ id name \}[\s\S]*issue \{ id identifier \}[\s\S]*initiative \{ id name \}[\s\S]*team \{ id key name \}[\s\S]*cycle \{ id number name \}[\s\S]*release \{ id name version \}/);
+    expect(sent.raw[0].query).toMatch(
+      /project \{ id name \}[\s\S]*issue \{ id identifier \}[\s\S]*initiative \{ id name \}[\s\S]*team \{ id key name \}[\s\S]*cycle \{ id number name \}[\s\S]*release \{ id name version \}/,
+    );
     expect(rows[0]).toEqual({
       id: "d1",
       title: "A",
@@ -314,16 +328,33 @@ describe("listDocuments — the one relation clause per target", () => {
 });
 
 describe("describeTarget", () => {
-  const none = { project: null, issue: null, initiative: null, team: null, cycle: null, release: null };
+  const none = {
+    project: null,
+    issue: null,
+    initiative: null,
+    team: null,
+    cycle: null,
+    release: null,
+  };
   it("names the target with its kind", () => {
-    expect(describeTarget({ ...none, project: { id: "p", name: "Roadmap" } })).toBe("Project: Roadmap");
-    expect(describeTarget({ ...none, issue: { id: "i", identifier: "TES-1" } })).toBe("Issue: TES-1");
-    expect(describeTarget({ ...none, initiative: { id: "i", name: "Platform" } })).toBe("Initiative: Platform");
-    expect(describeTarget({ ...none, cycle: { id: "c", number: 4, name: "Sprint 4" } })).toBe("Cycle: #4 Sprint 4");
-    expect(describeTarget({ ...none, cycle: { id: "c", number: 4, name: null } })).toBe("Cycle: #4");
-    expect(describeTarget({ ...none, release: { id: "r", name: "Spring", version: "1.2.0" } })).toBe(
-      "Release: Spring (1.2.0)",
+    expect(describeTarget({ ...none, project: { id: "p", name: "Roadmap" } })).toBe(
+      "Project: Roadmap",
     );
+    expect(describeTarget({ ...none, issue: { id: "i", identifier: "TES-1" } })).toBe(
+      "Issue: TES-1",
+    );
+    expect(describeTarget({ ...none, initiative: { id: "i", name: "Platform" } })).toBe(
+      "Initiative: Platform",
+    );
+    expect(describeTarget({ ...none, cycle: { id: "c", number: 4, name: "Sprint 4" } })).toBe(
+      "Cycle: #4 Sprint 4",
+    );
+    expect(describeTarget({ ...none, cycle: { id: "c", number: 4, name: null } })).toBe(
+      "Cycle: #4",
+    );
+    expect(
+      describeTarget({ ...none, release: { id: "r", name: "Spring", version: "1.2.0" } }),
+    ).toBe("Release: Spring (1.2.0)");
     expect(describeTarget(none)).toBeNull();
   });
 });
@@ -366,6 +397,18 @@ describe("getDocumentDetail / deleteDocument", () => {
     expect(deleteDocumentMock).toHaveBeenCalledWith(UUID);
     expect(doc.id).toBe(UUID);
   });
+
+  it("preserves auth/network failures while resolving a slug for deletion", async () => {
+    const client = {
+      document: vi.fn().mockRejectedValue(new CliError("offline", "network")),
+      deleteDocument: vi.fn(),
+    } as any;
+    await expect(deleteDocument(client, "design-doc")).rejects.toMatchObject({
+      code: "network",
+      message: "offline",
+    });
+    expect(client.deleteDocument).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -392,7 +435,10 @@ describe("`document` commands — --team vs the configured team", () => {
     process.env.LINEAR_API_KEY = "lin_api_test000000000000";
     process.env.LINEAR_TEAM = "TES"; // the configured team
     clientDescriptor = Object.getOwnPropertyDescriptor(Context.prototype, "client");
-    Object.defineProperty(Context.prototype, "client", { get: () => fakeClient(sent), configurable: true });
+    Object.defineProperty(Context.prototype, "client", {
+      get: () => fakeClient(sent),
+      configurable: true,
+    });
   });
 
   afterEach(() => {

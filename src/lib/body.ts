@@ -30,7 +30,7 @@ export interface BodyInputs {
 }
 
 export function resolveBody(inputs: BodyInputs): string | undefined {
-  if (inputs.arg !== undefined) return inputs.arg;
+  if (inputs.arg !== undefined) return validateInlineBody(inputs.arg);
   if (inputs.file !== undefined) return readBodyFile(inputs.file);
   if (inputs.interactive) return openEditor(inputs.template ?? "");
   if (inputs.editorRequested) {
@@ -40,6 +40,27 @@ export function resolveBody(inputs: BodyInputs): string | undefined {
     );
   }
   return undefined;
+}
+
+/**
+ * A quoted shell argument does not interpret `\n`. This is an especially easy
+ * mistake for an agent composing Markdown in one command: Linear then stores
+ * and renders the two literal characters, often across an entire issue body.
+ *
+ * Do not silently unescape them. A literal backslash-n can be intentional in
+ * source code, JSON, or a regular expression, and changing it would corrupt
+ * user data. File/stdin input is the unambiguous route for both real newlines
+ * and intentional escape syntax.
+ */
+export function validateInlineBody(body: string): string {
+  if (body.includes("\\n")) {
+    throw usageError(
+      "Inline text contains a literal \\n sequence; shell quotes do not turn it into a line break. " +
+        "Use this command's *-file option with '-' and provide the Markdown on stdin. " +
+        "If the literal \\n is intentional, file input preserves it unchanged.",
+    );
+  }
+  return body;
 }
 
 function readBodyFile(file: string): string {
@@ -66,7 +87,10 @@ export function readStdinSync(): string {
  * so it is split shell-style (quotes and backslashes honoured) into argv, and
  * the file is appended. Exported for tests.
  */
-export function editorCommand(env: NodeJS.ProcessEnv = process.env): { raw: string; argv: string[] } {
+export function editorCommand(env: NodeJS.ProcessEnv = process.env): {
+  raw: string;
+  argv: string[];
+} {
   const raw = env.VISUAL || env.EDITOR || "vi";
   return { raw, argv: shellSplit(raw) };
 }

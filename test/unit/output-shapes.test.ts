@@ -30,6 +30,7 @@ import { walkCommands } from "../../src/lib/introspect.js";
 import { COMMAND_NODE_SHAPE, OUTPUT_SHAPES } from "../../src/lib/output-shapes.js";
 import { matchesShape, type OutputShape } from "../../src/lib/shape.js";
 import { writeCredential } from "../../src/config.js";
+import { setKeyringBackend } from "../../src/lib/keyring.js";
 import { omniClient, setOverrides, UUID } from "./_omni.js";
 
 // ---------------------------------------------------------------------------
@@ -57,6 +58,7 @@ const DRIVES: Record<string, Drive> = {
   "attachment create": { args: [T, "--url", "https://x.example", "--title", "t"] },
   "attachment delete": { args: [UUID, "--yes"] },
   "attachment list": { args: [T] },
+  "auth adopt": { args: ["acme"], skip: "reads a real named OS-keyring credential" },
   "auth default": { args: ["acme"] },
   "auth list": { args: [] },
   "auth login": { args: [], skip: "validates the key with a fresh LinearClient (network)" },
@@ -99,15 +101,27 @@ const DRIVES: Record<string, Drive> = {
   "initiative delete": { args: [UUID, "--yes"] },
   "initiative list": { args: [] },
   "initiative remove-project": { args: [UUID, UUID, "--yes"] },
-  "initiative unarchive": { args: [UUID], overrides: { archivedAt: new Date("2026-01-02T00:00:00.000Z") } },
+  "initiative unarchive": {
+    args: [UUID],
+    overrides: { archivedAt: new Date("2026-01-02T00:00:00.000Z") },
+  },
   "initiative update": { args: [UUID, "--name", "n2"] },
   "initiative view": { args: [UUID] },
   "initiative-update create": { args: [UUID, "--body", "b"] },
   "initiative-update list": { args: [UUID] },
-  issue: { args: [T], variants: { "--comments": [T, "--comments"], "--web": ["SKIP: opens a browser"] } },
+  issue: {
+    args: [T],
+    variants: {
+      "--web": ["SKIP: opens a browser"],
+      "--app": ["SKIP: opens Linear.app"],
+    },
+  },
   "issue agent-session list": { args: [T] },
   "issue agent-session view": { args: [UUID] },
-  "issue archive": { args: [T, "--yes"] },
+  "issue archive": {
+    args: [T, "--yes"],
+    variants: { "--bulk": ["--bulk", "TES-1,TES-2", "--yes"] },
+  },
   "issue assign": { args: [T, "me"] },
   "issue attach": { args: [T, "FILE"] },
   "issue branch": { args: [T] },
@@ -118,7 +132,10 @@ const DRIVES: Record<string, Drive> = {
   "issue comment update": { args: [UUID, "a new body"] },
   "issue comments": { args: [T] },
   "issue create": { args: ["--title", "t"], variants: { "--start": ["--title", "t", "--start"] } },
-  "issue delete": { args: [T, "--yes"] },
+  "issue delete": {
+    args: [T, "--yes"],
+    variants: { "--bulk": ["--bulk", "TES-1,TES-2", "--yes"] },
+  },
   "issue describe": { args: [T] },
   "issue id": { args: [T] },
   "issue label": { args: [T, "--add", "Name"] },
@@ -141,7 +158,10 @@ const DRIVES: Record<string, Drive> = {
   "issue view": {
     args: [T],
     // --web opens a browser; the receipt is three fields off the detail plus `opened`.
-    variants: { "--comments": [T, "--comments"], "--web": ["SKIP: opens a browser"] },
+    variants: {
+      "--web": ["SKIP: opens a browser"],
+      "--app": ["SKIP: opens Linear.app"],
+    },
   },
   "label create": { args: ["--name", "n"] },
   "label delete": { args: [UUID, "--yes"] },
@@ -158,6 +178,7 @@ const DRIVES: Record<string, Drive> = {
   "notification read-all": { args: [] },
   "notification snooze": { args: [UUID, "2026-03-01T00:00:00.000Z"] },
   "notification unread": { args: [UUID] },
+  open: { args: [], skip: "opens the system browser" },
   organization: { args: [] },
   "organization invites": { args: [] },
   "organization members": { args: [] },
@@ -184,6 +205,7 @@ const DRIVES: Record<string, Drive> = {
   "team create": { args: ["--name", "n", "--key", "NEW"] },
   "team cycles": { args: [] },
   "team delete": { args: ["TES", "--yes"], nullOk: ["movedTo"] },
+  "team id": { args: ["TES"] },
   "team labels": { args: [] },
   "team list": { args: [] },
   "team members": { args: [] },
@@ -214,6 +236,10 @@ let clientDescriptor: PropertyDescriptor | undefined;
 let savedFetch: typeof globalThis.fetch;
 
 beforeAll(() => {
+  // This broad command sweep changes HOME and exercises credential commands;
+  // it is not a Keychain integration test. Keep it incapable of touching the
+  // developer's macOS keychain even if another test changed detection state.
+  setKeyringBackend(null);
   const root = realpathSync(mkdtempSync(join(tmpdir(), "linshapes-")));
   plainDir = join(root, "plain");
   gitDir = join(root, "git");
@@ -237,13 +263,17 @@ beforeAll(() => {
   writeCredential("acme", "lin_api_stored0000000000", { plaintext: true });
 
   clientDescriptor = Object.getOwnPropertyDescriptor(Context.prototype, "client");
-  Object.defineProperty(Context.prototype, "client", { get: () => omniClient(), configurable: true });
+  Object.defineProperty(Context.prototype, "client", {
+    get: () => omniClient(),
+    configurable: true,
+  });
   savedFetch = globalThis.fetch;
   // `issue attach` PUTs bytes to the signed URL; answer 200 without a network.
   globalThis.fetch = (async () => new Response("", { status: 200 })) as unknown as typeof fetch;
 });
 
 afterAll(() => {
+  setKeyringBackend(undefined);
   if (clientDescriptor) Object.defineProperty(Context.prototype, "client", clientDescriptor);
   globalThis.fetch = savedFetch;
   process.chdir(savedCwd);
@@ -287,7 +317,8 @@ async function runJson(path: string, args: string[], drive: Drive): Promise<unkn
  */
 function drift(value: unknown, shape: OutputShape, nullOk: string[] = []): string[] {
   const fields = shape.fields ?? {};
-  const keep = (p: string) => !nullOk.some((k) => p.endsWith(`.${k}: null, although the source answers every relation`));
+  const keep = (p: string) =>
+    !nullOk.some((k) => p.endsWith(`.${k}: null, although the source answers every relation`));
   if (shape.kind === "list") {
     if (!Array.isArray(value)) return ["expected a bare array"];
     if (value.length === 0) return ["the fake produced no rows, so nothing was checked"];
@@ -328,7 +359,9 @@ describe("OUTPUT_SHAPES covers the program", () => {
     for (const [p, s] of Object.entries(OUTPUT_SHAPES)) {
       if (!s) continue;
       const withFields = s.kind === "list" || s.kind === "object" || s.kind === "receipt";
-      expect(!!s.fields, `${p}: ${s.kind} ${withFields ? "needs" : "must not have"} fields`).toBe(withFields);
+      expect(!!s.fields, `${p}: ${s.kind} ${withFields ? "needs" : "must not have"} fields`).toBe(
+        withFields,
+      );
       for (const [when, v] of Object.entries(s.variants ?? {})) {
         expect(!!v.fields, `${p} with ${when}: needs fields`).toBe(true);
       }

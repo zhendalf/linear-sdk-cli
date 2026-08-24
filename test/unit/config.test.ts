@@ -31,8 +31,13 @@ import {
   SETTABLE_KEYS,
   type ConfigInputs,
 } from "../../src/config.js";
-import { execFileSync } from "node:child_process";
-import { setKeyringBackend, memoryKeyring, KeyringError, type KeyringBackend } from "../../src/lib/keyring.js";
+import { execFileSync, spawn } from "node:child_process";
+import {
+  setKeyringBackend,
+  memoryKeyring,
+  KeyringError,
+  type KeyringBackend,
+} from "../../src/lib/keyring.js";
 import { createClient } from "../../src/client.js";
 import { readFileSync } from "node:fs";
 import { parse as parseToml } from "smol-toml";
@@ -119,7 +124,6 @@ describe("resolveConfig precedence", () => {
   it("applies sensible defaults", () => {
     const cfg = resolveConfig({ env: baseEnv() });
     expect(cfg.sort).toBe("priority");
-    expect(cfg.vcs).toBe("git");
   });
 });
 
@@ -136,7 +140,8 @@ describe("config discovery — every place the reference CLI reads", () => {
     const cfg = resolveConfig({ env: baseEnv(), cwd: projectDir });
     expect(cfg.team).toBe("SCH");
     expect(cfg.projectConfigPath).toBe(path);
-    expect(cfg.origins.team).toEqual({ source: "project", path });
+    expect(cfg.origins.team).toEqual({ source: "project", path, key: "team_id" });
+    expect(cfg.origins.sort).toEqual({ source: "project", path, key: "issue_sort" });
   });
 
   it("reads an unhidden linear.toml, walking up from cwd", () => {
@@ -161,17 +166,29 @@ describe("config discovery — every place the reference CLI reads", () => {
   });
 
   it("reads the reference CLI's global ~/.config/linear/linear.toml, below our config.toml", () => {
-    const globalPath = write("xdg/linear/linear.toml", `team_id = "GLOBAL"\nissue_sort = "priority"\nvcs = "git"\n`);
+    const globalPath = write(
+      "xdg/linear/linear.toml",
+      `team_id = "GLOBAL"\nissue_sort = "priority"\n`,
+    );
     let cfg = resolveConfig({ env: baseEnv(), cwd: root });
     expect(cfg.team).toBe("GLOBAL");
     expect(cfg.globalConfigPath).toBe(globalPath);
-    expect(cfg.origins.team).toEqual({ source: "global", path: globalPath });
+    expect(cfg.origins.team).toEqual({ source: "global", path: globalPath, key: "team_id" });
+    expect(cfg.origins.sort).toEqual({
+      source: "global",
+      path: globalPath,
+      key: "issue_sort",
+    });
     expect(cfg.sortSource).toBe("global");
     // Ours wins on the same key…
     writeUserConfig(`team = "OURS"\n`);
     cfg = resolveConfig({ env: baseEnv(), cwd: root });
     expect(cfg.team).toBe("OURS");
-    expect(cfg.origins.team).toEqual({ source: "user", path: userConfigPath(baseEnv()) });
+    expect(cfg.origins.team).toEqual({
+      source: "user",
+      path: userConfigPath(baseEnv()),
+      key: "team",
+    });
     // …but theirs still fills a key ours does not set.
     expect(cfg.sort).toBe("priority");
     expect(cfg.origins.sort.source).toBe("global");
@@ -201,9 +218,12 @@ describe("config discovery — every place the reference CLI reads", () => {
     });
     expect(cfg.origins).toEqual({
       team: { source: "flag", path: undefined },
-      workspace: { source: "project", path: join(projectDir, ".linear.toml") },
+      workspace: {
+        source: "project",
+        path: join(projectDir, ".linear.toml"),
+        key: "workspace",
+      },
       sort: { source: "env", path: undefined },
-      vcs: { source: "none" },
     });
   });
 });
@@ -563,6 +583,81 @@ describe("credential writes are atomic", () => {
     expect(statSync(path).mode & 0o777).toBe(0o600);
   });
 
+  it("recovers a lock left behind by a dead writer", () => {
+    const path = userConfigPath(baseEnv());
+    const lockPath = `${path}.lock`;
+    writeFileSync(
+      lockPath,
+      JSON.stringify({ pid: 2_147_483_647, createdAt: Date.now(), token: "dead-writer" }),
+    );
+
+    writeCredential("recovered", "lin_api_recovered00", { plaintext: true });
+
+    expect(existsSync(lockPath)).toBe(false);
+    expect((parseToml(readFileSync(path, "utf8")) as any).workspaces.recovered.api_key).toBe(
+      "lin_api_recovered00",
+    );
+  });
+
+  it("serializes genuine concurrent credential and user-setting writers", async () => {
+    const repo = join(import.meta.dir, "../..");
+    const configModule = join(repo, "src", "config.ts");
+    const readyDir = join(root, "ready");
+    const gate = join(root, "go");
+    const writerCount = 12;
+    mkdirSync(readyDir);
+
+    const children = Array.from({ length: writerCount }, (_, i) => {
+      const action =
+        i === 0
+          ? `setConfigKey(userConfigPath(), "team", "TES", { mode: 0o600 });`
+          : i === 1
+            ? `setConfigKey(userConfigPath(), "sort", "updated", { mode: 0o600 });`
+            : `writeCredential("org-${i}", "lin_api_org${i.toString().padStart(8, "0")}", { plaintext: true });`;
+      const script = `
+        import { existsSync, writeFileSync } from "node:fs";
+        import { setConfigKey, userConfigPath, writeCredential } from ${JSON.stringify(configModule)};
+        const wait = new Int32Array(new SharedArrayBuffer(4));
+        writeFileSync(${JSON.stringify(join(readyDir, String(i)))}, "ready");
+        while (!existsSync(${JSON.stringify(gate)})) Atomics.wait(wait, 0, 0, 10);
+        ${action}
+      `;
+      return spawn(process.execPath, ["--eval", script], {
+        cwd: repo,
+        env: { ...process.env, XDG_CONFIG_HOME: xdg, HOME: root },
+        stdio: ["ignore", "ignore", "pipe"],
+      });
+    });
+
+    const finished = children.map(
+      (child) =>
+        new Promise<{ code: number | null; stderr: string }>((resolve) => {
+          let stderr = "";
+          child.stderr.on("data", (chunk) => (stderr += String(chunk)));
+          child.on("close", (code) => resolve({ code, stderr }));
+        }),
+    );
+
+    const readyDeadline = performance.now() + 10_000;
+    while (readdirSync(readyDir).length < writerCount && performance.now() < readyDeadline) {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+    }
+    const allReady = readdirSync(readyDir).length === writerCount;
+    // Always open the gate so a failed readiness assertion cannot strand children.
+    writeFileSync(gate, "go");
+    const results = await Promise.all(finished);
+
+    expect(allReady).toBe(true);
+    for (const result of results) expect(result).toEqual({ code: 0, stderr: "" });
+    const obj = parseToml(readFileSync(userConfigPath(baseEnv()), "utf8")) as any;
+    expect(obj.team).toBe("TES");
+    expect(obj.sort).toBe("updated");
+    expect(Object.keys(obj.workspaces).sort()).toEqual(
+      Array.from({ length: writerCount - 2 }, (_, i) => `org-${i + 2}`).sort(),
+    );
+    expect(statSync(userConfigPath(baseEnv())).mode & 0o777).toBe(0o600);
+    expect(readdirSync(join(xdg, "linear"))).toEqual(["config.toml"]);
+  });
 });
 
 describe("keyring-backed credentials", () => {
@@ -680,10 +775,17 @@ describe("keyring-backed credentials", () => {
       // other selection problem, and it names the store, not "no credential".
       const cfg = resolveConfig({ env: baseEnv() });
       expect(cfg.apiKey).toBeUndefined();
-      expect(cfg.apiKeyError?.message).toMatch(/Could not read the test keyring entry for workspace 'acme'.*exit 36/);
+      expect(cfg.apiKeyError?.message).toMatch(
+        /Could not read the test keyring entry for workspace 'acme'.*exit 36/,
+      );
       expect(cfg.apiKeyError?.message).not.toMatch(/No stored credential/);
       // Anything that is NOT a KeyringError is a bug and must surface.
-      setKeyringBackend({ ...kr, get: () => { throw new TypeError("oops"); } });
+      setKeyringBackend({
+        ...kr,
+        get: () => {
+          throw new TypeError("oops");
+        },
+      });
       expect(() => resolveConfig({ env: baseEnv() })).toThrow(/oops/);
     });
 
@@ -696,7 +798,10 @@ describe("keyring-backed credentials", () => {
     });
 
     it("still NEVER reads a key from a project .linear.toml, keyring or not", () => {
-      writeProjectConfig(projectDir, `api_key = "lin_api_projectkey00"\n[workspaces."acme"]\napi_key = "x"\n`);
+      writeProjectConfig(
+        projectDir,
+        `api_key = "lin_api_projectkey00"\n[workspaces."acme"]\napi_key = "x"\n`,
+      );
       const cfg = resolveConfig({ env: baseEnv(), cwd: projectDir });
       expect(cfg.apiKey).toBeUndefined();
     });
@@ -921,10 +1026,6 @@ describe("project config writers (`config init` / `config set`)", () => {
     writeFileSync(path, `team = "TES"\n\n[extra]\nx = 1\n`);
     setConfigKey(path, "sort", "updated");
     expect(read(path)).toBe(`team = "TES"\nsort = "updated"\n\n[extra]\nx = 1\n`);
-    // and to a file with no tables it goes at the end
-    writeFileSync(path, `team = "TES"\n`);
-    setConfigKey(path, "vcs", "jj");
-    expect(read(path)).toBe(`team = "TES"\nvcs = "jj"\n`);
     // and a file that opens with a table gets a blank line between
     writeFileSync(path, `[extra]\nx = 1\n`);
     setConfigKey(path, "team", "TES");
@@ -935,17 +1036,28 @@ describe("project config writers (`config init` / `config set`)", () => {
     // A schpet-written .config/linear.toml.
     const path = join(root, "proj", ".config", "linear.toml");
     mkdirSync(join(root, "proj", ".config"), { recursive: true });
-    writeFileSync(path, `# linear cli\nworkspace = "acme"\nteam_id = "TES"\nissue_sort = "priority"\n`);
+    writeFileSync(
+      path,
+      `# linear cli\nworkspace = "acme"\nteam_id = "TES"\nissue_sort = "priority"\n`,
+    );
     expect(setConfigKey(path, "team", "ENG")).toBe("team_id");
     expect(setConfigKey(path, "sort", "updated")).toBe("issue_sort");
-    expect(read(path)).toBe(`# linear cli\nworkspace = "acme"\nteam_id = "ENG"\nissue_sort = "updated"\n`);
+    expect(read(path)).toBe(
+      `# linear cli\nworkspace = "acme"\nteam_id = "ENG"\nissue_sort = "updated"\n`,
+    );
     // Nothing competes: one key, one spelling, and the reader agrees.
-    expect(resolveConfig({ env: baseEnv(), cwd: projectDir })).toMatchObject({ team: "ENG", sort: "updated" });
+    expect(resolveConfig({ env: baseEnv(), cwd: projectDir })).toMatchObject({
+      team: "ENG",
+      sort: "updated",
+    });
   });
 
   it("setConfigKey never touches a same-named key inside a table (the user config's api_key)", () => {
     const path = userConfigPath(baseEnv());
-    writeFileSync(path, `default_workspace = "acme"\n\n[workspaces.acme]\napi_key = "lin_api_secret00000"\n`);
+    writeFileSync(
+      path,
+      `default_workspace = "acme"\n\n[workspaces.acme]\napi_key = "lin_api_secret00000"\n`,
+    );
     setConfigKey(path, "team", "TES", { mode: 0o600 });
     const text = read(path);
     expect(text).toBe(
@@ -978,13 +1090,17 @@ describe("project config writers (`config init` / `config set`)", () => {
     for (const k of ["api_key", "workspaces", "default_workspace", "keyring"]) {
       expect(() => assertSettableKey(k)).toThrow(/not a project setting.*auth login/);
     }
-    expect(() => assertSettableKey("colour")).toThrow(/Unknown setting 'colour'.*team, workspace, sort, vcs/);
+    expect(() => assertSettableKey("colour")).toThrow(
+      /Unknown setting 'colour'.*team, workspace, sort/,
+    );
     for (const k of SETTABLE_KEYS) expect(() => assertSettableKey(k)).not.toThrow();
   });
 
   it("defaultProjectConfigPath is <git root>/.linear.toml inside a repo, <cwd>/.linear.toml outside", () => {
     expect(defaultProjectConfigPath(projectDir)).toBe(join(projectDir, ".linear.toml"));
     execFileSync("git", ["init", "-q"], { cwd: join(root, "proj") });
-    expect(defaultProjectConfigPath(projectDir)).toBe(join(realpathSync(root), "proj", ".linear.toml"));
+    expect(defaultProjectConfigPath(projectDir)).toBe(
+      join(realpathSync(root), "proj", ".linear.toml"),
+    );
   });
 });

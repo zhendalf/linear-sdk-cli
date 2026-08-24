@@ -72,7 +72,9 @@ describe("buildTrailers / buildDescription — schpet's commit message, byte for
   const URL = "https://linear.app/acme/issue/TES-123/fix-login";
 
   it("two trailers: Linear-issue with the magic word, Linear-issue-url with the url", () => {
-    expect(buildTrailers("TES-123", URL)).toBe(`Linear-issue: Fixes TES-123\nLinear-issue-url: ${URL}`);
+    expect(buildTrailers("TES-123", URL)).toBe(
+      `Linear-issue: Fixes TES-123\nLinear-issue-url: ${URL}`,
+    );
   });
 
   it("--references swaps the magic word and nothing else", () => {
@@ -107,7 +109,11 @@ describe("buildTrailers / buildDescription — schpet's commit message, byte for
  * on the branch name — and the description stays in Linear.
  */
 describe("buildPrContent", () => {
-  const issue = { identifier: "TES-123", title: "Fix login", url: "https://linear.app/acme/issue/TES-123/x" };
+  const issue = {
+    identifier: "TES-123",
+    title: "Fix login",
+    url: "https://linear.app/acme/issue/TES-123/x",
+  };
 
   it("titles the PR `ID Title`", () => {
     expect(buildPrContent(issue).title).toBe("TES-123 Fix login");

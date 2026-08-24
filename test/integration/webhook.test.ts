@@ -67,9 +67,9 @@ suite("webhook lifecycle (live)", () => {
   it("lists webhooks with the expected columns", () => {
     const wh = createOrLimit(["--url", hookUrl("list"), "--resource", "Issue", "--team", TEAM]);
     if (wh === "limit") return;
-    const rows = runJson<Array<{ id: string; url: string; enabled: boolean; resourceTypes: string[] }>>(
-      ["webhook", "list"],
-    );
+    const rows = runJson<
+      Array<{ id: string; url: string; enabled: boolean; resourceTypes: string[] }>
+    >(["webhook", "list"]);
     expect(Array.isArray(rows)).toBe(true);
     const found = rows.find((r) => r.id === wh.id);
     expect(found).toBeTruthy();

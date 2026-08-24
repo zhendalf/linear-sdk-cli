@@ -24,8 +24,8 @@ If that fails, or prints `2.x` (that is `schpet/linear-cli`, a different tool th
 `linear` name), install this one — it needs Bun ≥ 1.1:
 
 ```bash
-bun add -g linear-sdk-cli          # installs `linear` and `lin`
-lin --version                      # `lin` never collides with the other CLI
+bun add --global linear-sdk-cli  # installs `linear` and collision-free `lin`
+lin --version
 ```
 
 `lin` is the safe spelling when both might be present. If the user is coming from
@@ -195,7 +195,26 @@ EOF
 
 For short, single-line content, use inline `-d/--description` (issues/initiatives),
 the positional `[body]` arg (comments: `linear comment add TES-42 "lgtm"`), or
-`--body` (status updates). There is no `-b` short flag.
+`--body` (status updates). There is no `-b` short flag. The CLI rejects an inline
+body containing literal `\n` sequences and points back to stdin; never encode a
+multiline body by inserting `\n` inside an ordinary quoted argument.
+
+### Mentions require explicit intent
+
+Never assume that `@name` in comment text should notify somebody: the CLI keeps it as literal
+Markdown. Add the repeatable `--mention <name|email|me|id>` option only when the user explicitly
+asks for a real mention. It resolves each workspace user and prepends the notification-capable
+mention before the supplied body:
+
+```bash
+linear comment add TES-42 "Please review." --mention ada --json
+linear issue comment TES-42 --body-file - --mention me --json <<'EOF'
+This deliberately mentions me; the @example in this sentence remains literal.
+EOF
+```
+
+`--mention` is available on `issue comment`, `comment add`, `comment reply`, and `comment update`
+(including the `issue comment add/update` mounts). It is repeatable and deduplicates users.
 
 ### Discovery — learn the surface without scraping help
 
@@ -235,6 +254,7 @@ linear attachment delete
 linear attachment list
 
 linear auth
+linear auth adopt
 linear auth default
 linear auth list
 linear auth login
@@ -351,6 +371,8 @@ linear notification read-all
 linear notification snooze
 linear notification unread
 
+linear open
+
 linear organization
 linear organization invites
 linear organization members
@@ -386,6 +408,7 @@ linear team
 linear team create
 linear team cycles
 linear team delete
+linear team id
 linear team labels
 linear team list
 linear team members
@@ -432,6 +455,7 @@ prints the same). These are supplementary — `--help` on any command is authori
 - [label](references/label.md) — Work with issue labels
 - [milestone](references/milestone.md) — Work with project milestones
 - [notification](references/notification.md) — Work with your notifications
+- [open](references/open.md) — Open the workspace, an issue, team, project, or URL
 - [organization](references/organization.md) — Inspect the current workspace
 - [project](references/project.md) — Work with projects
 - [project-update](references/project-update.md) — Post and list project status updates

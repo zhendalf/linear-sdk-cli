@@ -74,7 +74,8 @@ function recordingFetch(status = 200, bodyText = ""): typeof fetch {
       url: String(url),
       method: init?.method,
       headers: new Headers(init?.headers),
-      body: body instanceof Uint8Array ? body : new Uint8Array(await new Response(body).arrayBuffer()),
+      body:
+        body instanceof Uint8Array ? body : new Uint8Array(await new Response(body).arrayBuffer()),
     });
     return new Response(bodyText, { status, statusText: status === 200 ? "OK" : "Forbidden" });
   }) as typeof fetch;
@@ -125,7 +126,12 @@ describe("mimeType", () => {
 describe("validateUploads — the whole batch, before any network work", () => {
   it("returns a candidate per file with name, type and size", () => {
     const [a, b] = validateUploads([png, txt]);
-    expect(a).toEqual({ path: png, filename: "shot.png", contentType: "image/png", size: PNG.length });
+    expect(a).toEqual({
+      path: png,
+      filename: "shot.png",
+      contentType: "image/png",
+      size: PNG.length,
+    });
     expect(b).toEqual({ path: txt, filename: "notes.txt", contentType: "text/plain", size: 5 });
   });
 
@@ -173,7 +179,12 @@ describe("uploadFile", () => {
   it("asks for a signed URL with the file's type/name/size, private by default", async () => {
     await uploadFile(fakeClient(), png, { fetch: recordingFetch() });
     expect(uploadCalls).toEqual([
-      { contentType: "image/png", filename: "shot.png", size: PNG.length, vars: { makePublic: false } },
+      {
+        contentType: "image/png",
+        filename: "shot.png",
+        size: PNG.length,
+        vars: { makePublic: false },
+      },
     ]);
   });
 
@@ -227,7 +238,9 @@ describe("uploadFile", () => {
   });
 
   it("--public on a non-image is a usage error and nothing is sent", async () => {
-    await expect(uploadFile(fakeClient(), txt, { public: true, fetch: recordingFetch() })).rejects.toMatchObject({
+    await expect(
+      uploadFile(fakeClient(), txt, { public: true, fetch: recordingFetch() }),
+    ).rejects.toMatchObject({
       code: "usage",
     });
     expect(uploadCalls).toEqual([]);
@@ -252,7 +265,9 @@ describe("uploadFile", () => {
 
   it("success without an uploadFile is an api error too", async () => {
     const client = fakeClient(() => ({ success: true, lastSyncId: 1, uploadFile: undefined }));
-    await expect(uploadFile(client, png, { fetch: recordingFetch() })).rejects.toMatchObject({ code: "api" });
+    await expect(uploadFile(client, png, { fetch: recordingFetch() })).rejects.toMatchObject({
+      code: "api",
+    });
     expect(puts).toEqual([]);
   });
 
@@ -293,12 +308,12 @@ describe("uploadFile", () => {
 
 describe("formatEmbed / formatBytes", () => {
   it("images embed inline, everything else links", () => {
-    expect(formatEmbed({ filename: "a.png", assetUrl: "https://u/x", contentType: "image/png" })).toBe(
-      "![a.png](https://u/x)",
-    );
-    expect(formatEmbed({ filename: "a.txt", assetUrl: "https://u/y", contentType: "text/plain" })).toBe(
-      "[a.txt](https://u/y)",
-    );
+    expect(
+      formatEmbed({ filename: "a.png", assetUrl: "https://u/x", contentType: "image/png" }),
+    ).toBe("![a.png](https://u/x)");
+    expect(
+      formatEmbed({ filename: "a.txt", assetUrl: "https://u/y", contentType: "text/plain" }),
+    ).toBe("[a.txt](https://u/y)");
   });
   it("formatBytes is human-sized", () => {
     expect(formatBytes(0)).toBe("0 B");

@@ -66,11 +66,13 @@ type IsAny<T> = 0 extends 1 & T ? true : false;
 type ObjectShapeOf<T> = string extends keyof T
   ? "object"
   : {
-      [K in keyof T as IsAny<T[K]> extends true
-        ? K & string
-        : undefined extends T[K]
-          ? `${K & string}?`
-          : K & string]-?: ShapeOf<Exclude<T[K], undefined>>;
+      [
+        K in keyof T as IsAny<T[K]> extends true
+          ? K & string
+          : undefined extends T[K]
+            ? `${K & string}?`
+            : K & string
+      ]-?: ShapeOf<Exclude<T[K], undefined>>;
     };
 
 export type ShapeOf<T> =
@@ -119,10 +121,7 @@ export type ObjectFields = Record<string, FieldShape>;
 
 function isNullableWrapper(s: FieldShape): s is { readonly nullable: FieldShape } {
   return (
-    typeof s === "object" &&
-    !Array.isArray(s) &&
-    Object.keys(s).length === 1 &&
-    "nullable" in s
+    typeof s === "object" && !Array.isArray(s) && Object.keys(s).length === 1 && "nullable" in s
   );
 }
 
@@ -160,7 +159,9 @@ export function matchesShape(
   }
   if (Array.isArray(shape)) {
     if (!Array.isArray(value)) return [`${path}: expected an array, got ${describe(value)}`];
-    return value.flatMap((item, i) => matchesShape(item, shape[0], `${path}[${i}]`, strictNullable));
+    return value.flatMap((item, i) =>
+      matchesShape(item, shape[0], `${path}[${i}]`, strictNullable),
+    );
   }
   if (isNullableWrapper(shape)) {
     if (value === undefined) return [`${path}: expected an object or null, got undefined`];
@@ -184,7 +185,8 @@ export function matchesShape(
     problems.push(...matchesShape(record[key], sub, `${path}.${key}`, strictNullable));
   }
   for (const key of Object.keys(record)) {
-    if (!declared.has(key) && record[key] !== undefined) problems.push(`${path}.${key}: not in the declared shape`);
+    if (!declared.has(key) && record[key] !== undefined)
+      problems.push(`${path}.${key}: not in the declared shape`);
   }
   return problems;
 }
@@ -203,7 +205,9 @@ export function renderShape(shape: FieldShape): string {
   if (typeof shape === "string") return shape.replace("|null", " | null");
   if (Array.isArray(shape)) {
     const inner = renderShape(shape[0]);
-    return typeof shape[0] === "string" && !shape[0].includes("|") ? `${inner}[]` : `Array<${inner}>`;
+    return typeof shape[0] === "string" && !shape[0].includes("|")
+      ? `${inner}[]`
+      : `Array<${inner}>`;
   }
   if (isNullableWrapper(shape)) return `${renderShape(shape.nullable)} | null`;
   const parts = Object.entries(shape).map(([k, v]) => `${k}: ${renderShape(v)}`);

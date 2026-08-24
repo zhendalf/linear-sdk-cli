@@ -78,7 +78,15 @@ describe("matchesShape (runtime)", () => {
   });
 
   it("names every drift by path: missing, extra, re-typed, unexpectedly null", () => {
-    const bad = { ...value, id: 3, extra: 1, rel: null, tags: ["a", 2], items: [{ id: "i" }], opt: 1 } as any;
+    const bad = {
+      ...value,
+      id: 3,
+      extra: 1,
+      rel: null,
+      tags: ["a", 2],
+      items: [{ id: "i" }],
+      opt: 1,
+    } as any;
     delete bad.n;
     expect(matchesShape(bad, ROW)).toEqual([
       "$.id: expected string, got number",
@@ -102,8 +110,12 @@ describe("matchesShape (runtime)", () => {
     expect(matchesShape({ ...value, rel: { name: "x" } }, ROW)).toEqual([
       "$.rel.type: expected string, got undefined",
     ]);
-    expect(matchesShape({ ...value, tags: "t" }, ROW)).toEqual(["$.tags: expected an array, got string"]);
-    expect(matchesShape({ ...value, bag: [] }, ROW)).toEqual(["$.bag: expected an object, got an array"]);
+    expect(matchesShape({ ...value, tags: "t" }, ROW)).toEqual([
+      "$.tags: expected an array, got string",
+    ]);
+    expect(matchesShape({ ...value, bag: [] }, ROW)).toEqual([
+      "$.bag: expected an object, got an array",
+    ]);
   });
 
   it("a nullable object at the top level: null passes, a scalar does not", () => {
@@ -125,7 +137,9 @@ describe("renderShape / renderOutputShape (human)", () => {
   });
 
   it("heads a list with 'array of objects' and lists one field per line", () => {
-    expect(renderOutputShape({ kind: "list", fields: { id: "string", rel: ROW.rel }, note: "n" })).toEqual([
+    expect(
+      renderOutputShape({ kind: "list", fields: { id: "string", rel: ROW.rel }, note: "n" }),
+    ).toEqual([
       "array of objects:",
       "  id: string",
       "  rel: {name: string, type: string} | null",

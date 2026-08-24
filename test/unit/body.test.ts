@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveBody, shellSplit, editorCommand } from "../../src/lib/body.js";
+import { resolveBody, shellSplit, editorCommand, validateInlineBody } from "../../src/lib/body.js";
 
 let saved: Record<string, string | undefined>;
 let dir: string;
@@ -31,7 +31,12 @@ describe("shellSplit", () => {
   it("splits on whitespace, honouring quotes and backslashes, without expanding anything", () => {
     expect(shellSplit("code --wait")).toEqual(["code", "--wait"]);
     expect(shellSplit("  subl   -w ")).toEqual(["subl", "-w"]);
-    expect(shellSplit(`vim -c 'set ft=markdown' -f`)).toEqual(["vim", "-c", "set ft=markdown", "-f"]);
+    expect(shellSplit(`vim -c 'set ft=markdown' -f`)).toEqual([
+      "vim",
+      "-c",
+      "set ft=markdown",
+      "-f",
+    ]);
     expect(shellSplit(`"/Applications/My Editor.app/bin/edit" --wait`)).toEqual([
       "/Applications/My Editor.app/bin/edit",
       "--wait",
@@ -65,6 +70,25 @@ describe("editorCommand", () => {
   });
 });
 
+describe("inline body escape guard", () => {
+  it("rejects a literal backslash-n before it can be stored as broken Markdown", () => {
+    expect(() => validateInlineBody("Summary\\n\\n1. first\\n2. second")).toThrow(
+      /literal \\n sequence.*\*-file option.*stdin/s,
+    );
+  });
+
+  it("accepts real newlines and ordinary single-line text", () => {
+    expect(validateInlineBody("Summary\n\nBody")).toBe("Summary\n\nBody");
+    expect(validateInlineBody("looks good")).toBe("looks good");
+  });
+
+  it("keeps file input as the explicit escape hatch for intentional backslash-n text", () => {
+    const file = join(dir, "literal.md");
+    writeFileSync(file, String.raw`The regex is \n`);
+    expect(resolveBody({ file, interactive: false })).toBe(String.raw`The regex is \n`);
+  });
+});
+
 describe("the editor path of resolveBody", () => {
   it("runs an EDITOR that carries arguments (the VS Code / Sublime / vim -f case)", () => {
     // `/usr/bin/true --wait <file>` used to be spawned as one executable named
@@ -84,7 +108,9 @@ describe("the editor path of resolveBody", () => {
 
   it("seeds the editor with the template, so an untouched session hands the original back", () => {
     process.env.EDITOR = "/usr/bin/true";
-    expect(resolveBody({ interactive: true, template: "the current body\n" })).toBe("the current body");
+    expect(resolveBody({ interactive: true, template: "the current body\n" })).toBe(
+      "the current body",
+    );
   });
 
   it("names the editor and the variable when it cannot be run", () => {
@@ -98,7 +124,9 @@ describe("the editor path of resolveBody", () => {
 
   it("treats a non-zero editor exit as failure rather than saving what was there", () => {
     process.env.EDITOR = "/usr/bin/false";
-    expect(() => resolveBody({ interactive: true, template: "x" })).toThrow(/exited with status 1; nothing was saved/);
+    expect(() => resolveBody({ interactive: true, template: "x" })).toThrow(
+      /exited with status 1; nothing was saved/,
+    );
   });
 
   it("is not consulted at all when a body argument or file is given", () => {

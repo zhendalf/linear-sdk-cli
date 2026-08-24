@@ -21,7 +21,7 @@ path: string
 description: string
 aliases: string[]
 arguments: Array<{name: string, required: boolean, variadic: boolean}>
-options: Array<{flags: string, description: string}>
+options: Array<{flags: string, description: string, attribute: string, valueRequired: boolean, valueOptional: boolean, variadic: boolean, choices?: string[], defaultValue?: unknown, global: boolean, applicable: boolean}>
 output?: {kind: string, fields?: object, note?: string, variants?: object}
 ```
 
@@ -32,6 +32,6 @@ path: string
 description: string
 aliases: string[]
 arguments: Array<{name: string, required: boolean, variadic: boolean}>
-options: Array<{flags: string, description: string}>
+options: Array<{flags: string, description: string, attribute: string, valueRequired: boolean, valueOptional: boolean, variadic: boolean, choices?: string[], defaultValue?: unknown, global: boolean, applicable: boolean}>
 output?: {kind: string, fields?: object, note?: string, variants?: object}
 ```

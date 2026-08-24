@@ -4,7 +4,15 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, realpathSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+  realpathSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createProgram } from "../../src/cli.js";
@@ -67,7 +75,7 @@ describe("config init", () => {
     const shown = await runJson(["config"]);
     expect(shown.team).toBe("TES");
     expect(shown.sort).toBe("updated");
-    expect(shown.origins.team).toEqual({ source: "project", path });
+    expect(shown.origins.team).toEqual({ source: "project", path, key: "team" });
   });
 
   it("without --team and without a terminal, says how to proceed instead of prompting", async () => {
@@ -88,9 +96,8 @@ describe("config init", () => {
   });
 
   it("validates values the way the reader will", async () => {
-    await expect(run(["config", "init", "--team", "TES", "--sort", "manual"])).rejects.toThrow(
-      /Invalid sort 'manual'/,
-    );
+    await run(["config", "init", "--team", "TES", "--sort", "manual"]);
+    expect(readFileSync(join(repo, ".linear.toml"), "utf8")).toContain('sort = "manual"');
     await expect(run(["config", "init", "--team", "not a key"])).rejects.toThrow(/team key/);
   });
 });
@@ -124,12 +131,14 @@ describe("config set", () => {
   });
 
   it("refuses secrets, unknown keys, bad values, and --user with --path", async () => {
-    await expect(run(["config", "set", "api_key", "lin_api_x"])).rejects.toThrow(/not a project setting/);
-    await expect(run(["config", "set", "colour", "blue"])).rejects.toThrow(/Unknown setting/);
-    await expect(run(["config", "set", "vcs", "svn"])).rejects.toThrow(/Invalid vcs/);
-    await expect(run(["config", "set", "team", "TES", "--user", "--path", "x.toml"])).rejects.toThrow(
-      /--user or --path/,
+    await expect(run(["config", "set", "api_key", "lin_api_x"])).rejects.toThrow(
+      /not a project setting/,
     );
+    await expect(run(["config", "set", "colour", "blue"])).rejects.toThrow(/Unknown setting/);
+    await expect(run(["config", "set", "vcs", "svn"])).rejects.toThrow(/Unknown setting/);
+    await expect(
+      run(["config", "set", "team", "TES", "--user", "--path", "x.toml"]),
+    ).rejects.toThrow(/--user or --path/);
     expect(existsSync(join(repo, ".linear.toml"))).toBe(false);
   });
 });

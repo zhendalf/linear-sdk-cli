@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Output } from "../../src/output/format.js";
 import { CliError } from "../../src/lib/errors.js";
+import { setPaginationMetadata } from "../../src/lib/pagination.js";
 import type { Column } from "../../src/output/table.js";
 
 /** Capture everything written to stdout/stderr during `fn`. */
@@ -46,6 +47,16 @@ describe("JSON envelope contract", () => {
     expect(JSON.parse(out)).toEqual([{ identifier: "A" }]);
   });
 
+  it("list keeps its bare JSON array while warning on stderr when the limit hid results", () => {
+    const cols: Column<{ id: string }>[] = [{ key: "id", value: (r) => r.id }];
+    const rows = setPaginationMetadata([{ id: "A" }, { id: "B" }], true);
+    const { out, err } = capture(() => jsonOutput().list(rows, cols));
+    expect(JSON.parse(out)).toEqual([{ id: "A" }, { id: "B" }]);
+    expect(err).toContain(
+      "Showing 2 results; more exist. Use --all or increase --limit to see them.",
+    );
+  });
+
   it("detail → a bare JSON object on stdout", () => {
     const { out } = capture(() => jsonOutput().detail({ id: "X", name: "n" }, [["Name", "n"]]));
     expect(JSON.parse(out)).toEqual({ id: "X", name: "n" });
@@ -62,6 +73,18 @@ describe("JSON envelope contract", () => {
     const { out, err } = capture(() => jsonOutput().error(new CliError("nope", "not_found")));
     expect(out).toBe("");
     expect(JSON.parse(err)).toEqual({ error: { message: "nope", code: "not_found" } });
+  });
+
+  it("error suggestion is an additive structured field", () => {
+    const error = new CliError("nope", "not_found", undefined, "Check the identifier.");
+    const { err } = capture(() => jsonOutput().error(error));
+    expect(JSON.parse(err)).toEqual({
+      error: {
+        message: "nope",
+        code: "not_found",
+        suggestion: "Check the identifier.",
+      },
+    });
   });
 
   /**
@@ -195,6 +218,47 @@ describe("human mode", () => {
     const { out } = capture(() => o.emit({ a: 1 }, () => process.stdout.write("HUMAN\n")));
     expect(out).toBe("HUMAN\n");
   });
+
+  it("uses a contextual empty-list message without changing JSON's []", () => {
+    const columns: Column<{ id: string }>[] = [{ key: "id", value: (row) => row.id }];
+    const human = new Output({ json: false, color: false, quiet: false, debug: false });
+    expect(
+      capture(() => human.list([], columns, { empty: "No active members; use --all." })).out,
+    ).toBe("No active members; use --all.\n");
+    expect(
+      JSON.parse(
+        capture(() =>
+          jsonOutput().list([], columns, { empty: "This must never replace the array." }),
+        ).out,
+      ),
+    ).toEqual([]);
+  });
+
+  it("renders Markdown only on a TTY, preserves it for pipes, and suppresses it in JSON", () => {
+    const tty = new Output({
+      json: false,
+      color: false,
+      quiet: false,
+      debug: false,
+      isTTY: true,
+      terminalRows: 50,
+    });
+    expect(capture(() => tty.markdown("# Title\n\nA **bold** word.", { pager: false })).out).toBe(
+      "Title\n\nA bold word.\n",
+    );
+
+    const pipe = new Output({
+      json: false,
+      color: false,
+      quiet: false,
+      debug: false,
+      isTTY: false,
+    });
+    expect(capture(() => pipe.markdown("# Title\n\nA **bold** word.")).out).toBe(
+      "# Title\n\nA **bold** word.\n",
+    );
+    expect(capture(() => jsonOutput().markdown("# never")).out).toBe("");
+  });
 });
 
 /**
@@ -212,13 +276,22 @@ describe("error boundary (spawned bin)", () => {
   const home = mkdtempSync(join(tmpdir(), "lincli-envelope-"));
   afterAll(() => rmSync(home, { recursive: true, force: true }));
 
-  function run(args: string[]): { code: number; stdout: string; stderr: string } {
+  function run(
+    args: string[],
+    extraEnv: NodeJS.ProcessEnv = {},
+  ): { code: number; stdout: string; stderr: string } {
     const env: NodeJS.ProcessEnv = { ...process.env, XDG_CONFIG_HOME: home, HOME: home };
     delete env.LINEAR_API_KEY;
     delete env.LINEAR_API_TOKEN;
     delete env.LINEAR_WORKSPACE;
+    delete env.LINEAR_DEBUG;
+    Object.assign(env, extraEnv);
     // `--no-env-file`: a stray .env must not re-inject a key.
-    const r = spawnSync("bun", ["--no-env-file", BIN, ...args], { encoding: "utf8", env, cwd: home });
+    const r = spawnSync("bun", ["--no-env-file", BIN, ...args], {
+      encoding: "utf8",
+      env,
+      cwd: home,
+    });
     return { code: r.status ?? -1, stdout: r.stdout, stderr: r.stderr };
   }
 
@@ -263,6 +336,13 @@ describe("error boundary (spawned bin)", () => {
     expect(r.code).toBe(2);
   });
 
+  it("LINEAR_DEBUG=1 is equivalent to --debug at the parse-time boundary", () => {
+    const r = run(["whoami", "--definitely-not-a-flag", "-j"], { LINEAR_DEBUG: "1" });
+    const error = JSON.parse(r.stderr).error;
+    expect(error.code).toBe("usage");
+    expect(error.detail).toBe("commander.unknownOption");
+  });
+
   it("without the flag, the human error line — never JSON", () => {
     const r = run(["issue", "view", "TES-1"]);
     expect(r.stdout).toBe("");
@@ -272,21 +352,24 @@ describe("error boundary (spawned bin)", () => {
 
   /**
    * TES-633. `.showHelpAfterError()` was configured and dead: the stderr it
-   * would have written was the one the boundary suppresses. The hint now rides
-   * on the message; a bare group prints its help; an unknown top-level word is
-   * an unknown command, not "too many arguments".
+   * would have written was the one the boundary suppresses. The hint is now a
+   * structured suggestion; a bare group prints its help; an unknown top-level
+   * word is an unknown command, not "too many arguments".
    */
   describe("usage errors point at help (TES-633)", () => {
     it("a parse failure names the failing command's --help, in both modes", () => {
       const human = run(["issue", "create", "--nope"]);
       expect(human.code).toBe(2);
       expect(human.stderr.trimEnd()).toBe(
-        "error: unknown option '--nope'. Run 'linear issue create --help' for usage.",
+        [
+          "error: unknown option '--nope'.",
+          "hint: Run 'linear issue create --help' for usage.",
+        ].join("\n"),
       );
       const json = run(["issue", "create", "--nope", "-j"]);
-      expect(envelope(json.stderr).message).toBe(
-        "unknown option '--nope'. Run 'linear issue create --help' for usage.",
-      );
+      const structured = JSON.parse(json.stderr).error;
+      expect(structured.message).toBe("unknown option '--nope'.");
+      expect(structured.suggestion).toBe("Run 'linear issue create --help' for usage.");
     });
 
     it("an unknown top-level word is an unknown command, with a guess", () => {
@@ -305,9 +388,9 @@ describe("error boundary (spawned bin)", () => {
       expect(human.stderr).toContain("read-all");
       const json = run(["notification", "--json"]);
       expect(json.code).toBe(2);
-      expect(envelope(json.stderr).message).toBe(
-        "Missing subcommand. Run 'linear notification --help' to see the commands.",
-      );
+      const structured = JSON.parse(json.stderr).error;
+      expect(structured.message).toBe("Missing subcommand.");
+      expect(structured.suggestion).toBe("Run 'linear notification --help' to see the commands.");
     });
   });
 });
@@ -338,6 +421,16 @@ describe("terminal hygiene vs. JSON fidelity", () => {
   it("the human error line strips them too", () => {
     const { err } = capture(() => human().error(new CliError(evil, "not_found")));
     expect(err).toBe("error: x RED link y\n");
+  });
+
+  it("the human suggestion and debug detail are sanitized too", () => {
+    const error = new CliError("bad", "api", { remote: evil }, evil);
+    const output = new Output({ json: false, color: false, quiet: false, debug: true });
+    const { err } = capture(() => output.error(error));
+    expect(err).toContain("hint: x RED link y");
+    // JSON.stringify represents the remote control bytes as inert text.
+    expect(err).toContain("\\u001b[31mRED");
+    expect(err).not.toContain(ESC);
   });
 
   it("JSON carries the exact bytes (escaped by JSON itself), stdout and the error envelope alike", () => {

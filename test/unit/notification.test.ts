@@ -97,9 +97,7 @@ describe("listNotifications", () => {
 
 describe("setRead", () => {
   it("marks read with an ISO readAt timestamp", async () => {
-    const updateNotification = vi
-      .fn()
-      .mockResolvedValue({ success: true });
+    const updateNotification = vi.fn().mockResolvedValue({ success: true });
     const client = { updateNotification } as any;
     await setRead(client, "n1", true);
     const [id, input] = updateNotification.mock.calls[0]!;
@@ -109,9 +107,7 @@ describe("setRead", () => {
   });
 
   it("marks unread with a null readAt", async () => {
-    const updateNotification = vi
-      .fn()
-      .mockResolvedValue({ success: true });
+    const updateNotification = vi.fn().mockResolvedValue({ success: true });
     const client = { updateNotification } as any;
     await setRead(client, "n1", false);
     expect(updateNotification.mock.calls[0]![1]).toEqual({ readAt: null });
@@ -148,13 +144,20 @@ describe("notification writes are confirmed, not assumed", () => {
 
 describe("snoozeNotification", () => {
   it("passes snoozedUntilAt through unchanged", async () => {
-    const updateNotification = vi
-      .fn()
-      .mockResolvedValue({ success: true });
+    const updateNotification = vi.fn().mockResolvedValue({ success: true });
     const client = { updateNotification } as any;
     const until = "2026-07-01T09:00:00.000Z";
     await snoozeNotification(client, "n1", until);
     expect(updateNotification.mock.calls[0]![1]).toEqual({ snoozedUntilAt: until });
+  });
+
+  it("rejects malformed or timezone-less timestamps before the API call", async () => {
+    const updateNotification = vi.fn();
+    const client = { updateNotification } as any;
+    for (const bad of ["tomorrow", "2026-07-01", "2026-07-01T09:00:00", "2026-99-01T09:00:00Z"]) {
+      await expect(snoozeNotification(client, "n1", bad)).rejects.toMatchObject({ code: "usage" });
+    }
+    expect(updateNotification).not.toHaveBeenCalled();
   });
 });
 
@@ -166,9 +169,33 @@ describe("markAllRead", () => {
       data: {
         notifications: {
           nodes: [
-            { __typename: "IssueNotification", id: "n1", type: "issueAssigned", readAt: null, snoozedUntilAt: null, archivedAt: null, createdAt: "2026-01-01T00:00:00.000Z" },
-            { __typename: "IssueNotification", id: "n2", type: "issueAssigned", readAt: "2026-01-01T00:00:00.000Z", snoozedUntilAt: null, archivedAt: null, createdAt: "2026-01-01T00:00:00.000Z" },
-            { __typename: "IssueNotification", id: "n3", type: "issueAssigned", readAt: null, snoozedUntilAt: null, archivedAt: null, createdAt: "2026-01-01T00:00:00.000Z" },
+            {
+              __typename: "IssueNotification",
+              id: "n1",
+              type: "issueAssigned",
+              readAt: null,
+              snoozedUntilAt: null,
+              archivedAt: null,
+              createdAt: "2026-01-01T00:00:00.000Z",
+            },
+            {
+              __typename: "IssueNotification",
+              id: "n2",
+              type: "issueAssigned",
+              readAt: "2026-01-01T00:00:00.000Z",
+              snoozedUntilAt: null,
+              archivedAt: null,
+              createdAt: "2026-01-01T00:00:00.000Z",
+            },
+            {
+              __typename: "IssueNotification",
+              id: "n3",
+              type: "issueAssigned",
+              readAt: null,
+              snoozedUntilAt: null,
+              archivedAt: null,
+              createdAt: "2026-01-01T00:00:00.000Z",
+            },
           ],
           pageInfo: { hasNextPage: false },
         },

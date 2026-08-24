@@ -30,7 +30,10 @@ function freeWindow(): { startsAt: string; endsAt: string } {
     }
   }
   const start = new Date(latest + 7 * DAY);
-  return { startsAt: start.toISOString(), endsAt: new Date(start.getTime() + 14 * DAY).toISOString() };
+  return {
+    startsAt: start.toISOString(),
+    endsAt: new Date(start.getTime() + 14 * DAY).toISOString(),
+  };
 }
 
 suite("cycle lifecycle (live)", () => {

@@ -10,7 +10,7 @@
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { shape } from "../lib/shape.js";
-import { collect, pageSize } from "../lib/pagination.js";
+import { collect, pageSize, setPaginationMetadata } from "../lib/pagination.js";
 import { usageError } from "../lib/errors.js";
 import { resolveTeam, resolveStateId, isUuid } from "../lib/resolve.js";
 
@@ -41,8 +41,14 @@ export async function listStates(
   const team = await resolveTeam(client, teamInput, defaultTeamKey);
   const teamModel = await withRetry(() => client.team(team.id));
   const conn = await withRetry(() => teamModel.states({ first: pageSize(limit) }));
-  const nodes = await collect(conn as any, limit);
-  return nodes.map(toRow).sort((a, b) => a.position - b.position);
+  // The API's connection order is unrelated to workflow position. Sort the
+  // complete small state set, then apply the caller's limit.
+  const nodes = await collect(conn as any, Infinity);
+  const rows = nodes.map(toRow).sort((a, b) => a.position - b.position);
+  return setPaginationMetadata(
+    limit === Infinity ? rows : rows.slice(0, limit),
+    rows.length > limit,
+  );
 }
 
 export interface StateDetail {

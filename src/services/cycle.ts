@@ -8,7 +8,7 @@
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { shape } from "../lib/shape.js";
-import { collect, pageSize } from "../lib/pagination.js";
+import { collect, pageSize, setPaginationMetadata } from "../lib/pagination.js";
 import { usageError, notFound } from "../lib/errors.js";
 import { unwrapMutation } from "../lib/mutation.js";
 import { resolveTeam, resolveCycleId, isUuid } from "../lib/resolve.js";
@@ -44,11 +44,16 @@ export async function listCycles(
   const team = await resolveTeam(client, teamInput, defaultTeamKey);
   const teamModel = await withRetry(() => client.team(team.id));
   const conn = await withRetry(() => teamModel.cycles({ first: pageSize(limit) }));
-  const nodes = await collect(conn as any, limit);
+  // Cycle connection order is not its user-facing number order. Sort first so
+  // `--limit` means the newest cycles, not an arbitrary API prefix.
+  const nodes = await collect(conn as any, Infinity);
   const rows = nodes.map(toRow);
   // Surface most-recent (highest number) cycle first.
   rows.sort((a, b) => b.number - a.number);
-  return rows;
+  return setPaginationMetadata(
+    limit === Infinity ? rows : rows.slice(0, limit),
+    rows.length > limit,
+  );
 }
 
 /** The team's currently active cycle, if any. */
@@ -174,7 +179,9 @@ async function resolveCycleArg(
   if (isUuid(idArg)) return idArg;
   const teamKey = teamInput ?? defaultTeamKey;
   if (!teamKey)
-    throw usageError("Resolving a cycle by number or 'current' requires --team (or pass a cycle id).");
+    throw usageError(
+      "Resolving a cycle by number or 'current' requires --team (or pass a cycle id).",
+    );
   const team = await resolveTeam(client, teamKey, undefined);
   return resolveCycleId(client, team.id, idArg);
 }

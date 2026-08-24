@@ -61,6 +61,7 @@ If the invocation does not state a mode, use review mode.
 
    Run `bun run skill:docs` and include generated references whenever a command or option
    changes. Keep the PR scope limited to the intended maintenance category.
+
 5. In scheduled autonomous mode, merge only a dependency-only roll-up PR after all required
    checks are green, the merge is clean, and there are no unresolved review comments. Recheck
    `main` CI after the merge. Otherwise, leave the PR ready for review and report why it was

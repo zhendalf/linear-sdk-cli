@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import { walkCommands } from "../../src/lib/introspect.js";
 import { createProgram } from "../../src/cli.js";
 
@@ -10,6 +10,7 @@ describe("walkCommands", () => {
     grp
       .command("do <id> [extra...]")
       .description("do a thing")
+      .addOption(new Option("--kind <name>", "a kind").choices(["one", "two"]).default("one"))
       .option("--flag", "a flag");
 
     const nodes = walkCommands(root);
@@ -23,7 +24,19 @@ describe("walkCommands", () => {
       { name: "id", required: true, variadic: false },
       { name: "extra", required: false, variadic: true },
     ]);
-    expect(sub.options.some((o) => o.flags === "--flag")).toBe(true);
+    expect(sub.options.find((o) => o.flags === "--flag")).toMatchObject({
+      attribute: "flag",
+      valueRequired: false,
+      valueOptional: false,
+      variadic: false,
+      global: false,
+      applicable: true,
+    });
+    expect(sub.options.find((o) => o.attribute === "kind")).toMatchObject({
+      valueRequired: true,
+      choices: ["one", "two"],
+      defaultValue: "one",
+    });
 
     const group = nodes.find((n) => n.path === "grp")!;
     expect(group.aliases).toContain("g");
@@ -47,6 +60,34 @@ describe("walkCommands", () => {
     expect(paths).toContain("commands");
     expect(paths).toContain("schema");
     expect(paths).toContain("api");
+  });
+
+  it("marks global options and reports whether they apply to the command", () => {
+    const nodes = walkCommands(createProgram());
+    const at = (path: string) => nodes.find((node) => node.path === path)!;
+    const option = (path: string, attribute: string) =>
+      at(path).options.find((candidate) => candidate.attribute === attribute)!;
+
+    expect(option("issue list", "limit")).toMatchObject({
+      global: true,
+      applicable: true,
+      valueRequired: true,
+    });
+    expect(option("issue create", "limit")).toMatchObject({ global: true, applicable: false });
+    expect(option("issue delete", "yes")).toMatchObject({ global: true, applicable: true });
+    expect(option("issue view", "yes")).toMatchObject({ global: true, applicable: false });
+    expect(option("issue list", "sort").choices).toContain("manual");
+  });
+
+  it("inherits applicability from a group's default subcommand", () => {
+    const nodes = walkCommands(createProgram());
+    const at = (path: string) => nodes.find((node) => node.path === path)!;
+    const fields = (path: string) =>
+      at(path).options.find((candidate) => candidate.attribute === "fields")!;
+
+    expect(fields("issue")).toMatchObject({ global: true, applicable: true });
+    expect(fields("config")).toMatchObject({ global: true, applicable: true });
+    expect(fields("cycle")).toMatchObject({ global: true, applicable: false });
   });
 });
 

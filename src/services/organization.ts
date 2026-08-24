@@ -11,8 +11,7 @@
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { shape } from "../lib/shape.js";
-import { collect } from "../lib/pagination.js";
-import { pageSize } from "../lib/pagination.js";
+import { collect, inheritPaginationMetadata, pageSize } from "../lib/pagination.js";
 
 export interface OrganizationDetail {
   id: string;
@@ -83,14 +82,17 @@ export const ORGANIZATION_MEMBER_ROW_SHAPE = shape<MemberRow>({
 export async function listMembers(client: LinearClient, limit: number): Promise<MemberRow[]> {
   const conn = await withRetry(() => client.users({ first: pageSize(limit) }));
   const nodes = await collect(conn as any, limit);
-  return nodes.map((u: any) => ({
-    id: u.id,
-    displayName: u.displayName,
-    name: u.name,
-    email: u.email,
-    admin: !!u.admin,
-    active: !!u.active,
-  }));
+  return inheritPaginationMetadata(
+    nodes.map((u: any) => ({
+      id: u.id,
+      displayName: u.displayName,
+      name: u.name,
+      email: u.email,
+      admin: !!u.admin,
+      active: !!u.active,
+    })),
+    nodes,
+  );
 }
 
 export interface InviteRow {
@@ -128,12 +130,15 @@ export function inviteStatus(invite: { acceptedAt?: unknown; expiresAt?: unknown
 export async function listInvites(client: LinearClient, limit: number): Promise<InviteRow[]> {
   const conn = await withRetry(() => client.organizationInvites({ first: pageSize(limit) }));
   const nodes = await collect(conn as any, limit);
-  return nodes.map((i: any) => ({
-    id: i.id,
-    email: i.email,
-    status: inviteStatus(i),
-    role: i.role ?? "member",
-    external: !!i.external,
-    createdAt: i.createdAt?.toISOString?.() ?? String(i.createdAt),
-  }));
+  return inheritPaginationMetadata(
+    nodes.map((i: any) => ({
+      id: i.id,
+      email: i.email,
+      status: inviteStatus(i),
+      role: i.role ?? "member",
+      external: !!i.external,
+      createdAt: i.createdAt?.toISOString?.() ?? String(i.createdAt),
+    })),
+    nodes,
+  );
 }

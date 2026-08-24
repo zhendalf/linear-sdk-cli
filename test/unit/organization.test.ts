@@ -9,7 +9,7 @@ import { connection } from "./_fakes.js";
 
 // A faithful SDK connection (see _fakes.ts): fetchNext() mutates and returns
 // `this`, which is what the real one does and what an ad-hoc literal did not.
-const conn = <T,>(nodes: T[]) => connection(nodes) as any;
+const conn = <T>(nodes: T[]) => connection(nodes) as any;
 
 describe("getOrganizationDetail", () => {
   it("maps the workspace getter to a flat detail object", async () => {
@@ -50,14 +50,35 @@ describe("listMembers", () => {
     const client = {
       users: async () =>
         conn([
-          { id: "u1", displayName: "Ada", name: "Ada L", email: "ada@x.io", admin: true, active: true },
-          { id: "u2", displayName: "Bob", name: "Bob R", email: "bob@x.io", admin: false, active: false },
+          {
+            id: "u1",
+            displayName: "Ada",
+            name: "Ada L",
+            email: "ada@x.io",
+            admin: true,
+            active: true,
+          },
+          {
+            id: "u2",
+            displayName: "Bob",
+            name: "Bob R",
+            email: "bob@x.io",
+            admin: false,
+            active: false,
+          },
         ]),
     } as any;
     const rows = await listMembers(client, 50);
     expect(rows).toEqual([
       { id: "u1", displayName: "Ada", name: "Ada L", email: "ada@x.io", admin: true, active: true },
-      { id: "u2", displayName: "Bob", name: "Bob R", email: "bob@x.io", admin: false, active: false },
+      {
+        id: "u2",
+        displayName: "Bob",
+        name: "Bob R",
+        email: "bob@x.io",
+        admin: false,
+        active: false,
+      },
     ]);
   });
 });

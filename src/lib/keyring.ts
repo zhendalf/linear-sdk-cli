@@ -71,7 +71,9 @@ function runSecurity(args: string[], input?: string) {
  */
 function quoteForSecurity(token: string, what: string): string {
   if (/[\r\n]/.test(token)) {
-    throw new KeyringError(`The ${what} contains a line break and cannot be stored in the keychain.`);
+    throw new KeyringError(
+      `The ${what} contains a line break and cannot be stored in the keychain.`,
+    );
   }
   return `"${token.replace(/[\\"]/g, (c) => `\\${c}`)}"`;
 }
@@ -98,7 +100,16 @@ export const macosKeychain: KeyringBackend = {
     // never an argv element. (`add-generic-password -w` as the LAST option
     // prompts instead — but on /dev/tty, so it hangs in a real terminal.)
     const line =
-      ["add-generic-password", "-a", quoteForSecurity(account, "workspace slug"), "-s", KEYRING_SERVICE, "-U", "-w", quoteForSecurity(secret, "API key")].join(" ") + "\n";
+      [
+        "add-generic-password",
+        "-a",
+        quoteForSecurity(account, "workspace slug"),
+        "-s",
+        KEYRING_SERVICE,
+        "-U",
+        "-w",
+        quoteForSecurity(secret, "API key"),
+      ].join(" ") + "\n";
     const r = runSecurity(["-i"], line);
     if (r.status !== 0) {
       throw new KeyringError(
@@ -150,7 +161,15 @@ export const linuxSecretService: KeyringBackend = {
 
   set(account, secret) {
     const r = runSecretTool(
-      ["store", "--label", `${KEYRING_SERVICE}: ${account}`, "service", KEYRING_SERVICE, "account", account],
+      [
+        "store",
+        "--label",
+        `${KEYRING_SERVICE}: ${account}`,
+        "service",
+        KEYRING_SERVICE,
+        "account",
+        account,
+      ],
       secret,
     );
     if (r.status !== 0) {
@@ -178,12 +197,24 @@ export const linuxSecretService: KeyringBackend = {
 // Selection
 // ---------------------------------------------------------------------------
 
-/** `undefined` = not decided yet; `null` = decided: no keyring here. */
-let selected: KeyringBackend | null | undefined;
+/** Explicit test/application override; `undefined` means automatic detection. */
+let overrideBackend: KeyringBackend | null | undefined;
+/** Automatic detection is cached only while HOME is unchanged. */
+let detectedBackend: KeyringBackend | null | undefined;
+let detectedHome: string | undefined;
 
 function detect(): KeyringBackend | null {
   if (process.platform === "darwin") {
-    return existsSync(SECURITY) ? macosKeychain : null;
+    if (!existsSync(SECURITY)) return null;
+    // `security add-generic-password` opens a system dialog when the process
+    // has no default user keychain (common with an isolated HOME in tests,
+    // containers, and launch agents). Probe first so that environment is
+    // treated like every other machine without a usable keyring and callers
+    // can fall back to the 0600 credential file without surprising UI.
+    const probe = spawnSync(SECURITY, ["default-keychain", "-d", "user"], {
+      encoding: "utf8",
+    });
+    return !probe.error && probe.status === 0 ? macosKeychain : null;
   }
   if (process.platform === "linux") {
     // With no arguments secret-tool prints usage and exits 2; a completed run
@@ -200,8 +231,13 @@ function detect(): KeyringBackend | null {
  * error condition, just a platform.
  */
 export function keyring(): KeyringBackend | null {
-  if (selected === undefined) selected = detect();
-  return selected;
+  if (overrideBackend !== undefined) return overrideBackend;
+  const home = process.env.HOME;
+  if (detectedBackend === undefined || detectedHome !== home) {
+    detectedBackend = detect();
+    detectedHome = home;
+  }
+  return detectedBackend;
 }
 
 /**
@@ -209,7 +245,13 @@ export function keyring(): KeyringBackend | null {
  * never touch the developer's real Keychain. `undefined` restores detection.
  */
 export function setKeyringBackend(backend: KeyringBackend | null | undefined): void {
-  selected = backend;
+  overrideBackend = backend;
+  if (backend === undefined) {
+    // Tests routinely swap HOME to an isolated fixture. Do not let a backend
+    // detected against the real login keychain escape into that environment.
+    detectedBackend = undefined;
+    detectedHome = undefined;
+  }
 }
 
 /** An in-memory backend for tests. */

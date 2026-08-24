@@ -2,7 +2,7 @@
  * Configuration resolution.
  *
  * Two tiers with different trust boundaries:
- *  - Non-secret settings (team, workspace, sort, vcs): flag > env > project
+ *  - Non-secret settings (team, workspace, sort): flag > env > project
  *    config > user config (`~/.config/linear/config.toml`) > the reference
  *    CLI's global config (`~/.config/linear/linear.toml`, read-only).
  *    The project config is the first file found walking cwd → filesystem
@@ -40,8 +40,10 @@ import {
   chmodSync,
   openSync,
   closeSync,
+  fstatSync,
   fsyncSync,
   renameSync,
+  statSync,
   unlinkSync,
 } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -53,7 +55,6 @@ export interface RawSettings {
   team?: string;
   workspace?: string;
   sort?: string;
-  vcs?: string;
   apiKey?: string;
 }
 
@@ -67,14 +68,16 @@ export type ConfigSource = "flag" | "env" | "project" | "user" | "global" | "key
 /** Where a stored workspace credential's secret lives. */
 export type CredentialStorage = "file" | "keychain";
 
-/** A setting's provenance: which tier, and (for a file) which file. */
+/** A setting's provenance: which tier, and (for a file) which file/key. */
 export interface SettingOrigin {
   source: ConfigSource;
   path?: string;
+  /** Exact spelling found in the file (`issue_sort`, not just canonical `sort`). */
+  key?: string;
 }
 
 /** The non-secret settings, each with its provenance. */
-export type SettingOrigins = Record<"team" | "workspace" | "sort" | "vcs", SettingOrigin>;
+export type SettingOrigins = Record<"team" | "workspace" | "sort", SettingOrigin>;
 
 export interface ResolvedConfig {
   apiKey?: string;
@@ -95,7 +98,6 @@ export interface ResolvedConfig {
   sort: string;
   /** Where `sort` came from, so an invalid value can be blamed precisely. */
   sortSource: ConfigSource;
-  vcs: string;
   /** Provenance of every non-secret setting (`linear config` shows it). */
   origins: SettingOrigins;
   /** Absolute path of the user config file (may not exist yet). */
@@ -137,7 +139,11 @@ export function globalConfigPath(env: NodeJS.ProcessEnv = process.env): string {
  * directory — the reference CLI's order, so a repo that has more than one
  * resolves the same way under both tools.
  */
-export const PROJECT_CONFIG_NAMES = ["linear.toml", ".linear.toml", join(".config", "linear.toml")] as const;
+export const PROJECT_CONFIG_NAMES = [
+  "linear.toml",
+  ".linear.toml",
+  join(".config", "linear.toml"),
+] as const;
 
 /**
  * The reference CLI's credentials file, a sibling of our config. Its keyring
@@ -160,10 +166,20 @@ interface WorkspaceEntry {
 interface UserConfig {
   /** Top-level non-secret settings. */
   settings: RawSettings;
+  /** Exact top-level key spelling that supplied each non-secret setting. */
+  settingKeys: SettingKeys;
   /** default_workspace, if set (ours, else the reference CLI's `default`). */
   defaultWorkspace?: string;
   /** slug → entry from `[workspaces."<slug>"]`, plus the reference CLI's list. */
   workspaces: Record<string, WorkspaceEntry>;
+}
+
+type NonSecretSetting = "team" | "workspace" | "sort";
+type SettingKeys = Partial<Record<NonSecretSetting, string>>;
+
+interface FileSettings {
+  settings: RawSettings;
+  keys: SettingKeys;
 }
 
 function asString(v: unknown): string | undefined {
@@ -231,14 +247,31 @@ function parseTomlFile(path: string): Record<string, unknown> {
  * Read flat NON-SECRET settings from a TOML file. Used for project
  * `.linear.toml`; the API key is intentionally NOT read here (trust boundary).
  */
-function readTomlFile(path: string): RawSettings {
-  const parsed = parseTomlFile(path);
-  return {
-    team: asString(parsed.team ?? parsed.team_id),
-    workspace: asString(parsed.workspace),
-    sort: asString(parsed.sort ?? parsed.issue_sort),
-    vcs: asString(parsed.vcs),
+function settingsFromParsed(parsed: Record<string, unknown>): FileSettings {
+  const read = (canonical: NonSecretSetting, aliases: readonly string[]) => {
+    // Match the old `primary ?? alias` behavior exactly: a present-but-invalid
+    // primary spelling does not silently fall through to a second key.
+    const key = aliases.find((alias) => parsed[alias] !== undefined);
+    const value = key === undefined ? undefined : asString(parsed[key]);
+    return { canonical, key: value === undefined ? undefined : key, value };
   };
+  const found = [
+    read("team", ["team", "team_id"]),
+    read("workspace", ["workspace"]),
+    read("sort", ["sort", "issue_sort"]),
+  ];
+  const settings: RawSettings = {};
+  const keys: SettingKeys = {};
+  for (const item of found) {
+    if (item.value !== undefined) settings[item.canonical] = item.value;
+    if (item.key !== undefined) keys[item.canonical] = item.key;
+  }
+  return { settings, keys };
+}
+
+function readTomlFile(path: string): FileSettings {
+  const parsed = parseTomlFile(path);
+  return settingsFromParsed(parsed);
 }
 
 /**
@@ -247,12 +280,17 @@ function readTomlFile(path: string): RawSettings {
  * listing those slugs without reading their keys would only produce a
  * "no stored credential" error for a workspace the user can see in the file.
  */
-function readReferenceCredentials(path: string): { workspaces: string[]; defaultWorkspace?: string } {
+function readReferenceCredentials(path: string): {
+  workspaces: string[];
+  defaultWorkspace?: string;
+} {
   if (!existsSync(path)) return { workspaces: [] };
   const parsed = parseTomlFile(path);
   const list = parsed.workspaces;
   if (!Array.isArray(list)) return { workspaces: [] };
-  const workspaces = [...new Set(list.filter((v): v is string => typeof v === "string" && v.length > 0))];
+  const workspaces = [
+    ...new Set(list.filter((v): v is string => typeof v === "string" && v.length > 0)),
+  ];
   const def = asString(parsed.default);
   return {
     workspaces,
@@ -265,6 +303,7 @@ function readReferenceCredentials(path: string): { workspaces: string[]; default
 function readUserConfig(path: string): UserConfig {
   const workspaces: Record<string, WorkspaceEntry> = {};
   const parsed = existsSync(path) ? parseTomlFile(path) : {};
+  const fileSettings = settingsFromParsed(parsed);
   const wsTable = parsed.workspaces;
   if (wsTable && typeof wsTable === "object") {
     for (const [slug, val] of Object.entries(wsTable as Record<string, unknown>)) {
@@ -280,12 +319,8 @@ function readUserConfig(path: string): UserConfig {
   const reference = readReferenceCredentials(join(dirname(path), "credentials.toml"));
   for (const slug of reference.workspaces) workspaces[slug] ??= {};
   return {
-    settings: {
-      team: asString(parsed.team ?? parsed.team_id),
-      workspace: asString(parsed.workspace),
-      sort: asString(parsed.sort ?? parsed.issue_sort),
-      vcs: asString(parsed.vcs),
-    },
+    settings: fileSettings.settings,
+    settingKeys: fileSettings.keys,
     defaultWorkspace: asString(parsed.default_workspace) ?? reference.defaultWorkspace,
     workspaces,
   };
@@ -353,7 +388,6 @@ function fromEnv(env: NodeJS.ProcessEnv): RawSettings {
     team: env.LINEAR_TEAM || env.LINEAR_TEAM_ID,
     workspace: env.LINEAR_WORKSPACE,
     sort: env.LINEAR_ISSUE_SORT,
-    vcs: env.LINEAR_VCS,
   };
 }
 
@@ -366,12 +400,12 @@ export function resolveConfig(inputs: ConfigInputs = {}): ResolvedConfig {
   const userPath = userConfigPath(env);
   const user = readUserConfig(userPath);
   const projectPath = findProjectConfig(cwd);
-  const projectSettings = projectPath ? readTomlFile(projectPath) : {};
+  const project = projectPath ? readTomlFile(projectPath) : { settings: {}, keys: {} };
   // The reference CLI's global file: same non-secret reader as a project file,
   // so its `api_key` (it does allow one there) is never picked up.
   const globalCandidate = globalConfigPath(env);
   const globalPath = existsSync(globalCandidate) ? globalCandidate : undefined;
-  const globalSettings = globalPath ? readTomlFile(globalPath) : {};
+  const global = globalPath ? readTomlFile(globalPath) : { settings: {}, keys: {} };
 
   // ----- API key resolution (strict trust boundary) -----------------------
   // Resolution is TOTAL: selection problems are stashed in `apiKeyError` rather
@@ -395,7 +429,10 @@ export function resolveConfig(inputs: ConfigInputs = {}): ResolvedConfig {
     //    already-stored credential by its non-secret slug, but cannot supply a
     //    key: lookupCredential only reads the user config and OS keyring.
     const selected =
-      flags.workspace ?? env.LINEAR_WORKSPACE ?? projectSettings.workspace ?? user.defaultWorkspace;
+      flags.workspace ??
+      env.LINEAR_WORKSPACE ??
+      project.settings.workspace ??
+      user.defaultWorkspace;
 
     // Apply a lookup result for the slug the selection settled on. An
     // explicitly named slug is probed even when no file lists it — the keyring
@@ -438,27 +475,30 @@ export function resolveConfig(inputs: ConfigInputs = {}): ResolvedConfig {
 
   // ----- Non-secret settings (project + global config MAY participate) -----
   // flag > env > project file > our user file > the reference CLI's global file.
-  const tiers: Array<[ConfigSource, RawSettings, string | undefined]> = [
-    ["flag", flags, undefined],
-    ["env", envSettings, undefined],
-    ["project", projectSettings, projectPath],
-    ["user", user.settings, userPath],
-    ["global", globalSettings, globalPath],
+  const tiers: Array<[ConfigSource, RawSettings, string | undefined, SettingKeys | undefined]> = [
+    ["flag", flags, undefined, undefined],
+    ["env", envSettings, undefined, undefined],
+    ["project", project.settings, projectPath, project.keys],
+    ["user", user.settings, userPath, user.settingKeys],
+    ["global", global.settings, globalPath, global.keys],
   ];
-  const pick = <K extends "team" | "workspace" | "sort" | "vcs">(key: K): string | undefined =>
+  const pick = <K extends "team" | "workspace" | "sort">(key: K): string | undefined =>
     tiers.find(([, settings]) => settings[key] !== undefined)?.[1][key];
 
   /** Which tier `pick` took the value from, and which file if it was one. */
-  const originOf = (key: "team" | "workspace" | "sort" | "vcs"): SettingOrigin => {
+  const originOf = (key: "team" | "workspace" | "sort"): SettingOrigin => {
     const hit = tiers.find(([, settings]) => settings[key] !== undefined);
-    return hit ? { source: hit[0], path: hit[2] } : { source: "none" };
+    if (!hit) return { source: "none" };
+    const origin: SettingOrigin = { source: hit[0], path: hit[2] };
+    const spelling = hit[3]?.[key];
+    if (spelling !== undefined) origin.key = spelling;
+    return origin;
   };
 
   const origins: SettingOrigins = {
     team: originOf("team"),
     workspace: originOf("workspace"),
     sort: originOf("sort"),
-    vcs: originOf("vcs"),
   };
 
   return {
@@ -472,7 +512,6 @@ export function resolveConfig(inputs: ConfigInputs = {}): ResolvedConfig {
     workspace: pick("workspace"),
     sort: pick("sort") ?? "priority",
     sortSource: origins.sort.source,
-    vcs: pick("vcs") ?? "git",
     origins,
     userConfigPath: userPath,
     projectConfigPath: projectPath,
@@ -493,6 +532,184 @@ export function resolveConfig(inputs: ConfigInputs = {}): ResolvedConfig {
 function readUserObject(path: string): Record<string, unknown> {
   if (!existsSync(path)) return {};
   return parseTomlFile(path);
+}
+
+// A rename makes each individual write atomic, but does not make a whole
+// read/modify/write transaction atomic: two processes can read the same old
+// object and then replace one another's changes. User-config mutations take a
+// short-lived advisory lock around that entire transaction. Reads remain
+// lock-free and continue to see either the old complete file or the new one.
+const USER_CONFIG_LOCK_TIMEOUT_MS = 5_000;
+const USER_CONFIG_LOCK_STALE_MS = 30_000;
+const USER_CONFIG_LOCK_POLL_MS = 20;
+const LOCK_SLEEP = new Int32Array(new SharedArrayBuffer(4));
+
+interface AdvisoryLock {
+  path: string;
+  fd: number;
+}
+
+interface LockSnapshot {
+  dev: number;
+  ino: number;
+  mtimeMs: number;
+  pid?: number;
+}
+
+function errorCode(err: unknown): string | undefined {
+  return (err as NodeJS.ErrnoException)?.code;
+}
+
+/** Create one exclusive lock marker, returning undefined when it already exists. */
+function createLockMarker(path: string): AdvisoryLock | undefined {
+  let fd: number;
+  try {
+    fd = openSync(path, "wx", 0o600);
+  } catch (err) {
+    if (errorCode(err) === "EEXIST") return undefined;
+    throw err;
+  }
+  try {
+    writeFileSync(
+      fd,
+      JSON.stringify({
+        pid: process.pid,
+        createdAt: Date.now(),
+        token: randomBytes(12).toString("hex"),
+      }) + "\n",
+      "utf8",
+    );
+    fsyncSync(fd);
+    return { path, fd };
+  } catch (err) {
+    releaseLockMarker({ path, fd });
+    throw err;
+  }
+}
+
+/** Release only the path that still names our inode, never a successor's lock. */
+function releaseLockMarker(lock: AdvisoryLock): void {
+  try {
+    const held = fstatSync(lock.fd);
+    try {
+      const current = statSync(lock.path);
+      if (current.dev === held.dev && current.ino === held.ino) unlinkSync(lock.path);
+    } catch (err) {
+      if (errorCode(err) !== "ENOENT") throw err;
+    }
+  } finally {
+    closeSync(lock.fd);
+  }
+}
+
+/** Open a lock marker as one immutable inode and read its owner metadata. */
+function readLockSnapshot(path: string): LockSnapshot | undefined {
+  let fd: number;
+  try {
+    fd = openSync(path, "r");
+  } catch (err) {
+    if (errorCode(err) === "ENOENT") return undefined;
+    throw err;
+  }
+  try {
+    const stat = fstatSync(fd);
+    let pid: number | undefined;
+    try {
+      const parsed = JSON.parse(readFileSync(fd, "utf8")) as { pid?: unknown };
+      if (Number.isSafeInteger(parsed.pid) && (parsed.pid as number) > 0) {
+        pid = parsed.pid as number;
+      }
+    } catch {
+      // A creator can briefly expose an empty marker before writing metadata.
+      // It is considered active until its mtime crosses the stale bound.
+    }
+    return { dev: stat.dev, ino: stat.ino, mtimeMs: stat.mtimeMs, pid };
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function processIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // EPERM still proves the process exists; ESRCH (and an invalid/out-of-range
+    // PID from a corrupt marker) means nobody can own this lock now.
+    return errorCode(err) === "EPERM";
+  }
+}
+
+function lockIsStale(snapshot: LockSnapshot): boolean {
+  if (snapshot.pid !== undefined) return !processIsAlive(snapshot.pid);
+  return Date.now() - snapshot.mtimeMs >= USER_CONFIG_LOCK_STALE_MS;
+}
+
+/** Unlink only if the path still names the stale inode we inspected. */
+function unlinkSnapshot(path: string, snapshot: LockSnapshot): boolean {
+  try {
+    const current = statSync(path);
+    if (current.dev !== snapshot.dev || current.ino !== snapshot.ino) return false;
+    unlinkSync(path);
+    return true;
+  } catch (err) {
+    if (errorCode(err) === "ENOENT") return false;
+    throw err;
+  }
+}
+
+/**
+ * Reap a dead owner's lock under a second exclusive marker. The reaper marker
+ * prevents several waiting writers from deleting a newly acquired successor
+ * while they all race to clean up the same stale inode.
+ */
+function reapStaleLock(path: string): boolean {
+  const candidate = readLockSnapshot(path);
+  if (!candidate || !lockIsStale(candidate)) return false;
+
+  const reapPath = `${path}.reap`;
+  const reaper = createLockMarker(reapPath);
+  if (!reaper) {
+    // A reaper can itself die in its tiny critical section. Recover it with
+    // the same PID/age rules; a later poll will then claim it normally.
+    const staleReaper = readLockSnapshot(reapPath);
+    if (staleReaper && lockIsStale(staleReaper)) unlinkSnapshot(reapPath, staleReaper);
+    return false;
+  }
+  try {
+    const snapshot = readLockSnapshot(path);
+    return snapshot !== undefined && lockIsStale(snapshot) && unlinkSnapshot(path, snapshot);
+  } finally {
+    releaseLockMarker(reaper);
+  }
+}
+
+function acquireUserConfigLock(path: string): AdvisoryLock {
+  const lockPath = `${path}.lock`;
+  mkdirSync(dirname(path), { recursive: true });
+  const deadline = performance.now() + USER_CONFIG_LOCK_TIMEOUT_MS;
+  while (true) {
+    const lock = createLockMarker(lockPath);
+    if (lock) return lock;
+    if (reapStaleLock(lockPath)) continue;
+    const remaining = deadline - performance.now();
+    if (remaining <= 0) {
+      throw new CliError(
+        `Timed out waiting for another process to finish updating ${sanitize(path, 512)}. Retry the command once that config write completes.`,
+        "runtime",
+      );
+    }
+    Atomics.wait(LOCK_SLEEP, 0, 0, Math.min(USER_CONFIG_LOCK_POLL_MS, remaining));
+  }
+}
+
+function withUserConfigLock<T>(path: string, mutate: () => T): T {
+  const lock = acquireUserConfigLock(path);
+  try {
+    return mutate();
+  } finally {
+    releaseLockMarker(lock);
+  }
 }
 
 /**
@@ -560,6 +777,91 @@ export interface WriteCredentialResult {
   keyringLabel?: string;
 }
 
+/** A single, explicitly named credential found in the shared OS keyring. */
+export interface KeyringCredentialProbe {
+  /** Kept in memory only; callers must never print it or pass it on argv. */
+  apiKey: string;
+  keyringLabel: string;
+}
+
+/**
+ * Read exactly one workspace account from the shared keyring.
+ *
+ * This is intentionally not a discovery API: keyring enumeration can expose
+ * unrelated account names and secrets. `auth adopt <slug>` asks the user for
+ * the non-secret account name and probes only service `linear-cli` / that
+ * account, matching the reference CLI's storage convention.
+ */
+export function probeKeyringCredential(slug: string): KeyringCredentialProbe {
+  const backend = keyring();
+  if (!backend) {
+    throw new CliError(
+      `No usable system keyring is available, so workspace '${sanitize(slug)}' cannot be adopted. Run \`linear auth login --key -\` to read the key from stdin instead.`,
+      "runtime",
+    );
+  }
+  let apiKey: string | null;
+  try {
+    apiKey = backend.get(slug);
+  } catch (err) {
+    if (err instanceof KeyringError) {
+      throw new CliError(
+        `Could not read the ${backend.label} entry for workspace '${sanitize(slug)}': ${err.message}`,
+        "runtime",
+      );
+    }
+    throw err;
+  }
+  if (!apiKey) {
+    throw new CliError(
+      `No ${backend.label} credential exists for workspace '${sanitize(slug)}' (service linear-cli, account '${sanitize(slug)}'). Run \`linear auth login --key -\` to store one from stdin.`,
+      "not_found",
+    );
+  }
+  return { apiKey, keyringLabel: backend.label };
+}
+
+export interface AdoptCredentialResult {
+  path: string;
+  storage: "keychain";
+  keyringLabel: string;
+}
+
+/**
+ * Record a previously validated, explicitly named keyring credential in our
+ * workspace list. The secret remains in the keyring and is never serialized.
+ * A second exact-name probe inside the config lock prevents a changed or
+ * removed key from being adopted after validation.
+ */
+export function adoptKeyringCredential(
+  slug: string,
+  expectedApiKey: string,
+): AdoptCredentialResult {
+  const path = userConfigPath();
+  return withUserConfigLock(path, () => {
+    const found = probeKeyringCredential(slug);
+    if (found.apiKey !== expectedApiKey) {
+      throw new CliError(
+        `The ${found.keyringLabel} credential for workspace '${sanitize(slug)}' changed while it was being validated. Retry the adopt command.`,
+        "runtime",
+      );
+    }
+
+    const obj = readUserObject(path);
+    const ws = workspacesTable(obj);
+    const table: WorkspaceTable = { ...(ws[slug] ?? {}) };
+    delete table.api_key;
+    table.keyring = true;
+    ws[slug] = table;
+    if (!asString(obj.default_workspace)) {
+      const reference = readReferenceCredentials(referenceCredentialsPath());
+      if (!reference.defaultWorkspace) obj.default_workspace = slug;
+    }
+    writeUserObject(path, obj);
+    return { path, storage: "keychain", keyringLabel: found.keyringLabel };
+  });
+}
+
 /**
  * Store a credential for `slug`. By default the secret goes to the OS keyring
  * (service `linear-cli`, account = slug) and the file only records
@@ -576,47 +878,51 @@ export function writeCredential(
   opts: { plaintext?: boolean } = {},
 ): WriteCredentialResult {
   const path = userConfigPath();
-  const backend = opts.plaintext ? null : keyring();
-  const obj = readUserObject(path);
-  const ws = workspacesTable(obj);
-  const table: WorkspaceTable = { ...(ws[slug] ?? {}) };
-  let storage: CredentialStorage;
-  if (backend) {
-    // Keyring first: if it refuses, the file is untouched and the error is loud.
-    backend.set(slug, apiKey);
-    delete table.api_key;
-    table.keyring = true;
-    storage = "keychain";
-  } else {
-    delete table.keyring;
-    table.api_key = apiKey;
-    storage = "file";
-  }
-  ws[slug] = table;
-  if (!asString(obj.default_workspace)) {
-    // Leave the reference CLI's default in charge if it has one; writing ours
-    // over it would silently switch a migrating user's workspace.
-    const reference = readReferenceCredentials(referenceCredentialsPath());
-    if (!reference.defaultWorkspace) obj.default_workspace = slug;
-  }
-  writeUserObject(path, obj);
-  return { path, storage, keyringLabel: backend?.label };
+  return withUserConfigLock(path, () => {
+    const backend = opts.plaintext ? null : keyring();
+    const obj = readUserObject(path);
+    const ws = workspacesTable(obj);
+    const table: WorkspaceTable = { ...(ws[slug] ?? {}) };
+    let storage: CredentialStorage;
+    if (backend) {
+      // Keyring first: if it refuses, the file is untouched and the error is loud.
+      backend.set(slug, apiKey);
+      delete table.api_key;
+      table.keyring = true;
+      storage = "keychain";
+    } else {
+      delete table.keyring;
+      table.api_key = apiKey;
+      storage = "file";
+    }
+    ws[slug] = table;
+    if (!asString(obj.default_workspace)) {
+      // Leave the reference CLI's default in charge if it has one; writing ours
+      // over it would silently switch a migrating user's workspace.
+      const reference = readReferenceCredentials(referenceCredentialsPath());
+      if (!reference.defaultWorkspace) obj.default_workspace = slug;
+    }
+    writeUserObject(path, obj);
+    return { path, storage, keyringLabel: backend?.label };
+  });
 }
 
 /** Set `default_workspace`. Errors if that workspace is not configured anywhere. */
 export function setDefaultWorkspace(slug: string): string {
   const path = userConfigPath();
-  const known = readUserConfig(path).workspaces;
-  if (!known[slug]) {
-    throw new CliError(
-      `Workspace '${slug}' is not configured. Run \`linear auth login --workspace ${slug}\` first.`,
-      "not_found",
-    );
-  }
-  const obj = readUserObject(path);
-  obj.default_workspace = slug;
-  writeUserObject(path, obj);
-  return path;
+  return withUserConfigLock(path, () => {
+    const known = readUserConfig(path).workspaces;
+    if (!known[slug]) {
+      throw new CliError(
+        `Workspace '${slug}' is not configured. Run \`linear auth login --workspace ${slug}\` first.`,
+        "not_found",
+      );
+    }
+    const obj = readUserObject(path);
+    obj.default_workspace = slug;
+    writeUserObject(path, obj);
+    return path;
+  });
 }
 
 /**
@@ -646,31 +952,33 @@ function removeFromReferenceCredentials(slug: string): boolean {
  */
 export function removeCredential(slug: string): boolean {
   const path = userConfigPath();
-  let removed = false;
+  return withUserConfigLock(path, () => {
+    let removed = false;
 
-  const backend = keyring();
-  if (backend && backend.delete(slug)) removed = true;
-  if (removeFromReferenceCredentials(slug)) removed = true;
+    const backend = keyring();
+    if (backend && backend.delete(slug)) removed = true;
+    if (removeFromReferenceCredentials(slug)) removed = true;
 
-  if (!existsSync(path)) return removed;
-  const obj = readUserObject(path);
-  const ws = workspacesTable(obj);
-  const listed = Boolean(ws[slug]);
-  if (listed) {
-    delete ws[slug];
-    removed = true;
-  }
-  if (Object.keys(ws).length === 0) delete obj.workspaces;
+    if (!existsSync(path)) return removed;
+    const obj = readUserObject(path);
+    const ws = workspacesTable(obj);
+    const listed = Boolean(ws[slug]);
+    if (listed) {
+      delete ws[slug];
+      removed = true;
+    }
+    if (Object.keys(ws).length === 0) delete obj.workspaces;
 
-  if (asString(obj.default_workspace) === slug) {
-    const remaining = obj.workspaces ? Object.keys(obj.workspaces as object) : [];
-    if (remaining.length > 0) obj.default_workspace = remaining[0]!;
-    else delete obj.default_workspace;
-    writeUserObject(path, obj);
-  } else if (listed) {
-    writeUserObject(path, obj);
-  }
-  return removed;
+    if (asString(obj.default_workspace) === slug) {
+      const remaining = obj.workspaces ? Object.keys(obj.workspaces as object) : [];
+      if (remaining.length > 0) obj.default_workspace = remaining[0]!;
+      else delete obj.default_workspace;
+      writeUserObject(path, obj);
+    } else if (listed) {
+      writeUserObject(path, obj);
+    }
+    return removed;
+  });
 }
 
 export interface MigrateResult {
@@ -694,36 +1002,38 @@ export function migrateCredentials(): MigrateResult {
       "runtime",
     );
   }
-  const obj = readUserObject(path);
-  const ws = workspacesTable(obj);
-  const plaintext = Object.entries(ws).filter(([, t]) => asString(t.api_key));
-  const migrated: string[] = [];
-  try {
-    for (const [slug, table] of plaintext) {
-      backend.set(slug, table.api_key!);
-      migrated.push(slug);
-    }
-  } catch (err) {
-    for (const slug of migrated) {
-      try {
-        backend.delete(slug);
-      } catch {
-        // Best-effort rollback.
+  return withUserConfigLock(path, () => {
+    const obj = readUserObject(path);
+    const ws = workspacesTable(obj);
+    const plaintext = Object.entries(ws).filter(([, t]) => asString(t.api_key));
+    const migrated: string[] = [];
+    try {
+      for (const [slug, table] of plaintext) {
+        backend.set(slug, table.api_key!);
+        migrated.push(slug);
       }
+    } catch (err) {
+      for (const slug of migrated) {
+        try {
+          backend.delete(slug);
+        } catch {
+          // Best-effort rollback.
+        }
+      }
+      throw new CliError(
+        `Failed to store the key for workspace '${plaintext[migrated.length]![0]}' in the ${backend.label}: ${(err as Error).message}. Rolled back ${migrated.length} already-written entr${migrated.length === 1 ? "y" : "ies"}; ${path} is unchanged.`,
+        "runtime",
+      );
     }
-    throw new CliError(
-      `Failed to store the key for workspace '${plaintext[migrated.length]![0]}' in the ${backend.label}: ${(err as Error).message}. Rolled back ${migrated.length} already-written entr${migrated.length === 1 ? "y" : "ies"}; ${path} is unchanged.`,
-      "runtime",
-    );
-  }
-  if (migrated.length > 0) {
-    for (const [, table] of plaintext) {
-      delete table.api_key;
-      table.keyring = true;
+    if (migrated.length > 0) {
+      for (const [, table] of plaintext) {
+        delete table.api_key;
+        table.keyring = true;
+      }
+      writeUserObject(path, obj);
     }
-    writeUserObject(path, obj);
-  }
-  return { migrated, path, keyringLabel: backend.label };
+    return { migrated, path, keyringLabel: backend.label };
+  });
 }
 
 export interface CredentialEntry {
@@ -763,7 +1073,7 @@ export function redactKey(key: string | undefined): string {
 // ---------------------------------------------------------------------------
 
 /** The settings `config set` / `config init` will write to a project file. */
-export const SETTABLE_KEYS = ["team", "workspace", "sort", "vcs"] as const;
+export const SETTABLE_KEYS = ["team", "workspace", "sort"] as const;
 export type SettableKey = (typeof SETTABLE_KEYS)[number];
 
 /**
@@ -775,7 +1085,6 @@ const KEY_ALIASES: Record<SettableKey, readonly string[]> = {
   team: ["team", "team_id"],
   workspace: ["workspace"],
   sort: ["sort", "issue_sort"],
-  vcs: ["vcs"],
 };
 
 /** Keys that must never be written to a project file, and why. */
@@ -832,64 +1141,72 @@ export function setConfigKey(
   opts: { mode?: number } = {},
 ): string {
   const mode = opts.mode ?? 0o644;
-  const text = existsSync(path) ? readFileSync(path, "utf8") : "";
-  // Parse first so a broken file is reported as such rather than edited blind.
-  if (text.trim()) parseTomlFile(path);
+  const mutate = (): string => {
+    const text = existsSync(path) ? readFileSync(path, "utf8") : "";
+    // Parse first so a broken file is reported as such rather than edited blind.
+    if (text.trim()) parseTomlFile(path);
 
-  const lines = text.split("\n");
-  // Only the top-level region (before the first table header) is ours to
-  // touch: `api_key = …` inside `[workspaces.x]` must not be mistaken for a
-  // top-level key of the same name.
-  const firstTable = lines.findIndex((l) => /^\s*\[/.test(l));
-  const topEnd = firstTable === -1 ? lines.length : firstTable;
-  const spellings = KEY_ALIASES[key];
-  const keyLine = new RegExp(`^\\s*(${spellings.map((s) => s.replace(".", "\\.")).join("|")})\\s*=`);
-  const idx = lines.findIndex((l, i) => i < topEnd && keyLine.test(l));
+    const lines = text.split("\n");
+    // Only the top-level region (before the first table header) is ours to
+    // touch: `api_key = …` inside `[workspaces.x]` must not be mistaken for a
+    // top-level key of the same name.
+    const firstTable = lines.findIndex((l) => /^\s*\[/.test(l));
+    const topEnd = firstTable === -1 ? lines.length : firstTable;
+    const spellings = KEY_ALIASES[key];
+    const keyLine = new RegExp(
+      `^\\s*(${spellings.map((s) => s.replace(".", "\\.")).join("|")})\\s*=`,
+    );
+    const idx = lines.findIndex((l, i) => i < topEnd && keyLine.test(l));
 
-  let spelling: string;
-  let next: string[];
-  if (idx !== -1) {
-    spelling = lines[idx]!.match(keyLine)![1]!;
-    // Keep a trailing comment on the line, if any.
-    const comment = lines[idx]!.match(/\s+#.*$/)?.[0] ?? "";
-    next = [...lines];
-    next[idx] = `${spelling} = ${tomlString(value)}${comment}`;
-  } else {
-    spelling = key;
-    next = [...lines];
-    // Drop the trailing empty line a `\n`-terminated file splits into (the
-    // file is re-terminated below), then insert right after the last
-    // non-blank top-level line — before any blank line that separates the
-    // top-level keys from the first table. No alias line exists up there (we
-    // searched), so the insert is unambiguous.
-    if (next[next.length - 1] === "") next.pop();
-    let at = firstTable === -1 ? next.length : firstTable;
-    while (at > 0 && next[at - 1]!.trim() === "") at--;
-    const inserted = [`${spelling} = ${tomlString(value)}`];
-    // A file that opens with a table needs a blank line between us and it.
-    if (at < next.length && /^\s*\[/.test(next[at]!)) inserted.push("");
-    next.splice(at, 0, ...inserted);
-  }
-  let body = next.join("\n");
-  if (!body.endsWith("\n")) body += "\n";
+    let spelling: string;
+    let next: string[];
+    if (idx !== -1) {
+      spelling = lines[idx]!.match(keyLine)![1]!;
+      // Keep a trailing comment on the line, if any.
+      const comment = lines[idx]!.match(/\s+#.*$/)?.[0] ?? "";
+      next = [...lines];
+      next[idx] = `${spelling} = ${tomlString(value)}${comment}`;
+    } else {
+      spelling = key;
+      next = [...lines];
+      // Drop the trailing empty line a `\n`-terminated file splits into (the
+      // file is re-terminated below), then insert right after the last
+      // non-blank top-level line — before any blank line that separates the
+      // top-level keys from the first table. No alias line exists up there (we
+      // searched), so the insert is unambiguous.
+      if (next[next.length - 1] === "") next.pop();
+      let at = firstTable === -1 ? next.length : firstTable;
+      while (at > 0 && next[at - 1]!.trim() === "") at--;
+      const inserted = [`${spelling} = ${tomlString(value)}`];
+      // A file that opens with a table needs a blank line between us and it.
+      if (at < next.length && /^\s*\[/.test(next[at]!)) inserted.push("");
+      next.splice(at, 0, ...inserted);
+    }
+    let body = next.join("\n");
+    if (!body.endsWith("\n")) body += "\n";
 
-  // Prove the edit: the parsed file must carry exactly this value under this
-  // spelling. If a layout we did not foresee defeats the line edit, fall back
-  // to a full round-trip — correct, if less pretty.
-  let parsed: Record<string, unknown> | undefined;
-  try {
-    parsed = parseToml(body) as Record<string, unknown>;
-  } catch {
-    parsed = undefined;
-  }
-  if (!parsed || parsed[spelling] !== value) {
-    const obj = text.trim() ? parseTomlFile(path) : {};
-    for (const s of spellings) if (s !== spelling) delete obj[s];
-    obj[spelling] = value;
-    body = stringifyToml(obj) + "\n";
-  }
-  writeFileAtomic(path, body, mode);
-  return spelling;
+    // Prove the edit: the parsed file must carry exactly this value under this
+    // spelling. If a layout we did not foresee defeats the line edit, fall back
+    // to a full round-trip — correct, if less pretty.
+    let parsed: Record<string, unknown> | undefined;
+    try {
+      parsed = parseToml(body) as Record<string, unknown>;
+    } catch {
+      parsed = undefined;
+    }
+    if (!parsed || parsed[spelling] !== value) {
+      const obj = text.trim() ? parseTomlFile(path) : {};
+      for (const s of spellings) if (s !== spelling) delete obj[s];
+      obj[spelling] = value;
+      body = stringifyToml(obj) + "\n";
+    }
+    writeFileAtomic(path, body, mode);
+    return spelling;
+  };
+
+  // `config set --user` passes 0600 because this file can contain credentials;
+  // serialize that read/line-edit/rename with the credential writers too.
+  return mode === 0o600 ? withUserConfigLock(path, mutate) : mutate();
 }
 
 /**

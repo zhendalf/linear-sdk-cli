@@ -34,10 +34,7 @@ suite("organization — read-only (live)", () => {
   });
 
   it("lists organization invites (tolerating an empty workspace)", () => {
-    const rows = runJson<Array<{ email: string; status: string }>>([
-      "organization",
-      "invites",
-    ]);
+    const rows = runJson<Array<{ email: string; status: string }>>(["organization", "invites"]);
     expect(Array.isArray(rows)).toBe(true);
     // Invites may be empty on the test workspace; only assert shape when present.
     if (rows.length > 0) {

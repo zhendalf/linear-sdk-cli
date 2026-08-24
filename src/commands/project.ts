@@ -36,7 +36,10 @@ function formatProgress(p: number | null): string {
  * stderr, once; `--quiet` silences it, `--json` stdout never carries it.
  * Shared by `project list` and the issue queries.
  */
-export function noteWorkspaceWide(ctx: Context, opts: { team?: unknown; allTeams?: boolean }): void {
+export function noteWorkspaceWide(
+  ctx: Context,
+  opts: { team?: unknown; allTeams?: boolean },
+): void {
   const teamGiven = Array.isArray(opts.team) ? opts.team.length > 0 : opts.team !== undefined;
   if (!teamGiven && !opts.allTeams && !ctx.defaultTeam) {
     ctx.output.info(
@@ -97,8 +100,14 @@ export function registerProject(program: Command): void {
           ["Progress", detail.progress !== null ? formatProgress(detail.progress) : null],
           ["Priority", detail.priorityLabel],
           ["Lead", detail.lead?.displayName ?? null],
-          ["Teams", detail.teams.length ? detail.teams.map((t) => `${t.key} ${t.name}`).join(", ") : null],
-          ["Members", detail.members.length ? detail.members.map((m) => m.displayName).join(", ") : null],
+          [
+            "Teams",
+            detail.teams.length ? detail.teams.map((t) => `${t.key} ${t.name}`).join(", ") : null,
+          ],
+          [
+            "Members",
+            detail.members.length ? detail.members.map((m) => m.displayName).join(", ") : null,
+          ],
           ["Labels", detail.labels.length ? detail.labels.map((l) => l.name).join(", ") : null],
           ["Start", detail.startDate],
           ["Target", detail.targetDate],
@@ -317,7 +326,11 @@ export function registerProject(program: Command): void {
             { key: "name", header: "Name", value: (m) => m.name, max: 40 },
             { key: "target", header: "Target", value: (m) => m.targetDate ?? "—" },
             // A milestone's progress is already a percentage (TES-648), unlike a project's.
-            { key: "progress", header: "Progress", value: (m) => formatMilestoneProgress(m.progress) },
+            {
+              key: "progress",
+              header: "Progress",
+              value: (m) => formatMilestoneProgress(m.progress),
+            },
           ],
           rows,
         );

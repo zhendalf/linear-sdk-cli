@@ -57,13 +57,23 @@ function allCommands(cmd: Command, acc: Command[] = []): Command[] {
 describe("collectKeyVal", () => {
   it("accumulates key=value pairs", () => {
     const acc = collectKeyVal("a=1", {});
-    expect(collectKeyVal("b=2", acc)).toEqual({ a: "1", b: "2" });
+    expect(collectKeyVal("b=2", acc)).toEqual({ a: 1, b: 2 });
   });
   it("supports '=' in the value", () => {
     expect(collectKeyVal("token=ab=cd", {})).toEqual({ token: "ab=cd" });
   });
+  it("types JSON literals but leaves ordinary text alone", () => {
+    let vars = collectKeyVal("enabled=true", {});
+    vars = collectKeyVal("none=null", vars);
+    vars = collectKeyVal('labels=["bug"]', vars);
+    vars = collectKeyVal("id=TES-1", vars);
+    expect(vars).toEqual({ enabled: true, none: null, labels: ["bug"], id: "TES-1" });
+  });
   it("throws on missing '='", () => {
     expect(() => collectKeyVal("bad", {})).toThrow(CliError);
+  });
+  it("throws on an empty key", () => {
+    expect(() => collectKeyVal("=bad", {})).toThrow(CliError);
   });
 });
 
@@ -168,7 +178,7 @@ describe("Context.limit", () => {
 });
 
 /**
- * AUDIT #3. Two separate defects hid behind one dead flag, and each needs its
+ * Two separate defects hid behind one dead flag, and each needs its
  * own assertion against the parser:
  *
  *   a) the key. Commander stores a negation under the name with `no-` stripped,
@@ -179,7 +189,7 @@ describe("Context.limit", () => {
  *      `true` overwrote the subcommand's parsed `false`. Fixing (a) alone would
  *      have left the flag just as dead, which is why (b) has its own test.
  */
-describe("--no-input (AUDIT #3)", () => {
+describe("--no-input parsing", () => {
   it("parses into the key Context reads — asserted on commander's output, not on GlobalOptions", () => {
     const { local } = parseAt(["whoami"], ["whoami", "--no-input"]);
     expect(local.noInput).toBe(true);
@@ -205,7 +215,7 @@ describe("--no-input (AUDIT #3)", () => {
   });
 });
 
-describe("Context.isTTY refuses to prompt (AUDIT #3)", () => {
+describe("Context.isTTY refuses to prompt", () => {
   it("honors --no-input", () => {
     expect(new Context({ noInput: true }).isTTY).toBe(false);
   });
@@ -215,16 +225,18 @@ describe("Context.isTTY refuses to prompt (AUDIT #3)", () => {
   it("requires a TTY on both stdin and stdout", () => {
     // inquirer draws the prompt on stdout, so a redirected stdout would write
     // the question into the caller's output.
-    expect(new Context({}).isTTY).toBe(process.stdin.isTTY === true && process.stdout.isTTY === true);
+    expect(new Context({}).isTTY).toBe(
+      process.stdin.isTTY === true && process.stdout.isTTY === true,
+    );
   });
 });
 
 /**
- * AUDIT #4. The global terminal-colour flag and the entity `--color <hex>` used
+ * The global terminal-colour flag and the entity `--color <hex>` used
  * to share commander's `color` attribute, so `--no-color` put `color: false`
  * into a mutation input.
  */
-describe("--no-color vs --color <hex> (AUDIT #4)", () => {
+describe("--no-color vs --color <hex>", () => {
   it("lets one invocation set an entity colour AND disable terminal colour", () => {
     const { local, merged } = parseAt(
       ["label", "create"],
@@ -245,7 +257,10 @@ describe("--no-color vs --color <hex> (AUDIT #4)", () => {
   });
 
   it("--no-color alone leaves `color` untouched, so it cannot reach a mutation input", () => {
-    const { local } = parseAt(["label", "create"], ["label", "create", "--name", "x", "--no-color"]);
+    const { local } = parseAt(
+      ["label", "create"],
+      ["label", "create", "--name", "x", "--no-color"],
+    );
     expect(local.color).toBeUndefined();
     expect(local.color).not.toBe(false);
     expect(local.noAnsi).toBe(true);
@@ -275,11 +290,11 @@ describe("--no-color vs --color <hex> (AUDIT #4)", () => {
 });
 
 /**
- * AUDIT #8 — the global `-t/--team` is advertised on every command, including
+ * The global `-t/--team` is advertised on every command, including
  * ones that cannot honor it. `project update --team X` was accepted and dropped
  * without a word.
  */
-describe("project update --team (AUDIT #8)", () => {
+describe("project update --team", () => {
   const projectUpdate = () =>
     createProgram()
       .commands.find((c) => c.name() === "project")!
@@ -382,18 +397,18 @@ describe("--fields / --limit / --all are refused where nothing reads them (TES-6
   });
 
   it("is refused on a plain mutation with no file option, without the file hint", async () => {
-    await expect(run(["label", "delete"], ["label", "delete", "bug", "--fields", "name"])).rejects.toThrow(
-      /--fields does not apply to `linear label delete`: it prints a receipt/,
-    );
-    await expect(run(["label", "delete"], ["label", "delete", "bug", "--fields", "name"])).rejects.not.toThrow(
-      /--content-file/,
-    );
+    await expect(
+      run(["label", "delete"], ["label", "delete", "bug", "--fields", "name"]),
+    ).rejects.toThrow(/--fields does not apply to `linear label delete`: it prints a receipt/);
+    await expect(
+      run(["label", "delete"], ["label", "delete", "bug", "--fields", "name"]),
+    ).rejects.not.toThrow(/--content-file/);
   });
 
   it("is refused wherever on the command line the flag sat (root position too)", async () => {
-    await expect(run(["issue", "archive"], ["-f", "id", "issue", "archive", "TES-1"])).rejects.toThrow(
-      /--fields does not apply to `linear issue archive`/,
-    );
+    await expect(
+      run(["issue", "archive"], ["-f", "id", "issue", "archive", "TES-1"]),
+    ).rejects.toThrow(/--fields does not apply to `linear issue archive`/);
   });
 
   it("the error is a usage error (exit 2), and the action never runs", async () => {
@@ -408,29 +423,42 @@ describe("--fields / --limit / --all are refused where nothing reads them (TES-6
   });
 
   it("--limit / --all are refused on a command that pages nothing; -n gets the --name hint where there is one", async () => {
+    await expect(run(["project", "create"], ["project", "create", "-n", "5"])).rejects.toThrow(
+      /--limit does not apply to `linear project create`.*-n is --limit here; the name is --name <name>/,
+    );
     await expect(
-      run(["project", "create"], ["project", "create", "-n", "5"]),
-    ).rejects.toThrow(/--limit does not apply to `linear project create`.*-n is --limit here; the name is --name <name>/);
-    await expect(run(["issue", "view"], ["issue", "view", "TES-1", "--limit", "5"])).rejects.toThrow(
-      /--limit does not apply to `linear issue view`: it is not a paged query\./,
-    );
-    await expect(run(["issue", "view"], ["issue", "view", "TES-1", "--limit", "5"])).rejects.not.toThrow(
-      /--name/,
-    );
-    await expect(run(["issue", "create"], ["issue", "create", "--title", "x", "--all"])).rejects.toThrow(
-      /--all does not apply to `linear issue create`/,
-    );
+      run(["issue", "view"], ["issue", "view", "TES-1", "--limit", "5"]),
+    ).rejects.toThrow(/--limit does not apply to `linear issue view`: it is not a paged query\./);
+    await expect(
+      run(["issue", "view"], ["issue", "view", "TES-1", "--limit", "5"]),
+    ).rejects.not.toThrow(/--name/);
+    await expect(
+      run(["issue", "create"], ["issue", "create", "--title", "x", "--all"]),
+    ).rejects.toThrow(/--all does not apply to `linear issue create`/);
   });
 
   it("still lets every renderer take --fields, and every paged query take --limit/--all", async () => {
-    expect((await run(["project", "list"], ["project", "list", "--fields", "name", "--limit", "5"])).ran).toBe(true);
+    expect(
+      (await run(["project", "list"], ["project", "list", "--fields", "name", "--limit", "5"])).ran,
+    ).toBe(true);
     expect((await run(["project", "view"], ["project", "view", "P", "-f", "name"])).ran).toBe(true);
-    expect((await run(["issue", "mine"], ["issue", "mine", "--all", "-f", "id,title"])).ran).toBe(true);
+    expect((await run(["issue", "mine"], ["issue", "mine", "--all", "-f", "id,title"])).ran).toBe(
+      true,
+    );
     expect((await run(["whoami"], ["whoami", "--fields", "email"])).ran).toBe(true);
-    expect((await run(["milestone", "view"], ["milestone", "view", "M", "--limit", "3"])).ran).toBe(true);
+    expect((await run(["milestone", "view"], ["milestone", "view", "M", "--limit", "3"])).ran).toBe(
+      true,
+    );
     expect((await run(["team", "members"], ["team", "members", "--all"])).ran).toBe(true);
     // The mounted copy of `comment list` under `issue` is its own Command instance.
-    expect((await run(["issue", "comment", "list"], ["issue", "comment", "list", "TES-1", "-f", "body", "-n", "2"])).ran).toBe(true);
+    expect(
+      (
+        await run(
+          ["issue", "comment", "list"],
+          ["issue", "comment", "list", "TES-1", "-f", "body", "-n", "2"],
+        )
+      ).ran,
+    ).toBe(true);
     // Root position works for a renderer, exactly as before.
     expect((await run(["user", "list"], ["-f", "email", "--all", "user", "list"])).ran).toBe(true);
   });
@@ -440,7 +468,8 @@ describe("--fields / --limit / --all are refused where nothing reads them (TES-6
     for (const p of FIELDS_COMMANDS) expect(paths.has(p), `FIELDS_COMMANDS: '${p}'`).toBe(true);
     for (const p of LIMIT_COMMANDS) expect(paths.has(p), `LIMIT_COMMANDS: '${p}'`).toBe(true);
     // Paging without rendering makes no sense: every paged query renders.
-    for (const p of LIMIT_COMMANDS) expect(FIELDS_COMMANDS.has(p), `'${p}' pages but does not render`).toBe(true);
+    for (const p of LIMIT_COMMANDS)
+      expect(FIELDS_COMMANDS.has(p), `'${p}' pages but does not render`).toBe(true);
   });
 
   it("subcommandPath spells the path the way `linear commands --json` does, and is empty for the root", () => {
@@ -461,9 +490,7 @@ describe("--fields / --limit / --all are refused where nothing reads them (TES-6
 describe("readAlias (long-flag aliases)", () => {
   it("reads either spelling, camel-casing the option key like commander", () => {
     expect(readAlias<string>({ due: "2026-01-01" }, "--due", "--due-date")).toBe("2026-01-01");
-    expect(readAlias<string>({ dueDate: "2026-01-01" }, "--due", "--due-date")).toBe(
-      "2026-01-01",
-    );
+    expect(readAlias<string>({ dueDate: "2026-01-01" }, "--due", "--due-date")).toBe("2026-01-01");
     expect(readAlias({}, "--due", "--due-date")).toBeUndefined();
   });
   it("errors when both spellings are passed rather than silently picking one", () => {

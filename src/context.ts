@@ -8,6 +8,7 @@ import type { LinearClient } from "@linear/sdk";
 import { resolveConfig, type ResolvedConfig } from "./config.js";
 import { createClient, setRetryReporter } from "./client.js";
 import { Output } from "./output/format.js";
+import { isDebugEnabled, shouldUseColor } from "./output/color.js";
 
 /**
  * The globals as the parser actually stores them.
@@ -57,10 +58,17 @@ export class Context {
       // of the config (the default team for creates, cycle lookups, …) is
       // single-valued, so those commands read the full list off their own opts
       // and the config sees the first key.
-      flags: { apiKey: options.apiKey, team: firstTeam(options.team), workspace: options.workspace },
+      flags: {
+        apiKey: options.apiKey,
+        team: firstTeam(options.team),
+        workspace: options.workspace,
+      },
     });
-    const color =
-      options.noAnsi !== true && options.json !== true && process.stdout.isTTY === true;
+    const color = shouldUseColor({
+      disabled: options.noAnsi,
+      json: options.json,
+      isTTY: process.stdout.isTTY === true,
+    });
     // Four independent reasons not to prompt, and any one of them is enough.
     // The first two are the user saying so; the last two are the situation
     // saying so. `--json` counts because JSON is what a script or an agent
@@ -77,8 +85,9 @@ export class Context {
       json: options.json === true,
       color,
       quiet: options.quiet === true,
-      debug: options.debug === true,
+      debug: isDebugEnabled(options.debug),
       fields: options.fields,
+      isTTY: process.stdout.isTTY === true,
     });
     // Rate-limit waits are status, so they go through the same sink as every
     // other status line: stderr, silenced by --quiet, never on JSON stdout.

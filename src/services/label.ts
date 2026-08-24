@@ -78,7 +78,14 @@ export async function listLabels(
     filter = { or: [{ team: { key: { eq: team.key } } }, { team: { null: true } }] };
   }
 
-  return collectRawQuery<LabelRow>(client as any, LIST_QUERY, { filter }, "issueLabels", limit, toLabelRow);
+  return collectRawQuery<LabelRow>(
+    client as any,
+    LIST_QUERY,
+    { filter },
+    "issueLabels",
+    limit,
+    toLabelRow,
+  );
 }
 
 /** Map a tailored-query label node to a display row. */
@@ -161,7 +168,10 @@ export async function deleteLabel(client: LinearClient, idArg: string) {
   const id = await resolveLabel(client, idArg);
   // Fetch the label first so we can report its name after deletion.
   const label = await withRetry(() => client.issueLabel(id));
-  await assertMutation(withRetry(() => client.deleteIssueLabel(id)), "Label deletion");
+  await assertMutation(
+    withRetry(() => client.deleteIssueLabel(id)),
+    "Label deletion",
+  );
   return label;
 }
 

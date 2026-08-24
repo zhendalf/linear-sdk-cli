@@ -90,7 +90,15 @@ suite("initiative lifecycle (live)", () => {
   });
 
   it("rejects an out-of-range priority before calling the API", () => {
-    const res = run(["initiative", "create", "--name", `${FIXTURE_PREFIX}badpri`, "--priority", "9", "--json"]);
+    const res = run([
+      "initiative",
+      "create",
+      "--name",
+      `${FIXTURE_PREFIX}badpri`,
+      "--priority",
+      "9",
+      "--json",
+    ]);
     expect(res.code).toBe(2);
     expect(JSON.parse(res.stderr).error.code).toBe("usage");
   });
@@ -137,12 +145,7 @@ suite("initiative lifecycle (live)", () => {
   it("archives an initiative", () => {
     const created = createInitiativeOrLimit(`${FIXTURE_PREFIX}archive`);
     if (created === "limit") return;
-    const archived = runJson<{ archived: boolean }>([
-      "initiative",
-      "archive",
-      created.id,
-      "--yes",
-    ]);
+    const archived = runJson<{ archived: boolean }>(["initiative", "archive", created.id, "--yes"]);
     expect(archived.archived).toBe(true);
     run(["initiative", "delete", created.id, "--yes", "--json"]);
   });
@@ -150,12 +153,7 @@ suite("initiative lifecycle (live)", () => {
   it("deletes an initiative", () => {
     const created = createInitiativeOrLimit(`${FIXTURE_PREFIX}delete`);
     if (created === "limit") return;
-    const deleted = runJson<{ deleted: boolean }>([
-      "initiative",
-      "delete",
-      created.id,
-      "--yes",
-    ]);
+    const deleted = runJson<{ deleted: boolean }>(["initiative", "delete", created.id, "--yes"]);
     expect(deleted.deleted).toBe(true);
   });
 

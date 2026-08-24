@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 import { createProgram } from "../../src/cli.js";
 import { Context } from "../../src/context.js";
 import { connection } from "./_fakes.js";
@@ -16,6 +17,8 @@ const TEAM_ID = "aaaaaaaa-0000-0000-0000-000000000001";
 const URL = "https://linear.app/acme/issue/TES-7/fix-login";
 
 let updateInputs: any[];
+let suggestedBranch: string;
+let branchAtMutation: string | undefined;
 
 function fakeClient() {
   const teamModel = {
@@ -34,7 +37,7 @@ function fakeClient() {
     identifier: "TES-7",
     title: "Fix login",
     url: URL,
-    branchName: "ada/tes-7-fix-login",
+    branchName: suggestedBranch,
     team: Promise.resolve(teamModel),
   };
   return {
@@ -42,6 +45,13 @@ function fakeClient() {
     issues: async () => connection([issue]),
     updateIssue: async (_id: string, input: any) => {
       updateInputs.push(input);
+      try {
+        branchAtMutation = execFileSync("git", ["branch", "--show-current"], {
+          encoding: "utf8",
+        }).trim();
+      } catch {
+        branchAtMutation = undefined;
+      }
       return { success: true, issue: Promise.resolve(issue) };
     },
     client: {
@@ -93,8 +103,13 @@ beforeEach(() => {
   process.env.LINEAR_API_KEY = "lin_api_test000000000000";
   process.env.LINEAR_TEAM = "TES";
   updateInputs = [];
+  suggestedBranch = "ada/tes-7-fix-login";
+  branchAtMutation = undefined;
   clientDescriptor = Object.getOwnPropertyDescriptor(Context.prototype, "client");
-  Object.defineProperty(Context.prototype, "client", { get: () => fakeClient(), configurable: true });
+  Object.defineProperty(Context.prototype, "client", {
+    get: () => fakeClient(),
+    configurable: true,
+  });
 });
 
 afterEach(() => {
@@ -149,6 +164,12 @@ describe("`issue start` moves to the first 'started' state by default (TES-637 #
     expect(json.stateChanged).toBe(false);
   });
 
+  it("accepts a bare numeric reference by expanding the configured team", async () => {
+    const { json } = await run(["issue", "start", "7", "--no-checkout", "--json"]);
+    expect(json.identifier).toBe("TES-7");
+    expect(updateInputs).toHaveLength(1);
+  });
+
   it("--move is still accepted (hidden), and means what the default means", async () => {
     await run(["issue", "start", "TES-7", "--move", "--json"]);
     expect(updateInputs).toEqual([{ stateId: "state-started-1" }]);
@@ -163,9 +184,12 @@ describe("`issue start` moves to the first 'started' state by default (TES-637 #
     await run(["issue", "start", "TES-7", "--state", "In Review", "--json"]);
     expect(updateInputs).toEqual([{ stateId: "state-started-2" }]);
     updateInputs = [];
-    await expect(run(["issue", "start", "TES-7", "--state", "In Review", "--no-move", "--json"])).rejects.toMatchObject(
-      { code: "usage", message: expect.stringMatching(/either --state or --no-move/) },
-    );
+    await expect(
+      run(["issue", "start", "TES-7", "--state", "In Review", "--no-move", "--json"]),
+    ).rejects.toMatchObject({
+      code: "usage",
+      message: expect.stringMatching(/either --state or --no-move/),
+    });
     expect(updateInputs).toEqual([]);
   });
 
@@ -173,6 +197,26 @@ describe("`issue start` moves to the first 'started' state by default (TES-637 #
     const { err } = await run(["issue", "start", "TES-7"]);
     // Not a git repo: the branch is only named; the move is announced.
     expect(err).toContain("Moved TES-7 → started");
+  });
+
+  it("checks out the branch before mutating Linear", async () => {
+    execFileSync("git", ["init", "-q"]);
+    execFileSync("git", ["checkout", "-q", "-b", "main"]);
+    const { json } = await run(["issue", "start", "TES-7", "--json"]);
+    expect(branchAtMutation).toBe("ada/tes-7-fix-login");
+    expect(json).toMatchObject({ checkedOut: true, stateChanged: true });
+  });
+
+  it("surfaces git stderr and performs no Linear mutation when checkout fails", async () => {
+    execFileSync("git", ["init", "-q"]);
+    execFileSync("git", ["checkout", "-q", "-b", "main"]);
+    suggestedBranch = "bad..branch";
+
+    await expect(run(["issue", "start", "TES-7", "--json"])).rejects.toMatchObject({
+      code: "runtime",
+      message: expect.stringMatching(/not a valid branch name/i),
+    });
+    expect(updateInputs).toEqual([]);
   });
 });
 
@@ -189,7 +233,9 @@ describe("`issue describe` prints schpet's commit message (TES-637 #5)", () => {
 
   it("-r/--references: `Linear-issue: References ID`", async () => {
     const { out } = await run(["issue", "describe", "TES-7", "-r"]);
-    expect(out).toBe(`TES-7 Fix login\n\nLinear-issue: References TES-7\nLinear-issue-url: ${URL}\n`);
+    expect(out).toBe(
+      `TES-7 Fix login\n\nLinear-issue: References TES-7\nLinear-issue-url: ${URL}\n`,
+    );
   });
 
   it("--json: the parts, plus the whole message as printed", async () => {

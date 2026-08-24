@@ -1,6 +1,6 @@
 /**
- * Live coverage for the alignment Phase 3 query filters and the `issue update
- * --team` move (ALIGNMENT.md phase 3).
+ * Live coverage for compatibility query filters and the `issue update --team`
+ * move.
  *
  * Every filter here is asserted with BOTH a positive and a negative case: a
  * filter that silently fails to apply returns the same rows as no filter at
@@ -57,7 +57,15 @@ suite("phase 3 — issue query filters (live)", () => {
       [projectWith, ["--label", labelName]],
       [projectWithout, []],
     ] as const) {
-      const p = runJson<{ id: string }>(["project", "create", "--name", name, "--teams", TEAM, ...extra]);
+      const p = runJson<{ id: string }>([
+        "project",
+        "create",
+        "--name",
+        name,
+        "--teams",
+        TEAM,
+        ...extra,
+      ]);
       projects.push(p.id);
     }
 
@@ -156,7 +164,16 @@ suite("phase 3 — issue query filters (live)", () => {
     expect(started).toContain(unassigned);
     expect(started).not.toContain(assigned);
 
-    const both = ids(["issue", "list", "--team", TEAM, "--state", "unstarted", "--state", "started"]);
+    const both = ids([
+      "issue",
+      "list",
+      "--team",
+      TEAM,
+      "--state",
+      "unstarted",
+      "--state",
+      "started",
+    ]);
     expect(both).toContain(assigned);
     expect(both).toContain(unassigned);
     // Still a filter, not a no-op: completed/canceled work stays out.
@@ -198,10 +215,19 @@ suite("phase 3 — issue query filters (live)", () => {
     expect(labelled).toContain(assigned);
     expect(labelled).not.toContain(unassigned);
 
-    const upper = ids(["issue", "list", "--team", TEAM, "--project-label", labelName.toUpperCase()]);
+    const upper = ids([
+      "issue",
+      "list",
+      "--team",
+      TEAM,
+      "--project-label",
+      labelName.toUpperCase(),
+    ]);
     expect(upper).toContain(assigned);
 
-    expect(ids(["issue", "list", "--team", TEAM, "--project-label", `${labelName}-nope`])).toEqual([]);
+    expect(ids(["issue", "list", "--team", TEAM, "--project-label", `${labelName}-nope`])).toEqual(
+      [],
+    );
   });
 
   it("rejects --project-label together with --project", () => {
@@ -293,7 +319,15 @@ adminSuite("phase 3 — issue update --team moves the issue (live, admin)", () =
 
   it("moves the issue between teams, renumbering it and dropping team-scoped state", () => {
     const key = ("M" + Math.random().toString(36).slice(2, 5)).toUpperCase();
-    const created = run(["team", "create", "--name", `${FIXTURE_PREFIX}move`, "--key", key, "--json"]);
+    const created = run([
+      "team",
+      "create",
+      "--name",
+      `${FIXTURE_PREFIX}move`,
+      "--key",
+      key,
+      "--json",
+    ]);
     if (created.code !== 0) {
       // Free plans cap the team count; an environment limit, not a defect.
       const message = JSON.parse(created.stderr).error?.message ?? "";

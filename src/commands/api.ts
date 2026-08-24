@@ -32,7 +32,12 @@ export function registerApi(program: Command): void {
     .command("api [query]")
     .description("Run a raw GraphQL query or mutation against the Linear API")
     .option("--query-file <path>", "read the query from a file ('-' for stdin)")
-    .option("--var <k=v...>", "set a variable (repeatable; string value)", collectKeyVal, {})
+    .option(
+      "--var <k=v...>",
+      "set a variable (repeatable; JSON literals are typed, other values are strings)",
+      collectKeyVal,
+      {},
+    )
     .option("--vars <json>", "variables as a JSON object")
     .option("--vars-file <path>", "read variables from a JSON file ('-' for stdin)")
     .option("--operation <name>", "run this operation of a multi-operation document")
@@ -102,6 +107,11 @@ function readFileOrThrow(path: string, label: string): string {
 }
 
 function resolveQuery(arg: string | undefined, file: string | undefined): string {
+  if (arg !== undefined && file !== undefined) {
+    throw usageError(
+      "Pass the GraphQL query either as an argument or with --query-file, not both.",
+    );
+  }
   let query: string | undefined;
   if (arg !== undefined) query = arg;
   else if (file !== undefined) query = readFileOrThrow(file, "--query-file");
@@ -119,7 +129,7 @@ function resolveVariables(opts: Record<string, any>): Record<string, unknown> {
     vars = { ...vars, ...parseJsonObject(text, "--vars-file") };
   }
   if (opts.vars) vars = { ...vars, ...parseJsonObject(opts.vars, "--vars") };
-  if (opts.var) vars = { ...vars, ...(opts.var as Record<string, string>) };
+  if (opts.var) vars = { ...vars, ...(opts.var as Record<string, unknown>) };
   return vars;
 }
 
@@ -217,10 +227,7 @@ function describeNames(operations: OperationDefinitionNode[]): string {
   return operations.map((o) => o.name?.value ?? "<unnamed>").join(", ");
 }
 
-function unknownOperationMessage(
-  requested: string,
-  operations: OperationDefinitionNode[],
-): string {
+function unknownOperationMessage(requested: string, operations: OperationDefinitionNode[]): string {
   const named = operations.filter((o) => o.name).map((o) => o.name!.value);
   const available = named.length
     ? `Available: ${named.join(", ")}.`
@@ -269,7 +276,6 @@ async function paginate(
   variables: Record<string, unknown>,
 ): Promise<{ nodes: unknown[]; pageCount: number; truncated: boolean }> {
   let after: string | undefined = variables.after as string | undefined;
-  let firstData: any;
   const allNodes: unknown[] = [];
   let pages = 0;
   let truncated = false;
@@ -278,10 +284,10 @@ async function paginate(
     const result: any = await withRetry(() =>
       (ctx.client.client as any).rawRequest(query, { ...variables, after }),
     );
-    if (!firstData) firstData = result.data;
     const conn = findConnection(result.data);
     if (!conn) {
-      if (pages === 0) throw new CliError("No connection (nodes/pageInfo) found to paginate.", "usage");
+      if (pages === 0)
+        throw new CliError("No connection (nodes/pageInfo) found to paginate.", "usage");
       break;
     }
     allNodes.push(...conn.nodes);

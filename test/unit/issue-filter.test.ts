@@ -214,7 +214,7 @@ describe("sortSpec (server-side, correct under pagination)", () => {
   // Workflow state first so active work groups above the backlog; it used to be
   // priority alone, which floated backlog items above work in progress.
   // Ascending is deliberate: the API returns Backlog BEFORE In Progress under
-  // Descending, which is what the reference CLI ships. See ALIGNMENT.md.
+  // Descending, which is what the reference CLI ships.
   const PRIORITY_ORDER = [
     { workflowState: { order: "Ascending" } },
     { priority: { nulls: "last", order: "Descending" } },
@@ -229,6 +229,9 @@ describe("sortSpec (server-side, correct under pagination)", () => {
   });
   it("supports createdAt", () => {
     expect(sortSpec("created")).toEqual([{ createdAt: { order: "Descending" } }]);
+  });
+  it("supports Linear's manual board order", () => {
+    expect(sortSpec("manual")).toEqual([{ manual: { nulls: "last", order: "Ascending" } }]);
   });
   // Callers resolve through resolveIssueSort, so this only guards direct use.
   it("defaults to the documented priority order", () => {
@@ -470,22 +473,34 @@ describe("updateIssue clearing fields", () => {
   // Linear clears a relation on null, not undefined — undefined means "leave alone".
   it("sends null for --unassign and --clear-cycle", async () => {
     let captured: any;
-    await updateIssue(base((i) => (captured = i)), "TES-1", { unassign: true, clearCycle: true });
+    await updateIssue(
+      base((i) => (captured = i)),
+      "TES-1",
+      { unassign: true, clearCycle: true },
+    );
     expect(captured).toEqual({ assigneeId: null, cycleId: null });
   });
 
   it("rejects contradictory pairs instead of picking a winner", async () => {
     await expect(
-      updateIssue(base(() => {}), "TES-1", { unassign: true, assignee: "me" }),
+      updateIssue(
+        base(() => {}),
+        "TES-1",
+        { unassign: true, assignee: "me" },
+      ),
     ).rejects.toMatchObject({ code: "usage" });
     await expect(
-      updateIssue(base(() => {}), "TES-1", { clearCycle: true, cycle: "current" }),
+      updateIssue(
+        base(() => {}),
+        "TES-1",
+        { clearCycle: true, cycle: "current" },
+      ),
     ).rejects.toMatchObject({ code: "usage" });
   });
 });
 
-// 3.6 — `issue update --team` used to be accepted and silently dropped
-// (AUDIT.md #8): with no other flag it said "Nothing to update", and with one
+// `issue update --team` used to be accepted and silently dropped: with no other
+// flag it said "Nothing to update", and with one
 // it moved nothing at all.
 describe("updateIssue --team (a real team move)", () => {
   const issue = { id: "i1", identifier: "TES-1", team: Promise.resolve({ id: "team-tes" }) };
@@ -517,11 +532,16 @@ describe("updateIssue --team (a real team move)", () => {
     } as any;
   }
 
-  // AUDIT #6's headline: `updateIssue` used to fall back to the issue it had
+  // `updateIssue` used to fall back to the issue it had
   // resolved *before* the mutation, so a payload the API refused still printed
   // "Updated TES-1" and exited 0. The result must come from the payload.
   it("returns the issue the payload carried, not the one it resolved", async () => {
-    const before = { id: "i1", identifier: "TES-1", title: "OLD", team: Promise.resolve({ id: "team-tes" }) };
+    const before = {
+      id: "i1",
+      identifier: "TES-1",
+      title: "OLD",
+      team: Promise.resolve({ id: "team-tes" }),
+    };
     const after = { id: "i1", identifier: "TES-1", title: "NEW" };
     const client = {
       issues: async () => connection([before]),
@@ -531,7 +551,12 @@ describe("updateIssue --team (a real team move)", () => {
   });
 
   it("fails rather than reporting the pre-mutation issue when the API refuses", async () => {
-    const before = { id: "i1", identifier: "TES-1", title: "OLD", team: Promise.resolve({ id: "team-tes" }) };
+    const before = {
+      id: "i1",
+      identifier: "TES-1",
+      title: "OLD",
+      team: Promise.resolve({ id: "team-tes" }),
+    };
     const client = {
       issues: async () => connection([before]),
       updateIssue: async () => ({ success: false, issue: Promise.resolve(null) }),
@@ -544,7 +569,11 @@ describe("updateIssue --team (a real team move)", () => {
 
   it("sends teamId for the destination team", async () => {
     let captured: any;
-    await updateIssue(moveClient((i) => (captured = i)), "TES-1", { team: "eng" });
+    await updateIssue(
+      moveClient((i) => (captured = i)),
+      "TES-1",
+      { team: "eng" },
+    );
     expect(captured).toEqual({ teamId: "team-eng" });
   });
 
@@ -553,11 +582,15 @@ describe("updateIssue --team (a real team move)", () => {
   // team-scoped in the same command must resolve against the destination.
   it("resolves state and labels against the destination team, not the current one", async () => {
     let captured: any;
-    await updateIssue(moveClient((i) => (captured = i)), "TES-1", {
-      team: "ENG",
-      state: "In Review",
-      addLabel: ["bug"],
-    });
+    await updateIssue(
+      moveClient((i) => (captured = i)),
+      "TES-1",
+      {
+        team: "ENG",
+        state: "In Review",
+        addLabel: ["bug"],
+      },
+    );
     expect(captured).toEqual({
       teamId: "team-eng",
       stateId: "team-eng-review",
@@ -565,9 +598,34 @@ describe("updateIssue --team (a real team move)", () => {
     });
   });
 
+  it("--label replaces the exact set and cannot be mixed with incremental label flags", async () => {
+    let captured: any;
+    const client = moveClient((i) => (captured = i));
+    await updateIssue(client, "TES-1", { label: ["bug"] });
+    expect(captured).toEqual({ labelIds: ["label-tes"] });
+
+    await expect(
+      updateIssue(client, "TES-1", { label: ["bug"], addLabel: ["bug"] }),
+    ).rejects.toMatchObject({ code: "usage" });
+  });
+
+  it("an explicitly empty replacement clears every label", async () => {
+    let captured: any;
+    await updateIssue(
+      moveClient((i) => (captured = i)),
+      "TES-1",
+      { label: [] },
+    );
+    expect(captured).toEqual({ labelIds: [] });
+  });
+
   it("leaves the team alone when --team is not passed", async () => {
     let captured: any;
-    await updateIssue(moveClient((i) => (captured = i)), "TES-1", { state: "In Review" });
+    await updateIssue(
+      moveClient((i) => (captured = i)),
+      "TES-1",
+      { state: "In Review" },
+    );
     expect(captured).toEqual({ stateId: "team-tes-review" });
     expect(captured.teamId).toBeUndefined();
   });
@@ -599,7 +657,9 @@ describe("resolveIssueSort", () => {
   it("rejects an invalid configured value and names its source", () => {
     expect(() =>
       resolveIssueSort(undefined, { ...config, sort: "banana", sortSource: "env" }),
-    ).toThrow(/Invalid sort 'banana' \(LINEAR_ISSUE_SORT\)\. Valid values: priority, updated, created\./);
+    ).toThrow(
+      /Invalid sort 'banana' \(LINEAR_ISSUE_SORT\)\. Valid values: priority, manual, updated, created\./,
+    );
 
     expect(() =>
       resolveIssueSort(undefined, { ...config, sort: "banana", sortSource: "project" }),
@@ -609,9 +669,9 @@ describe("resolveIssueSort", () => {
       resolveIssueSort(undefined, { ...config, sort: "banana", sortSource: "user" }),
     ).toThrow(/`sort` in \/home\/u\/\.config\/linear\/config\.toml/);
 
-    expect(() => resolveIssueSort(undefined, { ...config, sort: "banana", sortSource: "env" })).toThrow(
-      expect.objectContaining({ code: "usage" }),
-    );
+    expect(() =>
+      resolveIssueSort(undefined, { ...config, sort: "banana", sortSource: "env" }),
+    ).toThrow(expect.objectContaining({ code: "usage" }));
   });
 
   it("blames the flag when the flag is the bad value", () => {

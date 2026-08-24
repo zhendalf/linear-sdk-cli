@@ -164,7 +164,9 @@ export const INITIATIVE_DETAIL_SHAPE = shape<InitiativeDetail>({
   archivedAt: "string|null",
   owner: "string|null",
   creator: "string|null",
-  projects: [{ id: "string", name: "string", status: { nullable: { name: "string", type: "string" } } }],
+  projects: [
+    { id: "string", name: "string", status: { nullable: { name: "string", type: "string" } } },
+  ],
 });
 
 /** How many linked projects `view` reads; more than this is unusual and shows a truncation note. */
@@ -187,7 +189,11 @@ export async function getInitiativeDetail(
   const projectRows = await Promise.all(
     (projects?.nodes ?? []).map(async (p: any) => {
       const status = await p.status;
-      return { id: p.id, name: p.name, status: status ? { name: status.name, type: status.type } : null };
+      return {
+        id: p.id,
+        name: p.name,
+        status: status ? { name: status.name, type: status.type } : null,
+      };
     }),
   );
   return {
@@ -257,11 +263,7 @@ export interface UpdateOptions {
   color?: string;
 }
 
-export async function updateInitiative(
-  client: LinearClient,
-  idArg: string,
-  opts: UpdateOptions,
-) {
+export async function updateInitiative(client: LinearClient, idArg: string, opts: UpdateOptions) {
   const initiative = await resolveInitiative(client, idArg);
   const input: Record<string, any> = {};
   if (opts.name !== undefined) input.name = opts.name;
@@ -420,7 +422,11 @@ export async function resolveInitiative(
   const matches: any[] = [];
   for (;;) {
     const conn = await withRetry(() =>
-      client.initiatives({ first: 100, after, includeArchived: opts.includeArchived === true } as any),
+      client.initiatives({
+        first: 100,
+        after,
+        includeArchived: opts.includeArchived === true,
+      } as any),
     );
     for (const n of conn.nodes) {
       if (n.name.toLowerCase() === lower) matches.push(n);
@@ -438,7 +444,6 @@ export async function resolveInitiative(
 export function resolveStatus(input: string): string {
   const lower = input.toLowerCase();
   const match = STATUSES.find((s) => s.toLowerCase() === lower);
-  if (!match)
-    throw usageError(`Invalid status '${input}'. Valid: ${STATUSES.join(", ")}.`);
+  if (!match) throw usageError(`Invalid status '${input}'. Valid: ${STATUSES.join(", ")}.`);
   return match;
 }

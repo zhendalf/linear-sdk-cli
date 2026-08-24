@@ -129,7 +129,9 @@ describe("commands [path...]", () => {
     const one = JSON.parse(await run(["issue", "list", "--json"]));
     expect(one.path).toBe("issue list");
     expect(one.output.kind).toBe("list");
-    expect(Object.keys(one.output.fields)).toEqual(expect.arrayContaining(["id", "identifier", "state", "milestone"]));
+    expect(Object.keys(one.output.fields)).toEqual(
+      expect.arrayContaining(["id", "identifier", "state", "milestone"]),
+    );
   });
 
   it("human: usage, options, then the --json output shape one field per line, with variants", async () => {

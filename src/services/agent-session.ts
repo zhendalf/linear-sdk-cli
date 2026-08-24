@@ -14,7 +14,7 @@
 import type { LinearClient } from "@linear/sdk";
 import { withRetry } from "../client.js";
 import { shape } from "../lib/shape.js";
-import { collectRawQuery } from "../lib/pagination.js";
+import { collectRawQuery, hasMoreResults, setPaginationMetadata } from "../lib/pagination.js";
 import { notFound } from "../lib/errors.js";
 
 /** The statuses Linear reports for a session (AgentSessionStatus). */
@@ -35,7 +35,11 @@ export interface SessionUser {
   displayName: string;
 }
 
-const SESSION_USER_SHAPE = shape<SessionUser>({ id: "string", name: "string", displayName: "string" });
+const SESSION_USER_SHAPE = shape<SessionUser>({
+  id: "string",
+  name: "string",
+  displayName: "string",
+});
 
 export interface AgentSessionRow {
   id: string;
@@ -154,7 +158,11 @@ function finish(
   const filtered = opts.status ? present.filter((r) => r.status === opts.status) : present;
   // Newest first, whichever query found them (an issue's comments come oldest first).
   filtered.sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
-  return limit === Infinity ? filtered : filtered.slice(0, limit);
+  if (limit === Infinity) return setPaginationMetadata(filtered, false);
+  return setPaginationMetadata(
+    filtered.slice(0, limit),
+    filtered.length > limit || (!opts.status && filtered.length >= limit && hasMoreResults(rows)),
+  );
 }
 
 function toRow(s: any): AgentSessionRow {

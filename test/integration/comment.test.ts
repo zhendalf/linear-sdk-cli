@@ -70,12 +70,7 @@ suite("comment lifecycle (live)", () => {
   it("updates a comment's body", () => {
     const issue = makeIssue("cm-update");
     const c = runJson<{ id: string }>(["comment", "add", issue, `${FIXTURE_PREFIX}orig`]);
-    const updated = runJson<{ id: string }>([
-      "comment",
-      "update",
-      c.id,
-      `${FIXTURE_PREFIX}edited`,
-    ]);
+    const updated = runJson<{ id: string }>(["comment", "update", c.id, `${FIXTURE_PREFIX}edited`]);
     expect(updated.id).toBe(c.id);
     const rows = runJson<Array<{ id: string; body: string }>>(["comment", "list", issue]);
     expect(rows.find((r) => r.id === c.id)?.body).toBe(`${FIXTURE_PREFIX}edited`);
@@ -93,12 +88,7 @@ suite("comment lifecycle (live)", () => {
   it("deletes a comment", () => {
     const issue = makeIssue("cm-delete");
     const c = runJson<{ id: string }>(["comment", "add", issue, `${FIXTURE_PREFIX}deleteme`]);
-    const del = runJson<{ id: string; deleted: boolean }>([
-      "comment",
-      "delete",
-      c.id,
-      "--yes",
-    ]);
+    const del = runJson<{ id: string; deleted: boolean }>(["comment", "delete", c.id, "--yes"]);
     expect(del.deleted).toBe(true);
   });
 

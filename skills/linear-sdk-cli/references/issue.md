@@ -44,18 +44,27 @@ team: {id: string, key: string, name: string} | null
 project: {id: string, name: string} | null
 milestone: {id: string, name: string} | null
 cycle: {id: string, number: number, name: string | null} | null
-parent: {id: string, identifier: string} | null
+parent: {id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null} | null
+children: Array<{id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}>
 labels: Array<{id: string, name: string}>
 subscribers: Array<{id: string, displayName: string}>
-```
-
-With `--comments`: the same, plus:
-
-```text
-comments: Array<{id: string, body: string, user: {id: string, displayName: string} | null, createdAt: string, editedAt: string | null, resolvedAt: string | null, parent: {id: string} | null, url: string}>
+attachments: Array<{id: string, title: string, url: string, subtitle: string | null, sourceType: string | null, createdAt: string}>
+documents: Array<{id: string, title: string, slugId: string, url: string, createdAt: string, updatedAt: string}>
+relations: Array<{id: string, type: string, issue: {id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}, relatedIssue: {id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}}>
+inverseRelations: Array<{id: string, type: string, issue: {id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}, relatedIssue: {id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}}>
+comments: Array<{id: string, body: string, url: string, createdAt: string, editedAt: string | null, resolvedAt: string | null, parent: {id: string} | null, user: {id: string, displayName: string} | null, externalUser: {id: string, displayName: string} | null, resolvingCommentId: string | null, resolvingUser: {id: string, displayName: string} | null}>
 ```
 
 With `--web`: a receipt object
+
+```text
+id: string
+identifier: string
+url: string
+opened: boolean
+```
+
+With `--app`: a receipt object
 
 ```text
 id: string
@@ -143,12 +152,27 @@ Archive an issue
 linear issue archive [options] [id]
 ```
 
+| Option               | Description                                      |
+| -------------------- | ------------------------------------------------ |
+| `--bulk <ids>`       | archive comma-separated issue ids (repeatable)   |
+| `--bulk-file <path>` | archive issue ids from a file (one per line)     |
+| `--bulk-stdin`       | archive issue ids read from stdin (one per line) |
+
 **Output (`--json`)**: a receipt object
 
 ```text
 id: string
 identifier: string
 archived: boolean
+```
+
+With `--bulk`: a receipt object
+
+```text
+action: string
+results: Array<{input: string, id?: string, identifier?: string, archived?: boolean, deleted?: boolean, error?: {message: string, code: string}}>
+succeeded: number
+failed: number
 ```
 
 ### `linear issue assign`
@@ -214,9 +238,10 @@ Add a comment to an issue; on a matching branch, `issue comment "<body>"` is eno
 linear issue comment [options] [id] [body]
 ```
 
-| Option               | Description                                 |
-| -------------------- | ------------------------------------------- |
-| `--body-file <path>` | read comment body from a file ('-' = stdin) |
+| Option               | Description                                                        |
+| -------------------- | ------------------------------------------------------------------ |
+| `--body-file <path>` | read comment body from a file ('-' = stdin)                        |
+| `--mention <user>`   | prepend a real Linear mention (name, email, me, or id; repeatable) |
 
 **Output (`--json`)**: a receipt object — the bare form adds a comment; add/list/update/delete are subcommands
 
@@ -236,6 +261,7 @@ linear issue comment add [options] <issue> [body]
 | Option               | Description                                                                               |
 | -------------------- | ----------------------------------------------------------------------------------------- |
 | `--body-file <path>` | read comment body from a file ('-' = stdin)                                               |
+| `--mention <user>`   | prepend a real Linear mention (name, email, me, or id; repeatable)                        |
 | `--attach <file>`    | upload a file and embed it in the comment (images inline; repeatable; private by default) |
 | `--public`           | upload the attachments to public, world-readable URLs (raster images only)                |
 
@@ -292,9 +318,10 @@ Update a comment's body
 linear issue comment update [options] <commentId> [body]
 ```
 
-| Option               | Description                             |
-| -------------------- | --------------------------------------- |
-| `--body-file <path>` | read new body from a file ('-' = stdin) |
+| Option               | Description                                                        |
+| -------------------- | ------------------------------------------------------------------ |
+| `--body-file <path>` | read new body from a file ('-' = stdin)                            |
+| `--mention <user>`   | prepend a real Linear mention (name, email, me, or id; repeatable) |
 
 **Output (`--json`)**: a receipt object
 
@@ -380,12 +407,27 @@ Aliases: `rm`
 linear issue delete [options] [id]
 ```
 
+| Option               | Description                                     |
+| -------------------- | ----------------------------------------------- |
+| `--bulk <ids>`       | delete comma-separated issue ids (repeatable)   |
+| `--bulk-file <path>` | delete issue ids from a file (one per line)     |
+| `--bulk-stdin`       | delete issue ids read from stdin (one per line) |
+
 **Output (`--json`)**: a receipt object
 
 ```text
 id: string
 identifier: string
 deleted: boolean
+```
+
+With `--bulk`: a receipt object
+
+```text
+action: string
+results: Array<{input: string, id?: string, identifier?: string, archived?: boolean, deleted?: boolean, error?: {message: string, code: string}}>
+succeeded: number
+failed: number
 ```
 
 ### `linear issue describe`
@@ -790,6 +832,7 @@ linear issue update [options] [id]
 | `--estimate <n>`            | estimate points                                         |
 | `--parent <id>`             | parent issue id                                         |
 | `--due <date>`              | due date (YYYY-MM-DD)                                   |
+| `-l, --label <name>`        | replace all labels (repeatable / comma-separated)       |
 | `--add-label <name>`        | add a label (repeatable)                                |
 | `--remove-label <name>`     | remove a label (repeatable)                             |
 | `--unassign`                | clear the assignee                                      |
@@ -825,10 +868,12 @@ Show an issue (defaults to the current branch's issue)
 linear issue view [options] [id]
 ```
 
-| Option       | Description                                       |
-| ------------ | ------------------------------------------------- |
-| `-w, --web`  | open the issue in the browser instead of printing |
-| `--comments` | include recent comments                           |
+| Option                    | Description                                       |
+| ------------------------- | ------------------------------------------------- |
+| `-w, --web`               | open the issue in the browser instead of printing |
+| `--app`                   | open the issue in Linear.app instead of printing  |
+| `--no-comments`           | exclude comments from the output                  |
+| `--show-resolved-threads` | include resolved comment threads                  |
 
 **Output (`--json`)**: a bare object
 
@@ -856,18 +901,27 @@ team: {id: string, key: string, name: string} | null
 project: {id: string, name: string} | null
 milestone: {id: string, name: string} | null
 cycle: {id: string, number: number, name: string | null} | null
-parent: {id: string, identifier: string} | null
+parent: {id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null} | null
+children: Array<{id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}>
 labels: Array<{id: string, name: string}>
 subscribers: Array<{id: string, displayName: string}>
-```
-
-With `--comments`: the same, plus:
-
-```text
-comments: Array<{id: string, body: string, user: {id: string, displayName: string} | null, createdAt: string, editedAt: string | null, resolvedAt: string | null, parent: {id: string} | null, url: string}>
+attachments: Array<{id: string, title: string, url: string, subtitle: string | null, sourceType: string | null, createdAt: string}>
+documents: Array<{id: string, title: string, slugId: string, url: string, createdAt: string, updatedAt: string}>
+relations: Array<{id: string, type: string, issue: {id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}, relatedIssue: {id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}}>
+inverseRelations: Array<{id: string, type: string, issue: {id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}, relatedIssue: {id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}}>
+comments: Array<{id: string, body: string, url: string, createdAt: string, editedAt: string | null, resolvedAt: string | null, parent: {id: string} | null, user: {id: string, displayName: string} | null, externalUser: {id: string, displayName: string} | null, resolvingCommentId: string | null, resolvingUser: {id: string, displayName: string} | null}>
 ```
 
 With `--web`: a receipt object
+
+```text
+id: string
+identifier: string
+url: string
+opened: boolean
+```
+
+With `--app`: a receipt object
 
 ```text
 id: string

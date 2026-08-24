@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "bun:test";
-import { createWebhook, updateWebhook } from "../../src/services/webhook.js";
+import { createWebhook, deleteWebhook, updateWebhook } from "../../src/services/webhook.js";
 import { connection } from "./_fakes.js";
+import { CliError } from "../../src/lib/errors.js";
 
 /** Minimal mock LinearClient: records the input passed to create/update. */
 function mockClient(overrides: Record<string, any> = {}) {
@@ -9,11 +10,27 @@ function mockClient(overrides: Record<string, any> = {}) {
     teams: vi.fn(async () => connection([{ id: "team-uuid", key: "TES", name: "Test" }])),
     createWebhook: vi.fn(async (input: any) => {
       calls.create = input;
-      return { success: true, webhook: Promise.resolve({ id: "wh-1", url: input.url, enabled: true, resourceTypes: input.resourceTypes }) };
+      return {
+        success: true,
+        webhook: Promise.resolve({
+          id: "wh-1",
+          url: input.url,
+          enabled: true,
+          resourceTypes: input.resourceTypes,
+        }),
+      };
     }),
     updateWebhook: vi.fn(async (_id: string, input: any) => {
       calls.update = input;
-      return { success: true, webhook: Promise.resolve({ id: "wh-1", url: input.url, enabled: input.enabled, resourceTypes: input.resourceTypes }) };
+      return {
+        success: true,
+        webhook: Promise.resolve({
+          id: "wh-1",
+          url: input.url,
+          enabled: input.enabled,
+          resourceTypes: input.resourceTypes,
+        }),
+      };
     }),
     ...overrides,
   };
@@ -120,8 +137,22 @@ describe("updateWebhook", () => {
 
   it("throws a usage error when resourceTypes is empty", async () => {
     const { client } = mockClient();
-    await expect(
-      updateWebhook(client, "wh-1", { resourceTypes: [] }),
-    ).rejects.toMatchObject({ code: "usage" });
+    await expect(updateWebhook(client, "wh-1", { resourceTypes: [] })).rejects.toMatchObject({
+      code: "usage",
+    });
+  });
+});
+
+describe("deleteWebhook", () => {
+  it("does not rewrite a network failure as not-found", async () => {
+    const { client } = mockClient({
+      webhook: vi.fn().mockRejectedValue(new CliError("offline", "network")),
+      deleteWebhook: vi.fn(),
+    });
+    await expect(deleteWebhook(client, "wh-1")).rejects.toMatchObject({
+      code: "network",
+      message: "offline",
+    });
+    expect(client.deleteWebhook).not.toHaveBeenCalled();
   });
 });

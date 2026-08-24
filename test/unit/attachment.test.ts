@@ -196,7 +196,11 @@ describe("attachFiles", () => {
       createAttachment: async (input: any) => {
         calls.push(`createAttachment ${input.title}`);
         record.create.push(input);
-        return payload("attachment", { id: `att-${record.create.length}`, title: input.title, url: input.url });
+        return payload("attachment", {
+          id: `att-${record.create.length}`,
+          title: input.title,
+          url: input.url,
+        });
       },
       createComment: async (input: any) => {
         calls.push("createComment");
@@ -260,7 +264,9 @@ describe("attachFiles", () => {
   });
 
   it("--public on a non-image in the batch is refused before anything is uploaded", async () => {
-    await expect(attachFiles(uploadingClient(), "TES-1", [png, txt], { public: true })).rejects.toMatchObject({
+    await expect(
+      attachFiles(uploadingClient(), "TES-1", [png, txt], { public: true }),
+    ).rejects.toMatchObject({
       code: "usage",
     });
     expect(calls).toEqual([]);
@@ -276,14 +282,18 @@ describe("attachFiles", () => {
     const record = { create: [] as any[] };
     await attachFiles(uploadingClient(record), "TES-1", [png], { title: "Screenshot" });
     expect(record.create[0]!.title).toBe("Screenshot");
-    await expect(attachFiles(uploadingClient(), "TES-1", [png, txt], { title: "x" })).rejects.toMatchObject({
+    await expect(
+      attachFiles(uploadingClient(), "TES-1", [png, txt], { title: "x" }),
+    ).rejects.toMatchObject({
       code: "usage",
     });
   });
 
   it("--comment posts ONE comment embedding every file — image inline, the rest as links", async () => {
     const record = { create: [] as any[], comment: undefined as any };
-    const res = await attachFiles(uploadingClient(record), "TES-1", [png, txt], { comment: "See attached" });
+    const res = await attachFiles(uploadingClient(record), "TES-1", [png, txt], {
+      comment: "See attached",
+    });
     expect(record.comment).toEqual({
       issueId: "issue-1",
       body: "See attached\n\n![shot.png](https://uploads.linear.app/ws/1)\n[notes.txt](https://uploads.linear.app/ws/2)",
@@ -296,7 +306,9 @@ describe("attachFiles", () => {
   it("a refused fileUpload stops the batch: no PUT, no attachment", async () => {
     const client = uploadingClient();
     client.fileUpload = async () => ({ success: false, lastSyncId: 1, uploadFile: null });
-    await expect(attachFiles(client, "TES-1", [png, txt], {})).rejects.toMatchObject({ code: "api" });
+    await expect(attachFiles(client, "TES-1", [png, txt], {})).rejects.toMatchObject({
+      code: "api",
+    });
     expect(calls).toEqual([]);
   });
 });

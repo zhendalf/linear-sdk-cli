@@ -10,7 +10,9 @@ describe("assertMutation", () => {
   });
 
   it("rejects success: false", async () => {
-    await expect(assertMutation(failedPayload(), "Thing deletion")).rejects.toBeInstanceOf(CliError);
+    await expect(assertMutation(failedPayload(), "Thing deletion")).rejects.toBeInstanceOf(
+      CliError,
+    );
   });
 
   // Exit 1 (the write did not happen), not exit 2 (you called it wrong): the
@@ -60,7 +62,11 @@ describe("unwrapMutation", () => {
   // nothing truthful to print.
   it("rejects a successful payload that carries no entity", async () => {
     await expect(
-      unwrapMutation({ success: true, issue: Promise.resolve(null) } as any, "issue", "Issue update"),
+      unwrapMutation(
+        { success: true, issue: Promise.resolve(null) } as any,
+        "issue",
+        "Issue update",
+      ),
     ).rejects.toThrow(/returned no issue/);
   });
 

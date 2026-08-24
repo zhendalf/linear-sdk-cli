@@ -7,10 +7,9 @@ suite("user read (live)", () => {
   beforeAll(() => ensureBuilt());
 
   it("lists workspace users with the expected columns", () => {
-    const rows = runJson<Array<{ displayName: string; email: string; active: boolean; admin: boolean }>>([
-      "user",
-      "list",
-    ]);
+    const rows = runJson<
+      Array<{ displayName: string; email: string; active: boolean; admin: boolean }>
+    >(["user", "list"]);
     expect(Array.isArray(rows)).toBe(true);
     if (rows.length) {
       expect(typeof rows[0]!.displayName).toBe("string");

@@ -59,7 +59,10 @@ beforeEach(() => {
   updates = [];
   currentBody = "the current body";
   clientDescriptor = Object.getOwnPropertyDescriptor(Context.prototype, "client");
-  Object.defineProperty(Context.prototype, "client", { get: () => fakeClient(), configurable: true });
+  Object.defineProperty(Context.prototype, "client", {
+    get: () => fakeClient(),
+    configurable: true,
+  });
   stdinTTY = (process.stdin as any).isTTY;
   stdoutTTY = (process.stdout as any).isTTY;
 });
@@ -88,8 +91,12 @@ function interactive() {
 
 describe("comment update", () => {
   it("an explicit empty body is refused, and nothing is sent", async () => {
-    await expect(run(["comment", "update", "c1", "", "--json"])).rejects.toThrow(/Refusing to blank/);
-    await expect(run(["comment", "update", "c1", "   ", "--json"])).rejects.toThrow(/Refusing to blank/);
+    await expect(run(["comment", "update", "c1", "", "--json"])).rejects.toThrow(
+      /Refusing to blank/,
+    );
+    await expect(run(["comment", "update", "c1", "   ", "--json"])).rejects.toThrow(
+      /Refusing to blank/,
+    );
     expect(updates).toEqual([]);
   });
 
@@ -142,7 +149,9 @@ describe("comment update", () => {
   });
 
   it("without a terminal and without a body, it is a usage error — no editor, no wipe", async () => {
-    await expect(run(["comment", "update", "c1", "--json"])).rejects.toThrow(/No comment body provided/);
+    await expect(run(["comment", "update", "c1", "--json"])).rejects.toThrow(
+      /No comment body provided/,
+    );
     expect(updates).toEqual([]);
   });
 });

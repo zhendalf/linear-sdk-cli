@@ -32,9 +32,136 @@ const node = {
   project: { id: "p-1", name: "linear-sdk-cli" },
   projectMilestone: { id: "m-1", name: "Parity" },
   cycle: { id: "c-1", number: 3, name: null },
-  parent: { id: "i-0", identifier: "TES-600" },
-  labels: { nodes: [{ id: "l-1", name: "parity" }, { id: "l-2", name: "Bug" }] },
+  parent: {
+    id: "i-0",
+    identifier: "TES-600",
+    title: "Parent work",
+    state: { id: "st-0", name: "Backlog", type: "backlog" },
+  },
+  children: {
+    nodes: [
+      {
+        id: "i-2",
+        identifier: "TES-602",
+        title: "Child work",
+        state: { id: "st-1", name: "In Progress", type: "started" },
+      },
+    ],
+  },
+  labels: {
+    nodes: [
+      { id: "l-1", name: "parity" },
+      { id: "l-2", name: "Bug" },
+    ],
+  },
   subscribers: { nodes: [{ id: "u-1", displayName: "ada" }] },
+  attachments: {
+    nodes: [
+      {
+        id: "a-1",
+        title: "Pull request",
+        url: "https://github.com/acme/repo/pull/1",
+        subtitle: "Ready",
+        sourceType: "github",
+        createdAt: "2026-08-12T00:00:00.000Z",
+      },
+    ],
+  },
+  documents: {
+    nodes: [
+      {
+        id: "d-1",
+        title: "Design",
+        slugId: "design-abc",
+        url: "https://linear.app/x/document/design-abc",
+        createdAt: "2026-08-10T00:00:00.000Z",
+        updatedAt: "2026-08-11T00:00:00.000Z",
+      },
+    ],
+  },
+  relations: {
+    nodes: [
+      {
+        id: "r-1",
+        type: "blocks",
+        issue: {
+          id: UUID,
+          identifier: "TES-601",
+          title: "Parity: everything",
+          state: { id: "st-1", name: "In Progress", type: "started" },
+        },
+        relatedIssue: {
+          id: "i-3",
+          identifier: "TES-603",
+          title: "Blocked work",
+          state: { id: "st-0", name: "Backlog", type: "backlog" },
+        },
+      },
+    ],
+  },
+  inverseRelations: {
+    nodes: [
+      {
+        id: "r-2",
+        type: "blocks",
+        issue: {
+          id: "i-4",
+          identifier: "TES-604",
+          title: "Upstream work",
+          state: { id: "st-1", name: "In Progress", type: "started" },
+        },
+        relatedIssue: {
+          id: UUID,
+          identifier: "TES-601",
+          title: "Parity: everything",
+          state: { id: "st-1", name: "In Progress", type: "started" },
+        },
+      },
+    ],
+  },
+  comments: {
+    nodes: [
+      {
+        id: "comment-open",
+        body: "Open thread",
+        url: "https://linear.app/x/issue/TES-601#comment-open",
+        createdAt: "2026-08-13T00:00:00.000Z",
+        editedAt: null,
+        resolvedAt: null,
+        resolvingCommentId: null,
+        parent: null,
+        user: { id: "u-1", displayName: "ada" },
+        externalUser: null,
+        resolvingUser: null,
+      },
+      {
+        id: "comment-reply",
+        body: "A reply",
+        url: "https://linear.app/x/issue/TES-601#comment-reply",
+        createdAt: "2026-08-14T00:00:00.000Z",
+        editedAt: null,
+        resolvedAt: null,
+        resolvingCommentId: null,
+        parent: { id: "comment-open" },
+        user: null,
+        externalUser: { id: "external-1", displayName: "customer" },
+        resolvingUser: null,
+      },
+      {
+        id: "comment-resolved",
+        body: "Resolved thread",
+        url: "https://linear.app/x/issue/TES-601#comment-resolved",
+        createdAt: "2026-08-15T00:00:00.000Z",
+        editedAt: null,
+        resolvedAt: "2026-08-16T00:00:00.000Z",
+        resolvingCommentId: "comment-resolution",
+        parent: null,
+        user: { id: "u-2", displayName: "grace" },
+        externalUser: null,
+        resolvingUser: { id: "u-1", displayName: "ada" },
+      },
+    ],
+  },
 };
 
 function stub(nodes: any[], calls: Array<{ query: string; vars: any }> = []) {
@@ -68,9 +195,15 @@ describe("getIssueDetail — one round-trip", () => {
       "project { id name }",
       "projectMilestone { id name }",
       "cycle { id number name }",
-      "parent { id identifier }",
+      "parent { id identifier title state { id name type } }",
+      "children(first: 250) { nodes { id identifier title state { id name type } } }",
       "labels(first: 50) { nodes { id name } }",
       "subscribers(first: 50) { nodes { id displayName } }",
+      "attachments(first: 50)",
+      "documents(first: 50)",
+      "relations(first: 50)",
+      "inverseRelations(first: 50)",
+      "comments(first: 50, orderBy: createdAt) @include(if: $includeComments)",
       "archivedAt trashed startedAt completedAt canceledAt",
     ]) {
       expect(query).toContain(sel);
@@ -82,13 +215,23 @@ describe("getIssueDetail — one round-trip", () => {
     await getIssueDetail(stub([node], calls), "tes-601");
     expect(calls[0]!.vars).toEqual({
       filter: { team: { key: { eq: "TES" } }, number: { eq: 601 } },
+      includeComments: true,
     });
   });
 
   it("a UUID filters by id", async () => {
     const calls: Array<{ query: string; vars: any }> = [];
     await getIssueDetail(stub([node], calls), UUID);
-    expect(calls[0]!.vars).toEqual({ filter: { id: { eq: UUID } } });
+    expect(calls[0]!.vars).toEqual({ filter: { id: { eq: UUID } }, includeComments: true });
+  });
+
+  it("can omit comments without adding a second request", async () => {
+    const calls: Array<{ query: string; vars: any }> = [];
+    await getIssueDetail(stub([{ ...node, comments: undefined }], calls), "TES-601", {
+      includeComments: false,
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.vars.includeComments).toBe(false);
   });
 
   it("an empty page is not_found, naming the issue as the user would", async () => {
@@ -124,12 +267,23 @@ describe("getIssueDetail — structured relations", () => {
     expect(d.project).toEqual({ id: "p-1", name: "linear-sdk-cli" });
     expect(d.milestone).toEqual({ id: "m-1", name: "Parity" });
     expect(d.cycle).toEqual({ id: "c-1", number: 3, name: null });
-    expect(d.parent).toEqual({ id: "i-0", identifier: "TES-600" });
+    expect(d.parent).toEqual(node.parent);
+    expect(d.children).toEqual(node.children.nodes);
     expect(d.labels).toEqual([
       { id: "l-1", name: "parity" },
       { id: "l-2", name: "Bug" },
     ]);
     expect(d.subscribers).toEqual([{ id: "u-1", displayName: "ada" }]);
+    expect(d.attachments).toEqual(node.attachments.nodes);
+    expect(d.documents).toEqual(node.documents.nodes);
+    expect(d.relations).toEqual(node.relations.nodes);
+    expect(d.inverseRelations).toEqual(node.inverseRelations.nodes);
+    expect(d.comments).toHaveLength(3);
+    expect(d.comments[1]).toMatchObject({
+      id: "comment-reply",
+      parent: { id: "comment-open" },
+      externalUser: { id: "external-1", displayName: "customer" },
+    });
     // The scalars, under the keys they always had.
     expect(d).toMatchObject({
       identifier: "TES-601",
@@ -155,8 +309,14 @@ describe("getIssueDetail — structured relations", () => {
       projectMilestone: null,
       cycle: null,
       parent: null,
+      children: undefined,
       labels: { nodes: [] },
       subscribers: { nodes: [] },
+      attachments: undefined,
+      documents: undefined,
+      relations: undefined,
+      inverseRelations: undefined,
+      comments: undefined,
       description: null,
       estimate: null,
     };
@@ -168,8 +328,14 @@ describe("getIssueDetail — structured relations", () => {
     expect(d.milestone).toBeNull();
     expect(d.cycle).toBeNull();
     expect(d.parent).toBeNull();
+    expect(d.children).toEqual([]);
     expect(d.labels).toEqual([]);
     expect(d.subscribers).toEqual([]);
+    expect(d.attachments).toEqual([]);
+    expect(d.documents).toEqual([]);
+    expect(d.relations).toEqual([]);
+    expect(d.inverseRelations).toEqual([]);
+    expect(d.comments).toEqual([]);
     expect(d.description).toBeNull();
     expect(d.estimate).toBeNull();
   });
@@ -284,14 +450,22 @@ describe("archived / trashed (TES-624)", () => {
 
 /** The human `issue view`, rendered from the structured detail. */
 describe("renderIssueDetail (human view)", () => {
-  function render(detail: any, json = false): { out: string } {
+  function render(
+    detail: any,
+    json = false,
+    includeComments = false,
+    showResolvedThreads = false,
+  ): { out: string } {
     let out = "";
     const spy = vi.spyOn(process.stdout, "write").mockImplementation((c: any) => {
       out += c;
       return true;
     });
-    const ctx = { output: new Output({ json, color: false, quiet: false, debug: false }), client: {} };
-    return renderIssueDetail(ctx as any, detail, false)
+    const ctx = {
+      output: new Output({ json, color: false, quiet: false, debug: false }),
+      client: {},
+    };
+    return renderIssueDetail(ctx as any, detail, includeComments, showResolvedThreads)
       .finally(() => spy.mockRestore())
       .then(() => ({ out })) as any;
   }
@@ -305,14 +479,23 @@ describe("renderIssueDetail (human view)", () => {
     expect(out).toContain("Project:     linear-sdk-cli");
     expect(out).toContain("Milestone:   Parity");
     expect(out).toContain("Cycle:       #3");
-    expect(out).toContain("Parent:      TES-600");
+    expect(out).toContain("Parent:      TES-600  Parent work [Backlog]");
+    expect(out).toContain("Sub-issues:");
+    expect(out).toContain("TES-602  Child work [In Progress]");
     expect(out).toContain("Labels:      parity, Bug");
+    expect(out).toContain("Pull request: https://github.com/acme/repo/pull/1 [github] — Ready");
+    expect(out).toContain("Design: https://linear.app/x/document/design-abc");
+    expect(out).toContain("Blocks TES-603  Blocked work [Backlog]");
+    expect(out).toContain("Blocked by TES-604  Upstream work [In Progress]");
     expect(out).not.toContain("Trashed");
     expect(out).not.toContain("Archived");
   });
 
   it("says TRASHED loudly, right under the title, for a deleted issue", async () => {
-    const d = await getIssueDetail(stub([{ ...node, trashed: true, archivedAt: "2026-08-16T15:41:08.952Z" }]), "TES-601");
+    const d = await getIssueDetail(
+      stub([{ ...node, trashed: true, archivedAt: "2026-08-16T15:41:08.952Z" }]),
+      "TES-601",
+    );
     const { out } = await render(d);
     const lines = out.split("\n");
     expect(lines[0]).toContain("TES-601");
@@ -321,7 +504,10 @@ describe("renderIssueDetail (human view)", () => {
   });
 
   it("says ARCHIVED for an archived-but-not-trashed issue", async () => {
-    const d = await getIssueDetail(stub([{ ...node, archivedAt: "2026-08-10T00:00:00.000Z" }]), "TES-601");
+    const d = await getIssueDetail(
+      stub([{ ...node, archivedAt: "2026-08-10T00:00:00.000Z" }]),
+      "TES-601",
+    );
     const { out } = await render(d);
     expect(out.split("\n")[1]).toBe("Archived:    YES (2026-08-10T00:00:00.000Z)");
   });
@@ -333,6 +519,24 @@ describe("renderIssueDetail (human view)", () => {
     expect(parsed.team).toEqual({ id: "team-1", key: "TES", name: "Test workspace" });
     expect(parsed.id).toBe(UUID);
     expect(parsed.trashed).toBe(false);
+    expect(parsed.comments).toHaveLength(3);
+    expect(parsed.children[0].identifier).toBe("TES-602");
+  });
+
+  it("shows open comments by default while hiding resolved roots with an actionable summary", async () => {
+    const { out } = await render(await detail(), false, true);
+    expect(out).toContain("Open thread");
+    expect(out).toContain("A reply");
+    expect(out).toContain("[thread: comment-open]");
+    expect(out).not.toContain("Resolved thread");
+    expect(out).toContain("1 resolved thread hidden; use --show-resolved-threads");
+  });
+
+  it("--show-resolved-threads includes the resolved root and resolver metadata", async () => {
+    const { out } = await render(await detail(), false, true, true);
+    expect(out).toContain("Resolved thread");
+    expect(out).toContain("[resolved by ada]");
+    expect(out).not.toContain("resolved thread hidden");
   });
 });
 
@@ -352,7 +556,12 @@ describe("issue list --fields milestone,cycle (human table)", () => {
           issues: {
             nodes: [
               { ...node, labels: { nodes: [] } },
-              { ...node, identifier: "TES-602", projectMilestone: null, cycle: { id: "c-2", number: 4, name: "Sprint 4" } },
+              {
+                ...node,
+                identifier: "TES-602",
+                projectMilestone: null,
+                cycle: { id: "c-2", number: 4, name: "Sprint 4" },
+              },
             ],
             pageInfo: { hasNextPage: false },
           },
@@ -365,7 +574,10 @@ describe("issue list --fields milestone,cycle (human table)", () => {
     savedKey = process.env.LINEAR_API_KEY;
     process.env.LINEAR_API_KEY = "lin_api_test000000000000";
     clientDescriptor = Object.getOwnPropertyDescriptor(Context.prototype, "client");
-    Object.defineProperty(Context.prototype, "client", { get: () => listClient(), configurable: true });
+    Object.defineProperty(Context.prototype, "client", {
+      get: () => listClient(),
+      configurable: true,
+    });
   });
   afterEach(() => {
     vi.restoreAllMocks();

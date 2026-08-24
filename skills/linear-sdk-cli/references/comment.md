@@ -29,6 +29,7 @@ linear comment add [options] <issue> [body]
 | Option               | Description                                                                               |
 | -------------------- | ----------------------------------------------------------------------------------------- |
 | `--body-file <path>` | read comment body from a file ('-' = stdin)                                               |
+| `--mention <user>`   | prepend a real Linear mention (name, email, me, or id; repeatable)                        |
 | `--attach <file>`    | upload a file and embed it in the comment (images inline; repeatable; private by default) |
 | `--public`           | upload the attachments to public, world-readable URLs (raster images only)                |
 
@@ -89,9 +90,10 @@ Reply to a comment (nested under it)
 linear comment reply [options] <commentId> [body]
 ```
 
-| Option               | Description                               |
-| -------------------- | ----------------------------------------- |
-| `--body-file <path>` | read reply body from a file ('-' = stdin) |
+| Option               | Description                                                        |
+| -------------------- | ------------------------------------------------------------------ |
+| `--body-file <path>` | read reply body from a file ('-' = stdin)                          |
+| `--mention <user>`   | prepend a real Linear mention (name, email, me, or id; repeatable) |
 
 **Output (`--json`)**: a receipt object
 
@@ -142,9 +144,10 @@ Aliases: `edit`
 linear comment update [options] <commentId> [body]
 ```
 
-| Option               | Description                             |
-| -------------------- | --------------------------------------- |
-| `--body-file <path>` | read new body from a file ('-' = stdin) |
+| Option               | Description                                                        |
+| -------------------- | ------------------------------------------------------------------ |
+| `--body-file <path>` | read new body from a file ('-' = stdin)                            |
+| `--mention <user>`   | prepend a real Linear mention (name, email, me, or id; repeatable) |
 
 **Output (`--json`)**: a receipt object
 
