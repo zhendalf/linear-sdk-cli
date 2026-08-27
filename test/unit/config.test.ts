@@ -19,8 +19,12 @@ import {
   redactKey,
   userConfigPath,
   writeCredential,
+  writeOAuthCredential,
+  readOAuthCredential,
+  rotateOAuthCredential,
   setDefaultWorkspace,
   removeCredential,
+  removeOAuthCredential,
   listCredentials,
   migrateCredentials,
   referenceCredentialsPath,
@@ -31,6 +35,7 @@ import {
   SETTABLE_KEYS,
   type ConfigInputs,
 } from "../../src/config.js";
+import type { OAuthUserCredential } from "../../src/oauth.js";
 import { execFileSync, spawn } from "node:child_process";
 import {
   setKeyringBackend,
@@ -396,6 +401,23 @@ describe("multi-workspace credential resolution", () => {
     expect(cfg.workspace).toBe("org-a");
   });
 });
+
+function oauthCredential(overrides: Partial<OAuthUserCredential> = {}): OAuthUserCredential {
+  return {
+    version: 1,
+    kind: "oauth-user",
+    actor: "user",
+    accessToken: "access-old",
+    refreshToken: "refresh-old",
+    expiresAt: Date.now() + 3_600_000,
+    scopes: ["read", "write"],
+    tokenType: "Bearer",
+    clientId: "client-id",
+    workspace: { id: "org-1", name: "Acme", urlKey: "acme" },
+    user: { id: "user-1", name: "Ada", email: "ada@example.com" },
+    ...overrides,
+  };
+}
 
 describe("structured credential writers", () => {
   let savedXdg: string | undefined;
@@ -919,9 +941,14 @@ describe("keyring-backed credentials", () => {
       writeReference(`workspaces = ["lumiere"]\n`);
       const list = listCredentials(baseEnv());
       expect(list).toEqual([
-        { slug: "pt", isDefault: true, storage: "file" },
-        { slug: "kc", isDefault: false, storage: "keychain" },
-        { slug: "lumiere", isDefault: false, storage: "keychain" },
+        { slug: "pt", isDefault: true, storage: "file", credentialType: "api-key" },
+        { slug: "kc", isDefault: false, storage: "keychain", credentialType: "api-key" },
+        {
+          slug: "lumiere",
+          isDefault: false,
+          storage: "keychain",
+          credentialType: "api-key",
+        },
       ]);
     });
 
@@ -933,6 +960,71 @@ describe("keyring-backed credentials", () => {
       setDefaultWorkspace("lumiere");
       expect(readBack().default_workspace).toBe("lumiere");
       expect(() => setDefaultWorkspace("ghost")).toThrow(/not configured/);
+    });
+  });
+
+  describe("OAuth keyring credentials", () => {
+    it("stores the entire session only in the keyring and resolves it as an access token", () => {
+      const credential = oauthCredential();
+      writeOAuthCredential(credential);
+      const file = readFileSync(userConfigPath(), "utf8");
+      expect(file).toContain("oauth = true");
+      expect(file).not.toContain("access-old");
+      expect(file).not.toContain("refresh-old");
+      expect(kr.store.get("oauth:acme")).toContain("refresh-old");
+      expect(readOAuthCredential("acme")).toEqual(credential);
+      const resolved = resolveConfig({ env: baseEnv() });
+      expect(resolved).toMatchObject({
+        accessToken: "access-old",
+        accessTokenSource: "keychain",
+        credentialWorkspace: "acme",
+      });
+      expect(resolved.oauthCredential?.workspace.id).toBe("org-1");
+    });
+
+    it("refuses OAuth persistence without a system keyring", () => {
+      setKeyringBackend(null);
+      expect(() => writeOAuthCredential(oauthCredential())).toThrow(/keyring/);
+      expect(existsSync(userConfigPath())).toBe(false);
+    });
+
+    it("atomically keeps a concurrent rotation winner", () => {
+      writeOAuthCredential(oauthCredential());
+      const winner = oauthCredential({
+        accessToken: "access-winner",
+        refreshToken: "refresh-winner",
+      });
+      expect(rotateOAuthCredential("acme", "refresh-old", winner)).toEqual(winner);
+      const stale = oauthCredential({ accessToken: "access-stale", refreshToken: "refresh-stale" });
+      expect(rotateOAuthCredential("acme", "refresh-old", stale)).toEqual(winner);
+      expect(readOAuthCredential("acme")?.refreshToken).toBe("refresh-winner");
+    });
+
+    it("preserves and restores an existing keyring API-key profile", () => {
+      writeCredential("acme", "lin_api_existing0000");
+      writeOAuthCredential(oauthCredential());
+      expect(resolveConfig({ env: baseEnv() }).oauthCredential).toBeDefined();
+
+      expect(removeOAuthCredential("acme")).toEqual({
+        removed: true,
+        fallbackCredentialType: "api-key",
+      });
+      expect(kr.store.has("oauth:acme")).toBe(false);
+      expect(kr.store.get("acme")).toBe("lin_api_existing0000");
+      expect(readBack().workspaces.acme).toEqual({ keyring: true });
+      expect(resolveConfig({ env: baseEnv() }).apiKey).toBe("lin_api_existing0000");
+    });
+
+    it("does not overwrite a pre-existing plaintext API-key profile", () => {
+      writeCredential("acme", "lin_api_plain000000", { plaintext: true });
+      writeOAuthCredential(oauthCredential());
+      expect(readBack().workspaces.acme).toMatchObject({
+        api_key: "lin_api_plain000000",
+        oauth: true,
+      });
+
+      expect(removeOAuthCredential("acme").fallbackCredentialType).toBe("api-key");
+      expect(readBack().workspaces.acme).toEqual({ api_key: "lin_api_plain000000" });
     });
   });
 

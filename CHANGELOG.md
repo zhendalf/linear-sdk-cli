@@ -48,12 +48,19 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **Browser OAuth login with PKCE (`actor=user`, LIN-740).** Bare `linear auth login` now opens
+  Linear using Authorization Code + mandatory PKCE S256, validates CSRF state and the authenticated
+  viewer/workspace, and stores the complete rotating session only in an isolated per-workspace OS
+  keyring record. Access tokens refresh before expiry and once after an authentication failure;
+  logout revokes the grant. `--no-browser`, read-only and explicit admin scopes, secret-safe JSON
+  failures, and the existing `auth login --key -` personal-key fallback are covered. OAuth login
+  and logout preserve a pre-existing API-key profile for the same workspace.
 - **OAuth access tokens for apps, agents, and hosted service accounts.** Commands accept an
   invocation-scoped `LINEAR_ACCESS_TOKEN` or `--access-token`, initialize the SDK with its OAuth
   bearer-token path, and fail closed if an API key and OAuth identity are ambiguous. The exported
   `ClientCredentialsTokenProvider` gives long-lived hosts a concurrency-safe, expiry-aware token
-  cache with forced renewal after a `401`; the CLI never persists OAuth access tokens, refresh
-  tokens, or client secrets.
+  cache with forced renewal after a `401`; hosted tokens remain invocation-scoped and the CLI never
+  persists client secrets. This app-actor lifecycle stays separate from human browser login.
 - **Explicit, notification-capable comment mentions (`--mention`, TES-738).** Ordinary `@name`
   text remains literal Markdown. Comment-writing commands now accept repeatable
   `--mention <name|email|me|id>`, resolve each user exactly, deduplicate repeats, and prepend real

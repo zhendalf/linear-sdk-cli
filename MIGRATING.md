@@ -47,12 +47,13 @@ linear auth list        # …lists it, Storage: keychain
 ```
 
 If it does not — no keyring on this platform, or you used schpet's plaintext mode (`slug =
-"lin_api_…"` inline in `credentials.toml`, which we deliberately do not read) — `linear auth login`
-prompts (masked) and stores the key in the keyring; `--plaintext` keeps it in our `0600`
-`config.toml` instead. `auth migrate` moves plaintext credentials from that file into the keyring,
-same command name as theirs. Because the keyring entry is shared, `auth logout` here removes it for
-schpet too (and drops the slug from its list file, so neither tool reports a workspace whose key is
-gone). The API key is **never** read from a project `.linear.toml`.
+"lin_api_…"` inline in `credentials.toml`, which we deliberately do not read) — pipe the key to
+`linear auth login --key -`; `--plaintext` keeps it in our `0600` `config.toml` instead. Bare
+`linear auth login` now starts browser OAuth, so it never prompts for a personal API key. `auth
+migrate` moves plaintext credentials from our file into the keyring, same command name as theirs.
+Because the API-key entry is shared, `auth logout` here removes it for both tools (and drops the
+slug from schpet's list file, so neither reports a workspace whose key is gone). The API key is
+**never** read from a project `.linear.toml`.
 
 ## 3. Config — same files, same keys
 

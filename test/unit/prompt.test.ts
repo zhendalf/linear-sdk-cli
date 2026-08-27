@@ -126,26 +126,24 @@ describe("promptSecret", () => {
   });
 });
 
-/**
- * The wiring, checked at the source. Running the real `auth login` action would
- * mean a live API round-trip and a credential write, so this pins the one thing
- * that matters and cannot be satisfied by accident: the key prompt is the
- * masked one, and the echoing prompt is not reachable from this file at all.
- */
-describe("auth login is wired to the masked prompt", () => {
+/** Browser OAuth is the interactive default; personal keys are accepted only through an explicit
+ * option, with stdin remaining the secret-safe compatibility path. */
+describe("auth login keeps personal API keys explicit", () => {
   const source = readFileSync(new URL("../../src/commands/meta.ts", import.meta.url), "utf8");
+  const loginSource = source.slice(source.indexOf("// login"), source.indexOf("// adopt"));
 
-  it("prompts for the API key with promptSecret", () => {
-    expect(source).toContain('promptSecret(ctx, "Linear API key:"');
+  it("defaults to browser OAuth and retains --key -", () => {
+    expect(source).toContain('.option("--no-browser"');
+    expect(source).toContain('if (key === "-") key = readStdinSync()');
   });
 
-  it("does not import or call the echoing prompt anywhere", () => {
-    expect(source).not.toContain("promptInput");
+  it("does not prompt for or echo an API key from the browser-login path", () => {
+    expect(source).not.toContain('promptSecret(ctx, "Linear API key:"');
   });
 
   it("never writes the key to output — the receipt names the user and the path", () => {
     // `auth token` is the one command whose job is to print the secret; login is not it.
-    expect(source).not.toMatch(/success\([^)]*\bkey\b[^)]*\)/);
+    expect(loginSource).not.toMatch(/success\([^)]*\bkey\b[^)]*\)/);
   });
 });
 

@@ -3,10 +3,14 @@
  */
 
 import { LinearClient } from "@linear/sdk";
-import type { ResolvedConfig } from "./config.js";
+import { rotateOAuthCredential, type ResolvedConfig } from "./config.js";
+import { OAuthUserTokenProvider } from "./oauth.js";
 import { authError, normalizeError, CliError } from "./lib/errors.js";
 
 export function createClient(config: ResolvedConfig): LinearClient {
+  if (config.oauthCredential) {
+    return createRefreshingOAuthClient(config);
+  }
   if (config.accessToken) {
     return new LinearClient({ accessToken: config.accessToken });
   }
@@ -21,6 +25,52 @@ export function createClient(config: ResolvedConfig): LinearClient {
     );
   }
   return new LinearClient({ apiKey: config.apiKey });
+}
+
+function isAuthenticationFailure(err: unknown): boolean {
+  const value = err as Record<string, any> | undefined;
+  const status = value?.status ?? value?.response?.status ?? value?.raw?.response?.status;
+  if (status === 401) return true;
+  const errors = value?.response?.errors ?? value?.errors ?? value?.raw?.response?.errors;
+  return (
+    Array.isArray(errors) &&
+    errors.some((item) => {
+      const type = `${item?.extensions?.type ?? ""} ${item?.extensions?.code ?? ""}`;
+      const message = `${item?.message ?? ""}`;
+      return (
+        /^(?:authentication(?:error)?|unauthorized|invalidtoken|invalid_token)$/i.test(
+          type.trim(),
+        ) ||
+        /authentication (?:failed|required)|unauthori[sz]ed|invalid (?:access )?token|token (?:expired|invalid)/i.test(
+          message,
+        )
+      );
+    })
+  );
+}
+
+/** SDK client whose request boundary refreshes stored PKCE credentials before expiry and once on 401. */
+function createRefreshingOAuthClient(config: ResolvedConfig): LinearClient {
+  const credential = config.oauthCredential!;
+  const provider = new OAuthUserTokenProvider({
+    credential,
+    persist: (previous, next) => rotateOAuthCredential(credential.workspace.urlKey, previous, next),
+  });
+  const client = new LinearClient({ accessToken: credential.accessToken });
+  const original = client.client.request.bind(client.client);
+  client.client.request = async (document, variables, requestHeaders) => {
+    const accessToken = await provider.getAccessToken();
+    client.client.setHeader("Authorization", `Bearer ${accessToken}`);
+    try {
+      return await original(document, variables, requestHeaders);
+    } catch (err) {
+      if (!isAuthenticationFailure(err)) throw err;
+      const replacement = await provider.getAccessToken({ forceRefresh: true });
+      client.client.setHeader("Authorization", `Bearer ${replacement}`);
+      return original(document, variables, requestHeaders);
+    }
+  };
+  return client;
 }
 
 /**
