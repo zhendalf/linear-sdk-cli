@@ -6,12 +6,11 @@ All notable changes to this project are documented here. The format is based on
 
 ## [0.3.0](https://github.com/zhendalf/linear-sdk-cli/compare/v0.2.4...v0.3.0) (2026-08-27)
 
-
 ### Features
 
-* **auth:** add browser OAuth login with PKCE ([8a3a12d](https://github.com/zhendalf/linear-sdk-cli/commit/8a3a12daa6239091b4c63c66af30a51adf61e4e5))
-* **auth:** add browser OAuth login with PKCE (LIN-740) ([d5826e1](https://github.com/zhendalf/linear-sdk-cli/commit/d5826e1ebdc9015e876faa29b004f4953a190b43))
-* **auth:** support OAuth access tokens ([#28](https://github.com/zhendalf/linear-sdk-cli/issues/28)) ([4fecb6c](https://github.com/zhendalf/linear-sdk-cli/commit/4fecb6c1a40533804ff2fde5ace689d39c70d4bc))
+- **auth:** add browser OAuth login with PKCE ([8a3a12d](https://github.com/zhendalf/linear-sdk-cli/commit/8a3a12daa6239091b4c63c66af30a51adf61e4e5))
+- **auth:** add browser OAuth login with PKCE (LIN-740) ([d5826e1](https://github.com/zhendalf/linear-sdk-cli/commit/d5826e1ebdc9015e876faa29b004f4953a190b43))
+- **auth:** support OAuth access tokens ([#28](https://github.com/zhendalf/linear-sdk-cli/issues/28)) ([4fecb6c](https://github.com/zhendalf/linear-sdk-cli/commit/4fecb6c1a40533804ff2fde5ace689d39c70d4bc))
 
 ## [0.2.4](https://github.com/zhendalf/linear-sdk-cli/compare/v0.2.3...v0.2.4) (2026-08-24)
 
