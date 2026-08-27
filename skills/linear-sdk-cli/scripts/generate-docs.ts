@@ -66,6 +66,7 @@ const GLOBAL_OPTIONS = new Map([
   ["-j, --json", "output machine-readable JSON"],
   ["--no-ansi", "disable colored output"],
   ["--api-key <key>", "Linear API key (overrides env/config)"],
+  ["--access-token <token>", "Linear OAuth access token (overrides env/config)"],
   ["--workspace <slug>", "select workspace credential profile"],
   ["-t, --team <key>", "default team key (e.g. TES)"],
   ["-n, --limit <n>", "max results (positive integer; 0 = all)"],
@@ -229,7 +230,8 @@ function buildReference(group: string, commands: CliCommand[]): string {
   lines.push("");
   lines.push(
     "Every command also accepts the global flags `-j/--json`, `--no-input`, `-y/--yes`, " +
-      "`-q/--quiet`, `--workspace <slug>`, `--api-key <key>`, `-t/--team <key>`, " +
+      "`-q/--quiet`, `--workspace <slug>`, `--api-key <key>`, `--access-token <token>`, " +
+      "`-t/--team <key>`, " +
       "`-n/--limit <n>`, `--all`, `-f/--fields <a,b,c>`, `--no-ansi` (alias `--no-color`), " +
       "and `--debug`. " +
       "Only command-specific options are listed below.",

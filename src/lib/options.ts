@@ -263,6 +263,7 @@ function globalOptions(): Option[] {
     // spellings cannot drift apart.
     new NoFlagOption("--no-color", "alias of --no-ansi", "noAnsi").hideHelp(),
     new Option("--api-key <key>", "Linear API key (overrides env/config)"),
+    new Option("--access-token <token>", "Linear OAuth access token (overrides env/config)"),
     new Option("--workspace <slug>", "select workspace credential profile"),
     new Option("-t, --team <key>", "default team key (e.g. TES)"),
     new Option("-n, --limit <n>", "max results (positive integer; 0 = all)").argParser(

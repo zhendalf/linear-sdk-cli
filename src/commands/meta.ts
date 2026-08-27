@@ -155,6 +155,11 @@ export function registerMeta(program: Command): void {
       // The global `--workspace <slug>` selects the slug to store under
       // (default: derived from the key's organization urlKey).
       action(async (ctx: Context, opts) => {
+        if (ctx.options.accessToken !== undefined) {
+          throw usageError(
+            "`auth login` stores personal API keys only. Supply OAuth access tokens per invocation with --access-token or LINEAR_ACCESS_TOKEN.",
+          );
+        }
         // `--key` still works for scripts. When prompted, the key is masked —
         // it is a credential, and it must not reach the screen or scrollback.
         // Nothing below echoes it either: the receipt reports the user and
@@ -281,6 +286,11 @@ export function registerMeta(program: Command): void {
     .action(
       action(async (ctx: Context) => {
         const c = ctx.config;
+        if (c.accessToken) {
+          throw usageError(
+            "`auth token` exports stored API keys only. The active OAuth token already comes from --access-token or LINEAR_ACCESS_TOKEN.",
+          );
+        }
         if (!c.apiKey) {
           // Surface the precise selection error (ambiguous / unstored slug) if any.
           throw (
@@ -298,24 +308,29 @@ export function registerMeta(program: Command): void {
   // status ------------------------------------------------------------------
   auth
     .command("status")
-    .description("Show where the API key is resolved from (key redacted)")
+    .description("Show where the active credential is resolved from (value redacted)")
     .action(
       action(async (ctx) => {
         const c = ctx.config;
+        const credential = c.accessToken ?? c.apiKey;
+        const credentialType = c.accessToken ? "oauth-access-token" : c.apiKey ? "api-key" : null;
+        const source = c.accessToken ? c.accessTokenSource : c.apiKeySource;
         const backend = keyring();
         ctx.output.detail(
           {
-            authenticated: !!c.apiKey,
-            source: c.apiKeySource,
+            authenticated: !!credential,
+            credentialType,
+            source,
             workspace: c.credentialWorkspace ?? null,
-            key: redactKey(c.apiKey),
+            key: redactKey(credential),
             keyring: backend?.name ?? null,
           },
           [
-            ["Authenticated", !!c.apiKey],
-            ["Source", c.apiKeySource],
+            ["Authenticated", !!credential],
+            ["Credential type", credentialType ?? "(none)"],
+            ["Source", source],
             ["Workspace", c.credentialWorkspace ?? "(none)"],
-            ["Key", redactKey(c.apiKey)],
+            ["Credential", redactKey(credential)],
             ["Keyring", backend ? backend.label : "(none on this platform)"],
           ],
         );
@@ -393,6 +408,7 @@ export function registerMeta(program: Command): void {
         const c = resolveConfig({
           flags: {
             apiKey: ctx.options.apiKey,
+            accessToken: ctx.options.accessToken,
             // Still the *flag* value (so `teamSource` stays honest), just
             // narrowed: `--team` is repeatable on the issue queries.
             team: firstTeam(ctx.options.team),
@@ -414,6 +430,8 @@ export function registerMeta(program: Command): void {
           {
             apiKey: redactKey(c.apiKey),
             apiKeySource: c.apiKeySource,
+            accessToken: redactKey(c.accessToken),
+            accessTokenSource: c.accessTokenSource,
             credentialWorkspace: c.credentialWorkspace ?? null,
             team: c.team ?? null,
             workspace: c.workspace ?? null,
@@ -425,6 +443,7 @@ export function registerMeta(program: Command): void {
           },
           [
             ["API key", `${redactKey(c.apiKey)} (${c.apiKeySource})`],
+            ["OAuth access token", `${redactKey(c.accessToken)} (${c.accessTokenSource})`],
             ["Credential workspace", c.credentialWorkspace ?? "(none)"],
             ["Team", show("team", c.team)],
             ["Workspace", show("workspace", c.workspace)],

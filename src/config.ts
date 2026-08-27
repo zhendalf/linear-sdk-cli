@@ -10,9 +10,11 @@
  *    each directory — every location schpet/linear-cli 2.5 reads (it checks
  *    cwd and the git root; we check every directory between, which is a
  *    superset), in its order.
- *  - The API key has a STRICTER boundary and is never read from a project file
+ *  - Authentication secrets have a STRICTER boundary and are never read from a project file
  *    or from the reference CLI's global file (avoids committing secrets):
- *    flag > LINEAR_API_KEY env > user config (plaintext `api_key`) > OS keyring.
+ *    Explicit `--access-token` / `--api-key` flags override their environment counterparts.
+ *    OAuth access tokens are stateless (`LINEAR_ACCESS_TOKEN` only); API keys may also come from
+ *    user config (plaintext `api_key`) or the OS keyring.
  *    A project `workspace` may select which already-stored credential to use;
  *    it can never provide or override the secret itself.
  *
@@ -56,6 +58,7 @@ export interface RawSettings {
   workspace?: string;
   sort?: string;
   apiKey?: string;
+  accessToken?: string;
 }
 
 /**
@@ -82,9 +85,12 @@ export type SettingOrigins = Record<"team" | "workspace" | "sort", SettingOrigin
 export interface ResolvedConfig {
   apiKey?: string;
   apiKeySource: ConfigSource;
+  /** OAuth access token supplied for this invocation; never read from or written to config. */
+  accessToken?: string;
+  accessTokenSource: ConfigSource;
   /**
-   * Deferred credential-selection error. Resolution is total (it never throws
-   * for selection problems) so commands that REPAIR auth state — `auth list`,
+   * Deferred credential-resolution error. Resolution is total (it never throws
+   * for selection or ambiguous identity problems) so commands that REPAIR auth state — `auth list`,
    * `auth default`, `auth logout`, `auth login --workspace new-org` — can still
    * build a Context. The error is surfaced only when an API client is actually
    * needed (see createClient / `auth token`).
@@ -385,6 +391,7 @@ export function findProjectConfig(cwd: string): string | undefined {
 function fromEnv(env: NodeJS.ProcessEnv): RawSettings {
   return {
     apiKey: env.LINEAR_API_KEY || env.LINEAR_API_TOKEN,
+    accessToken: env.LINEAR_ACCESS_TOKEN,
     team: env.LINEAR_TEAM || env.LINEAR_TEAM_ID,
     workspace: env.LINEAR_WORKSPACE,
     sort: env.LINEAR_ISSUE_SORT,
@@ -407,19 +414,37 @@ export function resolveConfig(inputs: ConfigInputs = {}): ResolvedConfig {
   const globalPath = existsSync(globalCandidate) ? globalCandidate : undefined;
   const global = globalPath ? readTomlFile(globalPath) : { settings: {}, keys: {} };
 
-  // ----- API key resolution (strict trust boundary) -----------------------
+  // ----- Credential resolution (strict trust boundary) --------------------
   // Resolution is TOTAL: selection problems are stashed in `apiKeyError` rather
   // than thrown, so auth-repair commands can still build a Context. The error
   // is surfaced lazily, when an API client is actually needed.
   let apiKey: string | undefined;
   let apiKeySource: ConfigSource = "none";
+  let accessToken: string | undefined;
+  let accessTokenSource: ConfigSource = "none";
   let credentialWorkspace: string | undefined;
   let apiKeyError: CliError | undefined;
 
-  if (flags.apiKey) {
-    // 1. An explicit flag is absolute: it bypasses all workspace selection.
+  if (flags.apiKey && flags.accessToken) {
+    apiKeyError = new CliError(
+      "Pass only one of --api-key or --access-token; they may identify different Linear actors.",
+      "usage",
+    );
+  } else if (flags.accessToken) {
+    // 1. An explicit credential flag is absolute: it bypasses env and workspace selection.
+    accessToken = flags.accessToken;
+    accessTokenSource = "flag";
+  } else if (flags.apiKey) {
     apiKey = flags.apiKey;
     apiKeySource = "flag";
+  } else if (envSettings.apiKey && envSettings.accessToken) {
+    apiKeyError = new CliError(
+      "Both LINEAR_API_KEY/LINEAR_API_TOKEN and LINEAR_ACCESS_TOKEN are set. Unset one so the Linear actor is unambiguous.",
+      "usage",
+    );
+  } else if (envSettings.accessToken) {
+    accessToken = envSettings.accessToken;
+    accessTokenSource = "env";
   } else if (envSettings.apiKey) {
     // 1. LINEAR_API_KEY/LINEAR_API_TOKEN is absolute too.
     apiKey = envSettings.apiKey;
@@ -504,6 +529,8 @@ export function resolveConfig(inputs: ConfigInputs = {}): ResolvedConfig {
   return {
     apiKey,
     apiKeySource,
+    accessToken,
+    accessTokenSource,
     apiKeyError,
     credentialWorkspace,
     team: pick("team"),

@@ -4,7 +4,7 @@
 
 _Generated from `linear commands --json`. `linear auth --help` (or `<subcommand> --help`) is authoritative._
 
-Every command also accepts the global flags `-j/--json`, `--no-input`, `-y/--yes`, `-q/--quiet`, `--workspace <slug>`, `--api-key <key>`, `-t/--team <key>`, `-n/--limit <n>`, `--all`, `-f/--fields <a,b,c>`, `--no-ansi` (alias `--no-color`), and `--debug`. Only command-specific options are listed below.
+Every command also accepts the global flags `-j/--json`, `--no-input`, `-y/--yes`, `-q/--quiet`, `--workspace <slug>`, `--api-key <key>`, `--access-token <token>`, `-t/--team <key>`, `-n/--limit <n>`, `--all`, `-f/--fields <a,b,c>`, `--no-ansi` (alias `--no-color`), and `--debug`. Only command-specific options are listed below.
 
 ### `linear auth`
 
@@ -123,7 +123,7 @@ path: string
 
 ### `linear auth status`
 
-Show where the API key is resolved from (key redacted)
+Show where the active credential is resolved from (value redacted)
 
 ```
 linear auth status [options]
@@ -133,6 +133,7 @@ linear auth status [options]
 
 ```text
 authenticated: boolean
+credentialType: string | null
 source: string
 workspace: string | null
 key: string

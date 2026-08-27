@@ -100,6 +100,51 @@ describe("resolveConfig precedence", () => {
     expect(resolveConfig({ env: baseEnv() }).apiKeySource).toBe("none");
   });
 
+  it("resolves an OAuth access token without treating it as an API key", () => {
+    const cfg = resolveConfig({ env: baseEnv({ LINEAR_ACCESS_TOKEN: "oauth_access_1234" }) });
+    expect(cfg).toMatchObject({
+      accessToken: "oauth_access_1234",
+      accessTokenSource: "env",
+      apiKey: undefined,
+      apiKeySource: "none",
+      credentialWorkspace: undefined,
+    });
+
+    const client = createClient(cfg) as any;
+    expect(client.options.headers.Authorization).toBe("Bearer oauth_access_1234");
+  });
+
+  it("lets an explicit credential flag override an ambient credential of the other kind", () => {
+    const access = resolveConfig({
+      env: baseEnv({ LINEAR_API_KEY: "lin_api_ambient0000" }),
+      flags: { accessToken: "oauth_explicit" },
+    });
+    expect(access.accessToken).toBe("oauth_explicit");
+    expect(access.apiKey).toBeUndefined();
+
+    const apiKey = resolveConfig({
+      env: baseEnv({ LINEAR_ACCESS_TOKEN: "oauth_ambient" }),
+      flags: { apiKey: "lin_api_explicit0000" },
+    });
+    expect(apiKey.apiKey).toBe("lin_api_explicit0000");
+    expect(apiKey.accessToken).toBeUndefined();
+  });
+
+  it("defers ambiguous same-precedence credentials until a client is needed", () => {
+    const flags = resolveConfig({
+      env: baseEnv(),
+      flags: { apiKey: "lin_api_one", accessToken: "oauth_two" },
+    });
+    expect(flags.apiKey).toBeUndefined();
+    expect(flags.accessToken).toBeUndefined();
+    expect(() => createClient(flags)).toThrow(/only one of --api-key or --access-token/);
+
+    const env = resolveConfig({
+      env: baseEnv({ LINEAR_API_KEY: "lin_api_one", LINEAR_ACCESS_TOKEN: "oauth_two" }),
+    });
+    expect(() => createClient(env)).toThrow(/Both LINEAR_API_KEY\/LINEAR_API_TOKEN/);
+  });
+
   it("NEVER reads the api key from a project .linear.toml", () => {
     writeProjectConfig(projectDir, `api_key = "lin_api_projectkey00"\nteam = "TES"`);
     const cfg = resolveConfig({ env: baseEnv(), cwd: projectDir });

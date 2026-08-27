@@ -7,12 +7,17 @@ import type { ResolvedConfig } from "./config.js";
 import { authError, normalizeError, CliError } from "./lib/errors.js";
 
 export function createClient(config: ResolvedConfig): LinearClient {
+  if (config.accessToken) {
+    return new LinearClient({ accessToken: config.accessToken });
+  }
   if (!config.apiKey) {
     // Surface the precise credential-selection error (ambiguous / unstored
     // workspace) only now, when a client is actually required.
     throw (
       config.apiKeyError ??
-      authError("No API key found. Set LINEAR_API_KEY, pass --api-key, or run `linear auth login`.")
+      authError(
+        "No Linear credential found. Set LINEAR_ACCESS_TOKEN or LINEAR_API_KEY, pass --access-token or --api-key, or run `linear auth login`.",
+      )
     );
   }
   return new LinearClient({ apiKey: config.apiKey });

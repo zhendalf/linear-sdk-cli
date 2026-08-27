@@ -103,19 +103,23 @@ branch, so most issue commands let you omit the id entirely.
 
 ## Authentication
 
-The CLI resolves your API key in this order: the `--api-key` flag → the `LINEAR_API_KEY`
-environment variable → a plaintext key in the user config file (`~/.config/linear/config.toml`,
-written `0600`) → the **OS keyring** (macOS Keychain, or `secret-tool` on Linux).
+The CLI accepts either a personal API key or an OAuth access token. Explicit `--api-key` or
+`--access-token` flags override environment credentials; without a credential flag it reads
+`LINEAR_API_KEY` or `LINEAR_ACCESS_TOKEN`. API keys can additionally fall back to a plaintext key
+in the user config file (`~/.config/linear/config.toml`, written `0600`) and then the **OS
+keyring** (macOS Keychain, or `secret-tool` on Linux). If both credential kinds are supplied at the
+same precedence level, the CLI fails rather than silently choosing a Linear actor.
 
-> **Credential trust boundary.** The API key is **never** read from a project-local
+> **Credential trust boundary.** A secret is **never** read from a project-local
 > `.linear.toml` — only non-secret settings live there — so a key can't be committed by accident.
 > A project may select one of your already-stored credentials with `workspace = "<slug>"`, but it
-> cannot provide or override the secret.
+> cannot provide or override the secret. OAuth access tokens are invocation-scoped and are never
+> stored by this CLI.
 
 ```sh
 linear auth login                          # store a key (prompts, validates, saves to the keyring)
 linear auth login --plaintext              # …or keep it in the 0600 config file instead
-linear auth status                         # where the key came from (value redacted)
+linear auth status                         # credential kind and source (value redacted)
 linear auth migrate                        # move plaintext keys from the file into the keyring
 linear auth token                          # print the resolved key (for scripting)
 ```
@@ -128,6 +132,31 @@ box without `libsecret`) it falls back to the file, and says so. The keyring ent
 found without a re-login (`auth status` reports `Source: keychain`). Note the entry is shared:
 `auth logout` here removes it for both tools. `--key -` reads the key from stdin for scripts;
 passing it as `--key <value>` works but earns a warning, since argv is visible to other processes.
+
+### Apps, agents, and service accounts
+
+Use an OAuth access token when the CLI runs inside an integration or agent:
+
+```sh
+LINEAR_ACCESS_TOKEN="$access_token" linear whoami --json
+LINEAR_ACCESS_TOKEN="$access_token" linear issue list --json
+```
+
+The application host owns OAuth installation, refresh-token or client-credentials exchange,
+client-secret storage, and webhook processing; it injects only the current access token into each
+CLI invocation. The CLI passes it to `LinearClient({ accessToken })`, which sends the required
+Bearer authorization. Prefer the environment variable because a command-line token is visible to
+other processes and shell history.
+
+For a distinct app identity, install the OAuth application with `actor=app`. Native Linear agents
+can additionally request `app:mentionable` and `app:assignable` and subscribe to Agent Session
+webhooks. App actors cannot request the `admin` scope. See Linear's
+[OAuth guide](https://linear.app/developers/oauth-2-0-authentication),
+[app-actor authorization](https://linear.app/developers/oauth-actor-authorization), and
+[agent guide](https://linear.app/developers/agents).
+
+`auth login`, workspace profiles, and `auth token` remain API-key operations. The CLI deliberately
+does not persist OAuth access tokens, refresh tokens, or client secrets.
 
 ### Multiple workspaces
 
@@ -143,11 +172,12 @@ linear --workspace other-org issue list    # use a specific workspace for one co
 linear auth logout --workspace acme        # remove one credential
 ```
 
-**Selection precedence** (strict): the `--api-key` flag and `LINEAR_API_KEY` env are absolute and
-bypass selection entirely; otherwise the workspace is chosen by `--workspace` → `LINEAR_WORKSPACE`
-env → project config `workspace` → `default_workspace` in the user config. With one configured
-workspace it's used automatically; with several and no selection, the CLI asks you to pick (via
-`--workspace`, project config, or `auth default`).
+**Selection precedence** (strict): an explicit `--api-key` or `--access-token` flag bypasses the
+environment and workspace selection entirely. Otherwise `LINEAR_API_KEY` or
+`LINEAR_ACCESS_TOKEN` is absolute. With no invocation-scoped credential, the workspace is chosen
+by `--workspace` → `LINEAR_WORKSPACE` env → project config `workspace` → `default_workspace` in the
+user config. With one configured workspace it's used automatically; with several and no selection,
+the CLI asks you to pick (via `--workspace`, project config, or `auth default`).
 
 ## Core concepts
 
@@ -475,8 +505,9 @@ keyring = true                 # secret lives in the OS keyring (service linear-
 api_key = "lin_api_yyyyyyyy"   # …or, with `auth login --plaintext`, in this 0600 file
 ```
 
-Relevant environment variables: **`LINEAR_API_KEY`** (absolute — bypasses workspace selection) and
-**`LINEAR_WORKSPACE`** (selects a stored credential when no flag is given).
+Relevant environment variables: **`LINEAR_API_KEY`** or **`LINEAR_ACCESS_TOKEN`** (absolute —
+bypasses workspace selection) and **`LINEAR_WORKSPACE`** (selects a stored API-key credential when
+no invocation-scoped credential is given).
 
 ### Shell completion
 

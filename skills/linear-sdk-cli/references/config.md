@@ -4,7 +4,7 @@
 
 _Generated from `linear commands --json`. `linear config --help` (or `<subcommand> --help`) is authoritative._
 
-Every command also accepts the global flags `-j/--json`, `--no-input`, `-y/--yes`, `-q/--quiet`, `--workspace <slug>`, `--api-key <key>`, `-t/--team <key>`, `-n/--limit <n>`, `--all`, `-f/--fields <a,b,c>`, `--no-ansi` (alias `--no-color`), and `--debug`. Only command-specific options are listed below.
+Every command also accepts the global flags `-j/--json`, `--no-input`, `-y/--yes`, `-q/--quiet`, `--workspace <slug>`, `--api-key <key>`, `--access-token <token>`, `-t/--team <key>`, `-n/--limit <n>`, `--all`, `-f/--fields <a,b,c>`, `--no-ansi` (alias `--no-color`), and `--debug`. Only command-specific options are listed below.
 
 ### `linear config`
 
@@ -19,6 +19,8 @@ linear config [options]
 ```text
 apiKey: string
 apiKeySource: string
+accessToken: string
+accessTokenSource: string
 credentialWorkspace: string | null
 team: string | null
 workspace: string | null
@@ -88,6 +90,8 @@ linear config show [options]
 ```text
 apiKey: string
 apiKeySource: string
+accessToken: string
+accessTokenSource: string
 credentialWorkspace: string | null
 team: string | null
 workspace: string | null

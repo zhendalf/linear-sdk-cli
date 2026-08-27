@@ -160,6 +160,8 @@ const SETTING_ORIGINS_SHAPE = shape<SettingOrigins>({
 const CONFIG_SHOW_SHAPE: ObjectFields = {
   apiKey: "string",
   apiKeySource: "string",
+  accessToken: "string",
+  accessTokenSource: "string",
   credentialWorkspace: "string|null",
   team: "string|null",
   workspace: "string|null",
@@ -274,6 +276,7 @@ export const OUTPUT_SHAPES: Record<string, OutputShape | null> = {
   "auth migrate": receipt({ success: "boolean", migrated: ["string"], path: "string" }),
   "auth status": object({
     authenticated: "boolean",
+    credentialType: "string|null",
     source: "string",
     workspace: "string|null",
     key: "string",

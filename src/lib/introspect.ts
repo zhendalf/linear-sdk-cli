@@ -123,6 +123,7 @@ const GLOBAL_LONGS = new Set([
   "--json",
   "--no-ansi",
   "--api-key",
+  "--access-token",
   "--workspace",
   "--team",
   "--limit",
