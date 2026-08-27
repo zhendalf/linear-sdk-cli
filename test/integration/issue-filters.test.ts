@@ -14,7 +14,7 @@ import { run, runJson, LIVE, LIVE_ADMIN, ensureBuilt, FIXTURE_PREFIX } from "./_
 
 const suite = LIVE ? describe : describe.skip;
 const adminSuite = LIVE_ADMIN ? describe : describe.skip;
-const TEAM = process.env.LINEAR_CLI_TEST_TEAM || "TES";
+const TEAM = process.env.LINEAR_CLI_TEST_TEAM || "LIN";
 
 /** Identifiers from a query, with a high limit so membership assertions are honest. */
 function ids(args: string[]): string[] {

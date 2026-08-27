@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from "bun:test";
 import { run, runJson, LIVE, ensureBuilt } from "./_helpers.js";
 
 const suite = LIVE ? describe : describe.skip;
-const TEAM = process.env.LINEAR_CLI_TEST_TEAM || "TES";
+const TEAM = process.env.LINEAR_CLI_TEST_TEAM || "LIN";
 
 suite("workflow state (live, read-only)", () => {
   beforeAll(() => ensureBuilt());

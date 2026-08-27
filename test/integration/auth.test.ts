@@ -7,7 +7,7 @@ import { BIN, LIVE, ensureBuilt } from "./_helpers.js";
 
 const suite = LIVE ? describe : describe.skip;
 const KEY = process.env.LINEAR_API_KEY ?? "";
-const SLUG = "linear-sdk-cli";
+const SLUG = process.env.LINEAR_CLI_LIVE_WORKSPACE ?? "linear-sdk-cli";
 
 /**
  * Multi-workspace auth writes to the user config, so these tests run the CLI

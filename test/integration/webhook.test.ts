@@ -3,7 +3,7 @@ import { LinearClient } from "@linear/sdk";
 import { run, runJson, LIVE, ensureBuilt, FIXTURE_PREFIX } from "./_helpers.js";
 
 const suite = LIVE ? describe : describe.skip;
-const TEAM = process.env.LINEAR_CLI_TEST_TEAM || "TES";
+const TEAM = process.env.LINEAR_CLI_TEST_TEAM || "LIN";
 const HOOK_URL = "https://example.com/clitest-hook";
 
 /** A dummy https URL per fixture so leaked webhooks are easy to identify. */
