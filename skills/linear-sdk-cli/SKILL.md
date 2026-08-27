@@ -47,6 +47,12 @@ The CLI accepts either a Linear personal API key or an OAuth access token:
 
    The host application owns OAuth installation, token refresh/client-credentials exchange,
    client-secret storage, and webhooks. The CLI never stores OAuth tokens or client secrets.
+   Long-lived hosts can import `ClientCredentialsTokenProvider` from `linear-sdk-cli`; it caches
+   the 30-day app token in memory, renews before expiry, coalesces concurrent exchanges, and
+   supports invalidation or forced renewal for one bounded retry after a `401`. Keep the client
+   secret in the host's secret manager and inject only `LINEAR_ACCESS_TOKEN` into CLI children.
+   Serverless hosts need a secure shared token cache or broker so cold starts do not mint a new
+   token for every command.
 
 2. **`--api-key <key>`** flag (per invocation) or **`LINEAR_API_KEY`** env var — best
    for CI and ephemeral agent runs:

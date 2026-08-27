@@ -148,6 +148,39 @@ CLI invocation. The CLI passes it to `LinearClient({ accessToken })`, which send
 Bearer authorization. Prefer the environment variable because a command-line token is visible to
 other processes and shell history.
 
+For a long-lived, single-workspace host, enable client credentials on the Linear OAuth app and keep
+its client ID and secret in the host's secret manager. The package exports an expiry-aware provider
+that caches Linear's 30-day app-actor token in memory, coalesces concurrent exchanges, renews five
+minutes before expiry, and can be forced to renew after a `401`:
+
+```ts
+import { ClientCredentialsTokenProvider } from "linear-sdk-cli";
+
+const { LINEAR_CLIENT_ID: clientId, LINEAR_CLIENT_SECRET: clientSecret, ...childEnv } = process.env;
+if (!clientId || !clientSecret) throw new Error("Linear OAuth credentials are missing");
+
+const tokens = new ClientCredentialsTokenProvider({
+  clientId,
+  clientSecret,
+  scopes: ["read", "write"],
+});
+
+const { accessToken } = await tokens.getAccessToken();
+const child = Bun.spawn(["linear", "issue", "list", "--json"], {
+  env: { ...childEnv, LINEAR_ACCESS_TOKEN: accessToken },
+});
+await child.exited;
+```
+
+Call `tokens.invalidate()` (or `getAccessToken({ forceRefresh: true })`) before one bounded retry
+when Linear rejects the token with `401`. Client-credentials tokens do not have refresh tokens;
+renewal is another authenticated exchange. A short-lived/serverless process should use a secure
+shared token cache or central broker rather than minting a new 30-day token on every invocation.
+
+For an app installed into multiple workspaces, use Authorization Code with `actor=app` instead and
+store each installation's rotating refresh token encrypted in the host. Browser-based PKCE login
+for a human user (`actor=user`) is a separate lifecycle, tracked as TES-740.
+
 For a distinct app identity, install the OAuth application with `actor=app`. Native Linear agents
 can additionally request `app:mentionable` and `app:assignable` and subscribe to Agent Session
 webhooks. App actors cannot request the `admin` scope. See Linear's

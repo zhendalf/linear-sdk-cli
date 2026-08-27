@@ -48,6 +48,12 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 
+- **OAuth access tokens for apps, agents, and hosted service accounts.** Commands accept an
+  invocation-scoped `LINEAR_ACCESS_TOKEN` or `--access-token`, initialize the SDK with its OAuth
+  bearer-token path, and fail closed if an API key and OAuth identity are ambiguous. The exported
+  `ClientCredentialsTokenProvider` gives long-lived hosts a concurrency-safe, expiry-aware token
+  cache with forced renewal after a `401`; the CLI never persists OAuth access tokens, refresh
+  tokens, or client secrets.
 - **Explicit, notification-capable comment mentions (`--mention`, TES-738).** Ordinary `@name`
   text remains literal Markdown. Comment-writing commands now accept repeatable
   `--mention <name|email|me|id>`, resolve each user exactly, deduplicate repeats, and prepend real
