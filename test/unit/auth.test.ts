@@ -7,9 +7,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "bun:test";
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createServer } from "node:http";
 import { createProgram } from "../../src/cli.js";
-import { userConfigPath, referenceCredentialsPath } from "../../src/config.js";
+import {
+  userConfigPath,
+  referenceCredentialsPath,
+  writeOAuthCredential,
+} from "../../src/config.js";
 import { memoryKeyring, setKeyringBackend } from "../../src/lib/keyring.js";
+import { setAuthValidationClientFactoryForTests } from "../../src/commands/meta.js";
+import type { OAuthUserCredential } from "../../src/oauth.js";
+
+const nativeFetch = globalThis.fetch;
 
 let root: string;
 let kr: ReturnType<typeof memoryKeyring>;
@@ -46,6 +55,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  setAuthValidationClientFactoryForTests(undefined);
   setKeyringBackend(undefined);
   if (savedXdg === undefined) delete process.env.XDG_CONFIG_HOME;
   else process.env.XDG_CONFIG_HOME = savedXdg;
@@ -75,6 +85,24 @@ async function runJson(args: string[]): Promise<any> {
     spy.mockRestore();
   }
   return JSON.parse(out);
+}
+
+async function freePort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return port;
+}
+
+async function eventually<T>(read: () => T | undefined): Promise<T> {
+  for (let i = 0; i < 100; i++) {
+    const value = read();
+    if (value !== undefined) return value;
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  }
+  throw new Error("Timed out waiting for test output");
 }
 
 describe("auth status", () => {
@@ -129,7 +157,7 @@ describe("OAuth credentials stay invocation-scoped", () => {
         "oauth_access_1234",
         "--json",
       ]),
-    ).rejects.toThrow(/stores personal API keys only/);
+    ).rejects.toThrow(/cannot persist an injected access token/);
     expect(existsSync(userConfigPath())).toBe(false);
     expect(kr.store.size).toBe(0);
   });
@@ -142,6 +170,79 @@ describe("OAuth credentials stay invocation-scoped", () => {
   });
 });
 
+describe("browser OAuth login", () => {
+  it("completes PKCE through the loopback, emits secret-safe JSON, and stores only in keyring", async () => {
+    const port = await freePort();
+    const redirectUri = `http://127.0.0.1:${port}/oauth/callback`;
+    setAuthValidationClientFactoryForTests((_credential, kind) => {
+      expect(kind).toBe("oauth-access-token");
+      return {
+        viewer: Promise.resolve({ id: "user-1", name: "Ada", email: "ada@example.com" }),
+        organization: Promise.resolve({ id: "org-1", name: "Acme", urlKey: "acme" }),
+      };
+    });
+    vi.spyOn(globalThis, "fetch").mockImplementation((async (input, init) => {
+      expect(String(input)).toBe("https://api.linear.app/oauth/token");
+      const body = String(init?.body);
+      expect(body).toContain("code_verifier=");
+      expect(body).not.toContain("client_secret");
+      return Response.json({
+        access_token: "access-secret",
+        refresh_token: "refresh-secret",
+        expires_in: 3600,
+        scope: "read write",
+        token_type: "Bearer",
+      });
+    }) as typeof fetch);
+
+    let out = "";
+    let err = "";
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk: any) => {
+      out += chunk;
+      return true;
+    });
+    vi.spyOn(process.stderr, "write").mockImplementation((chunk: any) => {
+      err += chunk;
+      return true;
+    });
+    const login = createProgram().parseAsync([
+      "node",
+      "linear",
+      "auth",
+      "login",
+      "--no-browser",
+      "--client-id",
+      "public-client",
+      "--redirect-uri",
+      redirectUri,
+      "--timeout",
+      "2",
+      "--json",
+    ]);
+    const authorizationUrl = await eventually(
+      () => err.match(/https:\/\/linear\.app\/oauth\/authorize\?\S+/)?.[0],
+    );
+    const state = new URL(authorizationUrl).searchParams.get("state");
+    expect(state).toBeTruthy();
+    await nativeFetch(`${redirectUri}?code=authorization-code&state=${encodeURIComponent(state!)}`);
+    await login;
+
+    const receipt = JSON.parse(out);
+    expect(receipt).toMatchObject({
+      success: true,
+      credentialType: "oauth-user",
+      workspace: "acme",
+      storage: "keychain",
+      scopes: ["read", "write"],
+    });
+    expect(out).not.toContain("access-secret");
+    expect(out).not.toContain("refresh-secret");
+    expect(err).not.toContain("access-secret");
+    expect(readFileSync(userConfigPath(), "utf8")).not.toContain("secret");
+    expect(kr.store.get("oauth:acme")).toContain("refresh-secret");
+  });
+});
+
 describe("auth list", () => {
   it("shows where each credential's secret lives", async () => {
     writeFileSync(
@@ -150,8 +251,8 @@ describe("auth list", () => {
     );
     const list = await runJson(["auth", "list"]);
     expect(list).toEqual([
-      { slug: "pt", isDefault: true, storage: "file" },
-      { slug: "kc", isDefault: false, storage: "keychain" },
+      { slug: "pt", isDefault: true, storage: "file", credentialType: "api-key" },
+      { slug: "kc", isDefault: false, storage: "keychain", credentialType: "api-key" },
     ]);
   });
 });
@@ -185,6 +286,39 @@ describe("auth migrate", () => {
 });
 
 describe("auth logout", () => {
+  it("revokes a stored OAuth refresh token before removing the local profile", async () => {
+    const credential: OAuthUserCredential = {
+      version: 1,
+      kind: "oauth-user",
+      actor: "user",
+      accessToken: "access-secret",
+      refreshToken: "refresh-secret",
+      expiresAt: Date.now() + 3_600_000,
+      scopes: ["read", "write"],
+      tokenType: "Bearer",
+      clientId: "public-client",
+      workspace: { id: "org-1", name: "Acme", urlKey: "acme" },
+      user: { id: "user-1", name: "Ada", email: "ada@example.com" },
+    };
+    writeOAuthCredential(credential);
+    let requestBody = "";
+    vi.spyOn(globalThis, "fetch").mockImplementation((async (input, init) => {
+      expect(String(input)).toBe("https://api.linear.app/oauth/revoke");
+      requestBody = String(init?.body);
+      return new Response(null, { status: 200 });
+    }) as typeof fetch);
+    const out = await runJson(["auth", "logout", "--yes"]);
+    expect(out).toMatchObject({
+      success: true,
+      workspace: "acme",
+      removed: true,
+      revocation: "revoked",
+    });
+    expect(requestBody).toContain("token=refresh-secret");
+    expect(requestBody).toContain("token_type_hint=refresh_token");
+    expect(kr.store.has("oauth:acme")).toBe(false);
+  });
+
   it("removes the keyring entry and the workspace table", async () => {
     writeFileSync(userConfigPath(), `[workspaces."acme"]\nkeyring = true\n`);
     kr.store.set("acme", "lin_api_fromkeychain0000");

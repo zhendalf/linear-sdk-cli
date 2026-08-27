@@ -1,5 +1,16 @@
+import { createHash } from "node:crypto";
+import { createServer } from "node:http";
 import { describe, expect, it } from "bun:test";
-import { ClientCredentialsTokenProvider, OAuthTokenError } from "../../src/oauth.js";
+import {
+  ClientCredentialsTokenProvider,
+  OAuthTokenError,
+  OAuthUserTokenProvider,
+  buildAuthorizationUrl,
+  createPkceRequest,
+  exchangeAuthorizationCode,
+  startLoopbackCallback,
+  type OAuthUserCredential,
+} from "../../src/oauth.js";
 
 function tokenResponse(accessToken: string, expiresIn = 3600): Response {
   return Response.json({
@@ -116,5 +127,172 @@ describe("ClientCredentialsTokenProvider", () => {
       expect(error.message).not.toContain("client-secret");
       expect(error.message).not.toContain("access-token");
     }
+  });
+});
+
+async function freePort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return port;
+}
+
+function userCredential(overrides: Partial<OAuthUserCredential> = {}): OAuthUserCredential {
+  return {
+    version: 1,
+    kind: "oauth-user",
+    actor: "user",
+    accessToken: "access-old",
+    refreshToken: "refresh-old",
+    expiresAt: 1_000,
+    scopes: ["read", "write"],
+    tokenType: "Bearer",
+    clientId: "client-id",
+    workspace: { id: "org-1", name: "Acme", urlKey: "acme" },
+    user: { id: "user-1", name: "Ada", email: "ada@example.com" },
+    ...overrides,
+  };
+}
+
+describe("browser OAuth PKCE", () => {
+  it("generates independent random state and a correct S256 challenge", () => {
+    const first = createPkceRequest();
+    const second = createPkceRequest();
+    expect(first.verifier).not.toBe(second.verifier);
+    expect(first.state).not.toBe(first.verifier);
+    expect(first.state).not.toBe(second.state);
+    expect(first.verifier.length).toBeGreaterThanOrEqual(43);
+    expect(first.challenge).toBe(
+      createHash("sha256").update(first.verifier).digest().toString("base64url"),
+    );
+  });
+
+  it("builds an actor=user authorization request with S256 and no secret", () => {
+    const url = new URL(
+      buildAuthorizationUrl({
+        clientId: "public-client",
+        redirectUri: "http://127.0.0.1:43821/oauth/callback",
+        scopes: ["read", "write"],
+        challenge: "challenge",
+        state: "state",
+      }),
+    );
+    expect(url.searchParams.get("actor")).toBe("user");
+    expect(url.searchParams.get("code_challenge_method")).toBe("S256");
+    expect(url.searchParams.get("scope")).toBe("read,write");
+    expect(url.searchParams.has("client_secret")).toBe(false);
+  });
+
+  it("validates state and rejects malformed callbacks without exposing callback data", async () => {
+    for (const suffix of ["?code=secret-code&state=wrong", "?state=expected"]) {
+      const port = await freePort();
+      const callback = await startLoopbackCallback({
+        redirectUri: `http://127.0.0.1:${port}/oauth/callback`,
+        state: "expected",
+        timeoutMs: 2_000,
+      });
+      const outcome = callback.wait.catch((value) => value as OAuthTokenError);
+      await fetch(callback.redirectUri + suffix);
+      const error = await outcome;
+      expect(error).toBeInstanceOf(OAuthTokenError);
+      if (!(error instanceof OAuthTokenError)) throw new Error("Expected OAuthTokenError");
+      expect(error.message).not.toContain("secret-code");
+      await callback.close();
+    }
+  });
+
+  it("times out with a stable auth error", async () => {
+    const port = await freePort();
+    const callback = await startLoopbackCallback({
+      redirectUri: `http://127.0.0.1:${port}/oauth/callback`,
+      state: "expected",
+      timeoutMs: 5,
+    });
+    const error = await callback.wait.catch((value) => value as OAuthTokenError);
+    expect(error).toMatchObject({
+      code: "auth",
+      message: "Timed out waiting for the Linear OAuth callback.",
+    });
+  });
+
+  it("exchanges a code with the verifier and without a client secret", async () => {
+    let body = "";
+    const token = await exchangeAuthorizationCode({
+      code: "authorization-code",
+      verifier: "verifier",
+      clientId: "public-client",
+      redirectUri: "http://127.0.0.1:43821/oauth/callback",
+      now: () => 1_000,
+      fetch: async (_input, init) => {
+        body = String(init?.body);
+        return Response.json({
+          access_token: "access-new",
+          refresh_token: "refresh-new",
+          expires_in: 3600,
+          scope: "read write",
+          token_type: "Bearer",
+        });
+      },
+    });
+    expect(body).toContain("code_verifier=verifier");
+    expect(body).toContain("client_id=public-client");
+    expect(body).not.toContain("client_secret");
+    expect(token).toEqual({
+      accessToken: "access-new",
+      refreshToken: "refresh-new",
+      expiresAt: 3_601_000,
+      scopes: ["read", "write"],
+      tokenType: "Bearer",
+    });
+  });
+});
+
+describe("OAuthUserTokenProvider", () => {
+  it("refreshes before expiry and persists rotating tokens with compare-and-swap input", async () => {
+    const persisted: Array<{ previous: string; next: OAuthUserCredential }> = [];
+    const provider = new OAuthUserTokenProvider({
+      credential: userCredential(),
+      now: () => 1_000,
+      persist: (previous, next) => {
+        persisted.push({ previous, next });
+        return next;
+      },
+      fetch: async () =>
+        Response.json({
+          access_token: "access-new",
+          refresh_token: "refresh-new",
+          expires_in: 3600,
+          scope: "read write",
+          token_type: "Bearer",
+        }),
+    });
+    expect(await provider.getAccessToken()).toBe("access-new");
+    expect(persisted[0]?.previous).toBe("refresh-old");
+    expect(persisted[0]?.next.refreshToken).toBe("refresh-new");
+  });
+
+  it("retains a secret-safe recovery path when rotation persistence fails", async () => {
+    const provider = new OAuthUserTokenProvider({
+      credential: userCredential(),
+      now: () => 1_000,
+      persist: () => {
+        throw new Error("refresh-new access-new");
+      },
+      fetch: async () =>
+        Response.json({
+          access_token: "access-new",
+          refresh_token: "refresh-new",
+          expires_in: 3600,
+          scope: "read write",
+          token_type: "Bearer",
+        }),
+    });
+    const error = await provider.getAccessToken().catch((value) => value as OAuthTokenError);
+    if (!(error instanceof OAuthTokenError)) throw new Error("Expected OAuthTokenError");
+    expect(error.message).toContain("previous refresh token was retained");
+    expect(error.message).not.toContain("refresh-new");
+    expect(error.message).not.toContain("access-new");
   });
 });

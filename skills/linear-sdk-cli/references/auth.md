@@ -63,29 +63,39 @@ linear auth list [options]
 ```text
 slug: string
 isDefault: boolean
+credentialType: string
 storage: string
 ```
 
 ### `linear auth login`
 
-Validate and store a Linear API key for a workspace
+Authenticate in the browser with OAuth, or store a personal API key
 
 ```
 linear auth login [options]
 ```
 
-| Option        | Description                                                           |
-| ------------- | --------------------------------------------------------------------- |
-| `--key <key>` | API key (otherwise prompted; '-' reads it from stdin)                 |
-| `--plaintext` | Store the key in the config file (0600) instead of the system keyring |
+| Option                 | Description                                                           |
+| ---------------------- | --------------------------------------------------------------------- |
+| `--key <key>`          | use a personal API key ('-' reads it from stdin)                      |
+| `--plaintext`          | Store the key in the config file (0600) instead of the system keyring |
+| `--no-browser`         | print the authorization URL instead of opening it                     |
+| `--read-only`          | request read-only OAuth access                                        |
+| `--admin`              | explicitly add the OAuth admin scope                                  |
+| `--timeout <seconds>`  | seconds to wait for the loopback callback                             |
+| `--client-id <id>`     | OAuth client ID (defaults to the packaged CLI app)                    |
+| `--redirect-uri <uri>` | registered HTTP loopback callback URI                                 |
 
 **Output (`--json`)**: a receipt object
 
 ```text
 success: boolean
+credentialType: string
 workspace: string
 user: {id: string, name: string, email: string}
 storage: string
+scopes?: string[]
+expiresAt?: string
 path: string
 ```
 
@@ -97,12 +107,18 @@ Remove a stored workspace credential (select with --workspace <slug>)
 linear auth logout [options]
 ```
 
+| Option         | Description                                       |
+| -------------- | ------------------------------------------------- |
+| `--local-only` | remove local credentials without OAuth revocation |
+
 **Output (`--json`)**: a receipt object
 
 ```text
 success: boolean
 workspace: string
 removed: boolean
+revocation: string
+fallbackCredentialType: string | null
 ```
 
 ### `linear auth migrate`
@@ -138,6 +154,8 @@ source: string
 workspace: string | null
 key: string
 keyring: string | null
+scopes: string[] | null
+expiresAt: string | null
 ```
 
 ### `linear auth token`

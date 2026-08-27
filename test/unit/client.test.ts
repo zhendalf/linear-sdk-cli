@@ -7,6 +7,13 @@ import {
   MAX_RETRY_WAIT_MS,
 } from "../../src/client.js";
 import { CliError, ExitCode } from "../../src/lib/errors.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createClient } from "../../src/client.js";
+import { resolveConfig, writeOAuthCredential, readOAuthCredential } from "../../src/config.js";
+import { memoryKeyring, setKeyringBackend } from "../../src/lib/keyring.js";
+import type { OAuthUserCredential } from "../../src/oauth.js";
 
 /**
  * Faithful to the SDK: `RatelimitedLinearError` carries `type`, `status` and
@@ -241,6 +248,76 @@ describe("withRetry — everything else", () => {
 
   it("returns the value on first success", async () => {
     expect(await withRetry(async () => 42, { report: null })).toBe(42);
+  });
+});
+
+describe("stored OAuth client", () => {
+  it("refreshes once after an authentication failure and retries with the rotated token", async () => {
+    const root = mkdtempSync(join(tmpdir(), "linoauth-client-"));
+    const savedXdg = process.env.XDG_CONFIG_HOME;
+    const savedHome = process.env.HOME;
+    const savedFetch = globalThis.fetch;
+    process.env.XDG_CONFIG_HOME = join(root, "xdg");
+    process.env.HOME = root;
+    const kr = memoryKeyring();
+    setKeyringBackend(kr);
+    try {
+      const credential: OAuthUserCredential = {
+        version: 1,
+        kind: "oauth-user",
+        actor: "user",
+        accessToken: "access-old",
+        refreshToken: "refresh-old",
+        expiresAt: Date.now() + 3_600_000,
+        scopes: ["read", "write"],
+        tokenType: "Bearer",
+        clientId: "public-client",
+        workspace: { id: "org-1", name: "Acme", urlKey: "acme" },
+        user: { id: "user-1", name: "Ada", email: "ada@example.com" },
+      };
+      writeOAuthCredential(credential);
+      const authHeaders: string[] = [];
+      let graphqlCalls = 0;
+      globalThis.fetch = (async (input, init) => {
+        if (String(input).endsWith("/oauth/token")) {
+          expect(String(init?.body)).toContain("refresh_token=refresh-old");
+          return Response.json({
+            access_token: "access-new",
+            refresh_token: "refresh-new",
+            expires_in: 3600,
+            scope: "read write",
+            token_type: "Bearer",
+          });
+        }
+        graphqlCalls++;
+        authHeaders.push(new Headers(init?.headers).get("Authorization") ?? "");
+        if (graphqlCalls === 1) {
+          return Response.json(
+            {
+              errors: [{ message: "Unauthenticated", extensions: { type: "AuthenticationError" } }],
+            },
+            { status: 401 },
+          );
+        }
+        return Response.json({ data: { viewer: { id: "user-1", name: "Ada" } } });
+      }) as typeof fetch;
+      const config = resolveConfig({
+        cwd: root,
+        env: { ...process.env, LINEAR_WORKSPACE: "acme" },
+      });
+      const viewer = await createClient(config).viewer;
+      expect(viewer.id).toBe("user-1");
+      expect(authHeaders).toEqual(["Bearer access-old", "Bearer access-new"]);
+      expect(readOAuthCredential("acme")?.refreshToken).toBe("refresh-new");
+    } finally {
+      globalThis.fetch = savedFetch;
+      setKeyringBackend(undefined);
+      if (savedXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = savedXdg;
+      if (savedHome === undefined) delete process.env.HOME;
+      else process.env.HOME = savedHome;
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

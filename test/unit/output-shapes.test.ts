@@ -64,7 +64,7 @@ const DRIVES: Record<string, Drive> = {
   "auth login": { args: [], skip: "validates the key with a fresh LinearClient (network)" },
   "auth logout": { args: ["acme", "--yes"] },
   "auth migrate": { args: [], skip: "requires an available OS keyring" },
-  "auth status": { args: [] },
+  "auth status": { args: [], nullOk: ["scopes"] },
   "auth token": { args: [] },
   "auth whoami": { args: [] },
   commands: { args: [], variants: { "[path]": ["issue", "list"] } },

@@ -103,35 +103,48 @@ branch, so most issue commands let you omit the id entirely.
 
 ## Authentication
 
-The CLI accepts either a personal API key or an OAuth access token. Explicit `--api-key` or
-`--access-token` flags override environment credentials; without a credential flag it reads
-`LINEAR_API_KEY` or `LINEAR_ACCESS_TOKEN`. API keys can additionally fall back to a plaintext key
-in the user config file (`~/.config/linear/config.toml`, written `0600`) and then the **OS
-keyring** (macOS Keychain, or `secret-tool` on Linux). If both credential kinds are supplied at the
-same precedence level, the CLI fails rather than silently choosing a Linear actor.
+For a person at a terminal, `linear auth login` uses browser Authorization Code + PKCE and the
+default `actor=user`. Existing personal API keys and invocation-scoped OAuth access tokens remain
+supported. Explicit `--api-key` or `--access-token` flags override environment credentials;
+without a credential flag the CLI reads `LINEAR_API_KEY` or `LINEAR_ACCESS_TOKEN`. If both kinds
+are supplied at the same precedence level, the CLI fails rather than silently choosing a Linear
+actor.
 
 > **Credential trust boundary.** A secret is **never** read from a project-local
 > `.linear.toml` — only non-secret settings live there — so a key can't be committed by accident.
 > A project may select one of your already-stored credentials with `workspace = "<slug>"`, but it
-> cannot provide or override the secret. OAuth access tokens are invocation-scoped and are never
-> stored by this CLI.
+> cannot provide or override the secret. Browser OAuth credentials are keyring-only; an access
+> token injected with `--access-token` or `LINEAR_ACCESS_TOKEN` remains invocation-scoped.
 
 ```sh
-linear auth login                          # store a key (prompts, validates, saves to the keyring)
-linear auth login --plaintext              # …or keep it in the 0600 config file instead
+linear auth login                          # browser OAuth, read + write, actor=user
+linear auth login --read-only              # request only Linear's read scope
+linear auth login --no-browser             # print the URL; still waits on the loopback callback
+printf '%s\n' "$LINEAR_API_KEY" | linear auth login --key -  # personal API-key fallback
 linear auth status                         # credential kind and source (value redacted)
-linear auth migrate                        # move plaintext keys from the file into the keyring
-linear auth token                          # print the resolved key (for scripting)
+linear auth logout --workspace acme        # revoke OAuth (if used) and remove the profile
 ```
 
-`auth login` stores the secret in the system keyring by default and writes only a
-`keyring = true` marker to the config file; where there is no keyring (other platforms, or a Linux
-box without `libsecret`) it falls back to the file, and says so. The keyring entry is
-`service = linear-cli`, `account = <workspace slug>` — the same convention as
-[schpet/linear-cli](https://github.com/schpet/linear-cli), so if you are coming from it your key is
-found without a re-login (`auth status` reports `Source: keychain`). Note the entry is shared:
-`auth logout` here removes it for both tools. `--key -` reads the key from stdin for scripts;
-passing it as `--key <value>` works but earns a warning, since argv is visible to other processes.
+Browser login generates a cryptographically random verifier and CSRF state, requires PKCE S256,
+opens Linear, and listens temporarily on the registered `127.0.0.1` callback. It validates the
+viewer and workspace before saving the access token, rotating refresh token, expiry, granted
+scopes, OAuth client identity, and workspace identity. The whole record lives only in the system
+keyring (`service = linear-cli`, `account = oauth:<workspace slug>`); the config file gets only
+non-secret `keyring = true` and `oauth = true` markers. Access tokens refresh before expiry and
+once after an authentication failure, with refresh-token rotation committed under the credential
+store lock. `--admin` explicitly adds the admin scope; it is never implicit.
+
+`--no-browser` is useful over SSH only when the machine running the CLI is also reachable as the
+browser's loopback host; Linear does not currently document a device-code flow. Override a
+separately registered public client's identity with `LINEAR_OAUTH_CLIENT_ID` and its exact callback
+with `LINEAR_OAUTH_REDIRECT_URI`. No OAuth client secret is embedded, accepted, or stored.
+
+For a personal API key, `auth login --key -` reads stdin, validates the viewer/workspace, stores the
+key in the system keyring by default, and writes only a marker to the config. `--plaintext` is an
+API-key-only compatibility option. API-key entries use `account = <workspace slug>`, matching
+[schpet/linear-cli](https://github.com/schpet/linear-cli). Passing a key as `--key <value>` works but
+warns because argv is visible to other processes. `auth migrate` moves legacy plaintext keys into
+the keyring, and `auth token` exports stored API keys only; OAuth tokens are never printed.
 
 ### Apps, agents, and service accounts
 
@@ -178,8 +191,8 @@ renewal is another authenticated exchange. A short-lived/serverless process shou
 shared token cache or central broker rather than minting a new 30-day token on every invocation.
 
 For an app installed into multiple workspaces, use Authorization Code with `actor=app` instead and
-store each installation's rotating refresh token encrypted in the host. Browser-based PKCE login
-for a human user (`actor=user`) is a separate lifecycle, tracked as TES-740.
+store each installation's rotating refresh token encrypted in the host. That hosted app lifecycle
+remains distinct from this CLI's browser PKCE login for a human `actor=user`.
 
 For a distinct app identity, install the OAuth application with `actor=app`. Native Linear agents
 can additionally request `app:mentionable` and `app:assignable` and subscribe to Agent Session
@@ -188,22 +201,28 @@ webhooks. App actors cannot request the `admin` scope. See Linear's
 [app-actor authorization](https://linear.app/developers/oauth-actor-authorization), and
 [agent guide](https://linear.app/developers/agents).
 
-`auth login`, workspace profiles, and `auth token` remain API-key operations. The CLI deliberately
-does not persist OAuth access tokens, refresh tokens, or client secrets.
+Hosted app tokens supplied through `LINEAR_ACCESS_TOKEN` remain invocation-scoped. The only OAuth
+tokens persisted by the CLI are human browser-login sessions, stored as an isolated per-workspace
+keyring record; the CLI never persists or uses an OAuth client secret.
 
 ### Multiple workspaces
 
-Credentials are stored per **workspace slug**. `auth login` validates the key and derives the slug
-from the key's organization unless you pass `--workspace`:
+Credentials are stored per **workspace slug**. Browser and API-key login both derive the slug from
+the authenticated organization; `--workspace` validates that the result matches:
 
 ```sh
-linear auth login --workspace acme         # store a key for the "acme" workspace
-linear auth login --workspace other-org    # …and another
+linear auth login --workspace acme         # browser OAuth for "acme"
+linear auth login --workspace other-org    # …and another workspace
+linear auth login --workspace acme --key - # personal API-key fallback via stdin
 linear auth list                           # show configured workspaces + which is default
 linear auth default acme                   # choose the default workspace
 linear --workspace other-org issue list    # use a specific workspace for one command
-linear auth logout --workspace acme        # remove one credential
+linear auth logout --workspace acme        # revoke OAuth, then remove one credential
 ```
+
+If revocation is intentionally unavailable, `auth logout --local-only` removes only local state.
+If browser login temporarily superseded an existing personal API-key profile for that workspace,
+OAuth logout preserves and reactivates the API key instead of deleting it.
 
 **Selection precedence** (strict): an explicit `--api-key` or `--access-token` flag bypasses the
 environment and workspace selection entirely. Otherwise `LINEAR_API_KEY` or

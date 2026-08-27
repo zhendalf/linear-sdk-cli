@@ -13,8 +13,11 @@ import {
   probeKeyringCredential,
   adoptKeyringCredential,
   removeCredential,
+  removeOAuthCredential,
   setDefaultWorkspace,
   listCredentials,
+  readOAuthCredential,
+  writeOAuthCredential,
   migrateCredentials,
   redactKey,
   resolveConfig,
@@ -28,10 +31,24 @@ import {
 import { keyring } from "../lib/keyring.js";
 import { readStdinSync } from "../lib/body.js";
 import { authError, normalizeError, usageError } from "../lib/errors.js";
-import { confirmDestructive, promptSecret, promptSelect } from "../lib/prompt.js";
+import { confirmDestructive, promptSelect } from "../lib/prompt.js";
 import { listTeams } from "../services/team.js";
 import { ISSUE_SORTS } from "../services/issue.js";
 import { firstTeam, type Context } from "../context.js";
+import { openUrl } from "../lib/open.js";
+import {
+  DEFAULT_OAUTH_SCOPES,
+  buildAuthorizationUrl,
+  createPkceRequest,
+  exchangeAuthorizationCode,
+  revokeOAuthToken,
+  startLoopbackCallback,
+  type OAuthUserCredential,
+} from "../oauth.js";
+
+export const DEFAULT_OAUTH_REDIRECT_URI = "http://127.0.0.1:43821/oauth/callback";
+/** Public PKCE client identity. This is not a credential; no client secret is shipped or used. */
+export const DEFAULT_OAUTH_CLIENT_ID = "eda60862e4bb8b8af82cfb3193b65c2f";
 
 /**
  * The `whoami` handler, shared by the top-level `linear whoami` and the
@@ -70,10 +87,15 @@ interface AuthValidationClient {
   organization: Promise<{ id: string; name: string; urlKey: string }>;
 }
 
-export type AuthValidationClientFactory = (apiKey: string) => AuthValidationClient;
+export type AuthValidationClientFactory = (
+  credential: string,
+  kind?: "api-key" | "oauth-access-token",
+) => AuthValidationClient;
 
-const defaultAuthValidationClientFactory: AuthValidationClientFactory = (apiKey) =>
-  new LinearClient({ apiKey }) as unknown as AuthValidationClient;
+const defaultAuthValidationClientFactory: AuthValidationClientFactory = (credential, kind) =>
+  new LinearClient(
+    kind === "oauth-access-token" ? { accessToken: credential } : { apiKey: credential },
+  ) as unknown as AuthValidationClient;
 let authValidationClientFactory = defaultAuthValidationClientFactory;
 
 /** Test seam for command-level auth tests; production always uses LinearClient. */
@@ -96,10 +118,11 @@ export function selectLoginKey(
 
 /** Validate a credential and prove that an explicitly requested slug matches it. */
 export async function validateAuthCredential(
-  apiKey: string,
+  credential: string,
   requestedWorkspace?: string,
+  kind: "api-key" | "oauth-access-token" = "api-key",
 ): Promise<AuthIdentity> {
-  const client = authValidationClientFactory(apiKey);
+  const client = authValidationClientFactory(credential, kind);
   let me;
   let org;
   try {
@@ -108,13 +131,17 @@ export async function validateAuthCredential(
   } catch (err) {
     const normalized = normalizeError(err);
     if (normalized.code === "auth" || normalized.code === "forbidden") {
-      throw authError("That API key was rejected by Linear.");
+      throw authError(
+        kind === "api-key"
+          ? "That API key was rejected by Linear."
+          : "Linear rejected the OAuth access token.",
+      );
     }
     throw normalized;
   }
   if (requestedWorkspace && requestedWorkspace !== org.urlKey) {
     throw usageError(
-      `--workspace '${requestedWorkspace}' does not match the key's workspace '${org.urlKey}'. Store credentials under their Linear workspace slug.`,
+      `--workspace '${requestedWorkspace}' does not match the credential's workspace '${org.urlKey}'. Store credentials under their Linear workspace slug.`,
     );
   }
   return {
@@ -148,62 +175,150 @@ export function registerMeta(program: Command): void {
   // login -------------------------------------------------------------------
   auth
     .command("login")
-    .description("Validate and store a Linear API key for a workspace")
-    .option("--key <key>", "API key (otherwise prompted; '-' reads it from stdin)")
+    .description("Authenticate in the browser with OAuth, or store a personal API key")
+    .option("--key <key>", "use a personal API key ('-' reads it from stdin)")
     .option("--plaintext", "Store the key in the config file (0600) instead of the system keyring")
+    .option("--no-browser", "print the authorization URL instead of opening it")
+    .option("--read-only", "request read-only OAuth access")
+    .option("--admin", "explicitly add the OAuth admin scope")
+    .option("--timeout <seconds>", "seconds to wait for the loopback callback", "120")
+    .option("--client-id <id>", "OAuth client ID (defaults to the packaged CLI app)")
+    .option("--redirect-uri <uri>", "registered HTTP loopback callback URI")
     .action(
-      // The global `--workspace <slug>` selects the slug to store under
-      // (default: derived from the key's organization urlKey).
       action(async (ctx: Context, opts) => {
         if (ctx.options.accessToken !== undefined) {
           throw usageError(
-            "`auth login` stores personal API keys only. Supply OAuth access tokens per invocation with --access-token or LINEAR_ACCESS_TOKEN.",
+            "`auth login` cannot persist an injected access token. Remove --access-token and use browser OAuth, or use --key - for a personal API key.",
           );
         }
-        // `--key` still works for scripts. When prompted, the key is masked —
-        // it is a credential, and it must not reach the screen or scrollback.
-        // Nothing below echoes it either: the receipt reports the user and
-        // where the key went, never the value.
         let key: string | undefined = selectLoginKey(opts.key, ctx.options.apiKey);
-        if (key === "-") {
-          key = readStdinSync();
-        } else if (key) {
-          // argv is world-readable (`ps`) and lands in shell history; say so
-          // once, quietly, and carry on — the script author chose it.
-          ctx.output.warn(
-            "An API key on the command line is visible to other processes and shell history; prefer the prompt or `--key -` (stdin).",
+        if (key !== undefined) {
+          if (
+            opts.readOnly ||
+            opts.admin ||
+            opts.browser === false ||
+            opts.redirectUri ||
+            opts.clientId
+          ) {
+            throw usageError("OAuth-only options cannot be combined with --key or --api-key.");
+          }
+          if (key === "-") key = readStdinSync();
+          else
+            ctx.output.warn(
+              "An API key on the command line is visible to other processes and shell history; prefer --key - (stdin).",
+            );
+          key = key.trim();
+          if (!key) throw usageError("No API key provided.");
+          const identity = await validateAuthCredential(key, ctx.options.workspace);
+          const { user: me, organization: org } = identity;
+          const { path, storage, keyringLabel } = writeCredential(org.urlKey, key, {
+            plaintext: opts.plaintext === true,
+          });
+          const where =
+            storage === "keychain"
+              ? `Credential saved to the ${keyringLabel}; ${path} records the workspace.`
+              : `Credential saved to ${path} (plaintext, 0600).`;
+          ctx.output.emit(
+            {
+              success: true,
+              credentialType: "api-key",
+              workspace: org.urlKey,
+              user: me,
+              storage,
+              path,
+            },
+            () =>
+              ctx.output.success(
+                `Authenticated as ${me.name} <${me.email}> for workspace '${org.urlKey}'. ${where}`,
+              ),
           );
-        } else {
-          key = await promptSecret(ctx, "Linear API key:", { required: true });
+          return;
         }
-        key = key.trim();
-        if (!key) throw usageError("No API key provided.");
-        // Validate before persisting and learn the workspace slug.
-        const identity = await validateAuthCredential(key, ctx.options.workspace);
-        const { user: me, organization: org } = identity;
-        const slug: string = org.urlKey;
-        const { path, storage, keyringLabel } = writeCredential(slug, key, {
-          plaintext: opts.plaintext === true,
-        });
-        const where =
-          storage === "keychain"
-            ? `Credential saved to the ${keyringLabel} (service linear-cli, account '${slug}'); ${path} records the workspace.`
-            : opts.plaintext
-              ? `Credential saved to ${path} (plaintext, 0600).`
-              : `Credential saved to ${path} (plaintext, 0600 — no system keyring on this platform).`;
-        ctx.output.emit(
-          {
-            success: true,
-            workspace: slug,
-            user: { id: me.id, name: me.name, email: me.email },
-            storage,
-            path,
-          },
-          () =>
-            ctx.output.success(
-              `Authenticated as ${me.name} <${me.email}> for workspace '${slug}'. ${where}`,
-            ),
+
+        if (opts.plaintext) {
+          throw usageError(
+            "OAuth credentials are keyring-only; --plaintext requires --key or --api-key.",
+          );
+        }
+        if (opts.readOnly && opts.admin) {
+          throw usageError("--read-only cannot be combined with --admin.");
+        }
+        const timeoutSeconds = Number(opts.timeout);
+        if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) {
+          throw usageError("--timeout must be a positive number of seconds.");
+        }
+        const clientId = String(
+          opts.clientId ?? process.env.LINEAR_OAUTH_CLIENT_ID ?? DEFAULT_OAUTH_CLIENT_ID,
+        ).trim();
+        const redirectUri = String(
+          opts.redirectUri ?? process.env.LINEAR_OAUTH_REDIRECT_URI ?? DEFAULT_OAUTH_REDIRECT_URI,
         );
+        const scopes = opts.readOnly
+          ? ["read"]
+          : opts.admin
+            ? [...DEFAULT_OAUTH_SCOPES, "admin"]
+            : [...DEFAULT_OAUTH_SCOPES];
+        const pkce = createPkceRequest();
+        const callback = await startLoopbackCallback({
+          redirectUri,
+          state: pkce.state,
+          timeoutMs: timeoutSeconds * 1000,
+        });
+        try {
+          const authorizationUrl = buildAuthorizationUrl({
+            clientId,
+            redirectUri: callback.redirectUri,
+            scopes,
+            challenge: pkce.challenge,
+            state: pkce.state,
+          });
+          if (opts.browser === false) {
+            ctx.output.info(`Open this URL to authenticate with Linear:\n${authorizationUrl}`);
+          } else {
+            ctx.output.info("Opening Linear in your browser…");
+            await openUrl(authorizationUrl);
+          }
+          const code = await callback.wait;
+          const token = await exchangeAuthorizationCode({
+            code,
+            verifier: pkce.verifier,
+            clientId,
+            redirectUri: callback.redirectUri,
+          });
+          const identity = await validateAuthCredential(
+            token.accessToken,
+            ctx.options.workspace,
+            "oauth-access-token",
+          );
+          const credential: OAuthUserCredential = {
+            version: 1,
+            kind: "oauth-user",
+            actor: "user",
+            ...token,
+            clientId,
+            workspace: identity.organization,
+            user: identity.user,
+          };
+          const saved = writeOAuthCredential(credential);
+          ctx.output.emit(
+            {
+              success: true,
+              credentialType: "oauth-user",
+              workspace: credential.workspace.urlKey,
+              user: credential.user,
+              storage: saved.storage,
+              scopes: credential.scopes,
+              expiresAt: new Date(credential.expiresAt).toISOString(),
+              path: saved.path,
+            },
+            () =>
+              ctx.output.success(
+                `Authenticated as ${credential.user.name} <${credential.user.email}> for workspace '${credential.workspace.urlKey}'. OAuth credentials saved to the ${saved.keyringLabel}.`,
+              ),
+          );
+        } finally {
+          await callback.close();
+        }
       }),
     );
 
@@ -259,6 +374,7 @@ export function registerMeta(program: Command): void {
           [
             { key: "slug", header: "Workspace", value: (e) => e.slug },
             { key: "isDefault", header: "Default", value: (e) => (e.isDefault ? "yes" : "") },
+            { key: "credentialType", header: "Type", value: (e) => e.credentialType },
             { key: "storage", header: "Storage", value: (e) => e.storage },
           ],
           entries,
@@ -288,7 +404,7 @@ export function registerMeta(program: Command): void {
         const c = ctx.config;
         if (c.accessToken) {
           throw usageError(
-            "`auth token` exports stored API keys only. The active OAuth token already comes from --access-token or LINEAR_ACCESS_TOKEN.",
+            "`auth token` exports stored API keys only. OAuth access tokens are never exported; use the authenticated command directly.",
           );
         }
         if (!c.apiKey) {
@@ -313,7 +429,13 @@ export function registerMeta(program: Command): void {
       action(async (ctx) => {
         const c = ctx.config;
         const credential = c.accessToken ?? c.apiKey;
-        const credentialType = c.accessToken ? "oauth-access-token" : c.apiKey ? "api-key" : null;
+        const credentialType = c.oauthCredential
+          ? "oauth-user"
+          : c.accessToken
+            ? "oauth-access-token"
+            : c.apiKey
+              ? "api-key"
+              : null;
         const source = c.accessToken ? c.accessTokenSource : c.apiKeySource;
         const backend = keyring();
         ctx.output.detail(
@@ -324,6 +446,10 @@ export function registerMeta(program: Command): void {
             workspace: c.credentialWorkspace ?? null,
             key: redactKey(credential),
             keyring: backend?.name ?? null,
+            scopes: c.oauthCredential?.scopes ?? null,
+            expiresAt: c.oauthCredential
+              ? new Date(c.oauthCredential.expiresAt).toISOString()
+              : null,
           },
           [
             ["Authenticated", !!credential],
@@ -332,6 +458,11 @@ export function registerMeta(program: Command): void {
             ["Workspace", c.credentialWorkspace ?? "(none)"],
             ["Credential", redactKey(credential)],
             ["Keyring", backend ? backend.label : "(none on this platform)"],
+            ["Scopes", c.oauthCredential?.scopes.join(", ")],
+            [
+              "Expires",
+              c.oauthCredential ? new Date(c.oauthCredential.expiresAt).toISOString() : undefined,
+            ],
           ],
         );
         // A plaintext key on a machine that has a keyring is worth one nudge
@@ -365,10 +496,11 @@ export function registerMeta(program: Command): void {
   auth
     .command("logout")
     .description("Remove a stored workspace credential (select with --workspace <slug>)")
+    .option("--local-only", "remove local credentials without OAuth revocation")
     .action(
       // Targets the global `--workspace <slug>`. When omitted, the sole
       // configured workspace is used; if several exist, this errors.
-      action(async (ctx: Context) => {
+      action(async (ctx: Context, opts) => {
         let slug: string | undefined = ctx.options.workspace;
         if (!slug) {
           const configured = listCredentials();
@@ -383,11 +515,35 @@ export function registerMeta(program: Command): void {
             );
         }
         if (!(await confirmDestructive(ctx, `Remove credential for workspace '${slug}'?`))) return;
-        const removed = removeCredential(slug);
-        ctx.output.emit({ success: true, workspace: slug, removed }, () =>
-          removed
-            ? ctx.output.success(`Removed workspace '${slug}'.`)
-            : ctx.output.info(`No credential for workspace '${slug}' to remove.`),
+        const entry = listCredentials().find((candidate) => candidate.slug === slug);
+        let revocation: "revoked" | "already-revoked" | "skipped" = "skipped";
+        if (entry?.credentialType === "oauth-user" && opts.localOnly !== true) {
+          const oauth = readOAuthCredential(slug);
+          if (oauth) {
+            revocation = await revokeOAuthToken({
+              token: oauth.refreshToken,
+              tokenTypeHint: "refresh_token",
+            });
+          }
+        }
+        const local =
+          entry?.credentialType === "oauth-user"
+            ? removeOAuthCredential(slug)
+            : { removed: removeCredential(slug), fallbackCredentialType: null };
+        ctx.output.emit(
+          {
+            success: true,
+            workspace: slug,
+            removed: local.removed,
+            revocation,
+            fallbackCredentialType: local.fallbackCredentialType,
+          },
+          () =>
+            local.removed
+              ? ctx.output.success(
+                  `Removed workspace '${slug}'.${revocation === "revoked" ? " OAuth access was revoked." : revocation === "already-revoked" ? " OAuth access was already revoked." : ""}${local.fallbackCredentialType ? " The existing personal API-key profile is active again." : ""}`,
+                )
+              : ctx.output.info(`No credential for workspace '${slug}' to remove.`),
         );
       }),
     );

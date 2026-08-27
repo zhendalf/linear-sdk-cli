@@ -13,17 +13,20 @@
  *  - Authentication secrets have a STRICTER boundary and are never read from a project file
  *    or from the reference CLI's global file (avoids committing secrets):
  *    Explicit `--access-token` / `--api-key` flags override their environment counterparts.
- *    OAuth access tokens are stateless (`LINEAR_ACCESS_TOKEN` only); API keys may also come from
- *    user config (plaintext `api_key`) or the OS keyring.
+ *    Invocation OAuth access tokens are stateless (`LINEAR_ACCESS_TOKEN` only). Human browser
+ *    OAuth sessions and API keys may also come from the OS keyring; API keys alone may opt into
+ *    the user config as plaintext.
  *    A project `workspace` may select which already-stored credential to use;
  *    it can never provide or override the secret itself.
  *
  * Multi-workspace credentials live under quoted `[workspaces."<slug>"]` tables
  * in the user config, with an optional top-level `default_workspace`. A table
  * either carries the key itself (`api_key = "…"`, plaintext, 0600 file) or
- * marks the slug as keyring-backed (`keyring = true`), in which case the secret
+ * marks the slug as keyring-backed (`keyring = true`), in which case an API-key secret
  * lives in the OS keyring under service `linear-cli` / account `<slug>` — the
- * reference CLI's convention, so a user migrating from it is authenticated
+ * reference CLI's convention. A browser OAuth session uses the isolated account
+ * `oauth:<slug>` and a non-secret `oauth = true` marker, so its rotating token record
+ * cannot be mistaken for an API key. A user migrating from the reference CLI is authenticated
  * before they run a single command. Its own workspace list
  * (`credentials.toml`, a sibling of our file) is read for slugs and the
  * default, never for keys. Credential selection is lazy: resolution never
@@ -52,6 +55,7 @@ import { execFileSync } from "node:child_process";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { CliError } from "./lib/errors.js";
 import { keyring, KeyringError } from "./lib/keyring.js";
+import type { OAuthUserCredential } from "./oauth.js";
 
 export interface RawSettings {
   team?: string;
@@ -64,7 +68,7 @@ export interface RawSettings {
 /**
  * Where a value came from. `user` is our `~/.config/linear/config.toml`;
  * `global` is the reference CLI's `~/.config/linear/linear.toml`, read for
- * non-secret settings only; `keychain` is the OS keyring (API key only).
+ * non-secret settings only; `keychain` is the OS keyring (API key or human OAuth session).
  */
 export type ConfigSource = "flag" | "env" | "project" | "user" | "global" | "keychain" | "none";
 
@@ -88,6 +92,8 @@ export interface ResolvedConfig {
   /** OAuth access token supplied for this invocation; never read from or written to config. */
   accessToken?: string;
   accessTokenSource: ConfigSource;
+  /** Keyring-backed human OAuth session. Never serialized outside the keyring. */
+  oauthCredential?: OAuthUserCredential;
   /**
    * Deferred credential-resolution error. Resolution is total (it never throws
    * for selection or ambiguous identity problems) so commands that REPAIR auth state — `auth list`,
@@ -166,6 +172,8 @@ export function referenceCredentialsPath(env: NodeJS.ProcessEnv = process.env): 
 interface WorkspaceEntry {
   /** Plaintext key from `[workspaces."<slug>"].api_key`; absent → keyring-backed. */
   apiKey?: string;
+  /** This workspace uses the isolated `oauth:<slug>` keyring account. */
+  oauth?: boolean;
 }
 
 /** Parsed view of the user config: top-level settings + nested workspace creds. */
@@ -316,7 +324,11 @@ function readUserConfig(path: string): UserConfig {
       if (val && typeof val === "object") {
         // A table with no api_key is a keyring-backed workspace (whether or
         // not it carries the `keyring = true` marker `auth login` writes).
-        workspaces[slug] = { apiKey: asString((val as Record<string, unknown>).api_key) };
+        const table = val as Record<string, unknown>;
+        workspaces[slug] = {
+          apiKey: asString(table.api_key),
+          oauth: table.oauth === true,
+        };
       }
     }
   }
@@ -341,7 +353,21 @@ function readUserConfig(path: string): UserConfig {
 function lookupCredential(
   user: UserConfig,
   slug: string,
-): { apiKey: string; source: "user" | "keychain" } | { error: CliError } | undefined {
+):
+  | { apiKey: string; source: "user" | "keychain" }
+  | { oauthCredential: OAuthUserCredential; source: "keychain" }
+  | { error: CliError }
+  | undefined {
+  if (user.workspaces[slug]?.oauth) {
+    try {
+      const credential = readOAuthCredential(slug);
+      return credential ? { oauthCredential: credential, source: "keychain" } : undefined;
+    } catch (err) {
+      return {
+        error: err instanceof CliError ? err : new CliError("Could not read OAuth credentials."),
+      };
+    }
+  }
   const plaintext = user.workspaces[slug]?.apiKey;
   if (plaintext) return { apiKey: plaintext, source: "user" };
   const backend = keyring();
@@ -422,6 +448,7 @@ export function resolveConfig(inputs: ConfigInputs = {}): ResolvedConfig {
   let apiKeySource: ConfigSource = "none";
   let accessToken: string | undefined;
   let accessTokenSource: ConfigSource = "none";
+  let oauthCredential: OAuthUserCredential | undefined;
   let credentialWorkspace: string | undefined;
   let apiKeyError: CliError | undefined;
 
@@ -473,8 +500,14 @@ export function resolveConfig(inputs: ConfigInputs = {}): ResolvedConfig {
       } else if ("error" in found) {
         apiKeyError = found.error;
       } else {
-        apiKey = found.apiKey;
-        apiKeySource = found.source;
+        if ("oauthCredential" in found) {
+          oauthCredential = found.oauthCredential;
+          accessToken = found.oauthCredential.accessToken;
+          accessTokenSource = found.source;
+        } else {
+          apiKey = found.apiKey;
+          apiKeySource = found.source;
+        }
         credentialWorkspace = slug;
       }
     };
@@ -531,6 +564,7 @@ export function resolveConfig(inputs: ConfigInputs = {}): ResolvedConfig {
     apiKeySource,
     accessToken,
     accessTokenSource,
+    oauthCredential,
     apiKeyError,
     credentialWorkspace,
     team: pick("team"),
@@ -788,6 +822,7 @@ function writeUserObject(path: string, obj: Record<string, unknown>): void {
 interface WorkspaceTable {
   api_key?: string;
   keyring?: boolean;
+  oauth?: boolean;
 }
 
 function workspacesTable(obj: Record<string, unknown>): Record<string, WorkspaceTable> {
@@ -802,6 +837,166 @@ export interface WriteCredentialResult {
   storage: CredentialStorage;
   /** Human label of the keyring used, when `storage` is "keychain". */
   keyringLabel?: string;
+}
+
+export const OAUTH_KEYRING_ACCOUNT_PREFIX = "oauth:";
+
+function oauthAccount(slug: string): string {
+  return `${OAUTH_KEYRING_ACCOUNT_PREFIX}${slug}`;
+}
+
+function parseOAuthCredential(slug: string, raw: string): OAuthUserCredential {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    throw new CliError(
+      `The stored OAuth credential for workspace '${sanitize(slug)}' is malformed. Run \`linear auth logout --workspace ${sanitize(slug)} --local-only\` and sign in again.`,
+      "auth",
+    );
+  }
+  const c = value as Partial<OAuthUserCredential> | null;
+  if (
+    !c ||
+    c.version !== 1 ||
+    c.kind !== "oauth-user" ||
+    c.actor !== "user" ||
+    typeof c.accessToken !== "string" ||
+    !c.accessToken ||
+    typeof c.refreshToken !== "string" ||
+    !c.refreshToken ||
+    typeof c.expiresAt !== "number" ||
+    !Number.isFinite(c.expiresAt) ||
+    !Array.isArray(c.scopes) ||
+    c.scopes.some((scope) => typeof scope !== "string" || !scope) ||
+    c.tokenType !== "Bearer" ||
+    typeof c.clientId !== "string" ||
+    !c.clientId ||
+    !c.workspace ||
+    typeof c.workspace.id !== "string" ||
+    typeof c.workspace.name !== "string" ||
+    c.workspace.urlKey !== slug ||
+    !c.user ||
+    typeof c.user.id !== "string" ||
+    typeof c.user.name !== "string" ||
+    typeof c.user.email !== "string"
+  ) {
+    throw new CliError(
+      `The stored OAuth credential for workspace '${sanitize(slug)}' is invalid. Sign in again.`,
+      "auth",
+    );
+  }
+  return c as OAuthUserCredential;
+}
+
+/** Read one explicitly selected human OAuth session from its isolated keyring account. */
+export function readOAuthCredential(slug: string): OAuthUserCredential | undefined {
+  const backend = keyring();
+  if (!backend) {
+    throw new CliError(
+      `A system keyring is required for OAuth credentials for workspace '${sanitize(slug)}'.`,
+      "runtime",
+    );
+  }
+  let raw: string | null;
+  try {
+    raw = backend.get(oauthAccount(slug));
+  } catch {
+    throw new CliError(
+      `Could not read the ${backend.label} OAuth entry for workspace '${sanitize(slug)}'.`,
+      "runtime",
+    );
+  }
+  return raw ? parseOAuthCredential(slug, raw) : undefined;
+}
+
+export interface WriteOAuthCredentialResult {
+  path: string;
+  storage: "keychain";
+  keyringLabel: string;
+}
+
+/** Store the complete OAuth session in the keyring; the config gets only a non-secret marker. */
+export function writeOAuthCredential(credential: OAuthUserCredential): WriteOAuthCredentialResult {
+  const slug = credential.workspace.urlKey;
+  const path = userConfigPath();
+  const backend = keyring();
+  if (!backend) {
+    throw new CliError(
+      "Browser OAuth requires a usable system keyring; use `linear auth login --key -` on this platform.",
+      "runtime",
+    );
+  }
+  return withUserConfigLock(path, () => {
+    const account = oauthAccount(slug);
+    let previous: string | null;
+    try {
+      previous = backend.get(account);
+      backend.set(account, JSON.stringify(credential));
+    } catch {
+      throw new CliError(
+        `Could not store OAuth credentials for workspace '${sanitize(slug)}' in the ${backend.label}.`,
+        "runtime",
+      );
+    }
+    try {
+      const obj = readUserObject(path);
+      const ws = workspacesTable(obj);
+      const table: WorkspaceTable = { ...(ws[slug] ?? {}) };
+      table.keyring = true;
+      table.oauth = true;
+      ws[slug] = table;
+      if (!asString(obj.default_workspace)) {
+        const reference = readReferenceCredentials(referenceCredentialsPath());
+        if (!reference.defaultWorkspace) obj.default_workspace = slug;
+      }
+      writeUserObject(path, obj);
+    } catch (err) {
+      try {
+        if (previous === null) backend.delete(account);
+        else backend.set(account, previous);
+      } catch {
+        // The primary error is the failed config commit; do not expose secrets from a rollback error.
+      }
+      throw err;
+    }
+    return { path, storage: "keychain", keyringLabel: backend.label };
+  });
+}
+
+/** Compare-and-swap rotating refresh state. A concurrent winner is retained, never overwritten. */
+export function rotateOAuthCredential(
+  slug: string,
+  previousRefreshToken: string,
+  next: OAuthUserCredential,
+): OAuthUserCredential {
+  const path = userConfigPath();
+  return withUserConfigLock(path, () => {
+    const backend = keyring();
+    if (!backend) throw new CliError("A system keyring is required to refresh OAuth credentials.");
+    let raw: string | null;
+    try {
+      raw = backend.get(oauthAccount(slug));
+    } catch {
+      throw new CliError(
+        `Could not read OAuth credentials for workspace '${sanitize(slug)}' from the ${backend.label}.`,
+        "runtime",
+      );
+    }
+    if (!raw)
+      throw new CliError(`No stored OAuth credential for workspace '${sanitize(slug)}'.`, "auth");
+    const current = parseOAuthCredential(slug, raw);
+    if (current.refreshToken !== previousRefreshToken) return current;
+    try {
+      backend.set(oauthAccount(slug), JSON.stringify(next));
+    } catch {
+      throw new CliError(
+        `Could not rotate OAuth credentials for workspace '${sanitize(slug)}' in the ${backend.label}.`,
+        "runtime",
+      );
+    }
+    return next;
+  });
 }
 
 /** A single, explicitly named credential found in the shared OS keyring. */
@@ -907,6 +1102,7 @@ export function writeCredential(
   const path = userConfigPath();
   return withUserConfigLock(path, () => {
     const backend = opts.plaintext ? null : keyring();
+    const systemBackend = keyring();
     const obj = readUserObject(path);
     const ws = workspacesTable(obj);
     const table: WorkspaceTable = { ...(ws[slug] ?? {}) };
@@ -916,12 +1112,15 @@ export function writeCredential(
       backend.set(slug, apiKey);
       delete table.api_key;
       table.keyring = true;
+      delete table.oauth;
       storage = "keychain";
     } else {
       delete table.keyring;
+      delete table.oauth;
       table.api_key = apiKey;
       storage = "file";
     }
+    systemBackend?.delete(oauthAccount(slug));
     ws[slug] = table;
     if (!asString(obj.default_workspace)) {
       // Leave the reference CLI's default in charge if it has one; writing ours
@@ -983,7 +1182,10 @@ export function removeCredential(slug: string): boolean {
     let removed = false;
 
     const backend = keyring();
-    if (backend && backend.delete(slug)) removed = true;
+    if (backend) {
+      if (backend.delete(slug)) removed = true;
+      if (backend.delete(oauthAccount(slug))) removed = true;
+    }
     if (removeFromReferenceCredentials(slug)) removed = true;
 
     if (!existsSync(path)) return removed;
@@ -1005,6 +1207,78 @@ export function removeCredential(slug: string): boolean {
       writeUserObject(path, obj);
     }
     return removed;
+  });
+}
+
+export interface RemoveOAuthCredentialResult {
+  removed: boolean;
+  fallbackCredentialType: "api-key" | null;
+}
+
+/** Remove only the human OAuth lifecycle, restoring a pre-existing API-key profile if present. */
+export function removeOAuthCredential(slug: string): RemoveOAuthCredentialResult {
+  const path = userConfigPath();
+  return withUserConfigLock(path, () => {
+    const backend = keyring();
+    let oauthRaw: string | null = null;
+    let keyringApiKey = false;
+    let removed = false;
+    if (backend) {
+      try {
+        oauthRaw = backend.get(oauthAccount(slug));
+        keyringApiKey = backend.get(slug) !== null;
+        if (oauthRaw && backend.delete(oauthAccount(slug))) removed = true;
+      } catch {
+        throw new CliError(
+          `Could not remove OAuth credentials for workspace '${sanitize(slug)}' from the ${backend.label}.`,
+          "runtime",
+        );
+      }
+    }
+
+    if (!existsSync(path)) {
+      return { removed, fallbackCredentialType: keyringApiKey ? "api-key" : null };
+    }
+    try {
+      const obj = readUserObject(path);
+      const ws = workspacesTable(obj);
+      const table = ws[slug];
+      const hadOAuthMarker = table?.oauth === true;
+      if (hadOAuthMarker) removed = true;
+      const reference = readReferenceCredentials(referenceCredentialsPath());
+      const apiKeyFallback = Boolean(asString(table?.api_key)) || keyringApiKey;
+
+      if (apiKeyFallback) {
+        const fallback: WorkspaceTable = { ...(table ?? {}) };
+        delete fallback.oauth;
+        if (asString(fallback.api_key)) delete fallback.keyring;
+        else fallback.keyring = true;
+        ws[slug] = fallback;
+      } else if (table) {
+        delete ws[slug];
+      }
+      if (Object.keys(ws).length === 0) delete obj.workspaces;
+
+      if (!apiKeyFallback && asString(obj.default_workspace) === slug) {
+        const remaining = obj.workspaces ? Object.keys(obj.workspaces as object) : [];
+        const referenceFallback = reference.workspaces.find((candidate) => candidate !== slug);
+        if (remaining.length > 0) obj.default_workspace = remaining[0]!;
+        else if (referenceFallback) obj.default_workspace = referenceFallback;
+        else delete obj.default_workspace;
+      }
+      if (hadOAuthMarker || apiKeyFallback) writeUserObject(path, obj);
+      return {
+        removed,
+        fallbackCredentialType: apiKeyFallback ? "api-key" : null,
+      };
+    } catch (err) {
+      try {
+        if (backend && oauthRaw) backend.set(oauthAccount(slug), oauthRaw);
+      } catch {
+        // Preserve the primary config error without exposing keyring or credential details.
+      }
+      throw err;
+    }
   });
 }
 
@@ -1069,6 +1343,7 @@ export interface CredentialEntry {
   isDefault: boolean;
   /** Where the secret is kept. */
   storage: CredentialStorage;
+  credentialType: "api-key" | "oauth-user";
 }
 
 /** List configured credentials: one entry per stored workspace. */
@@ -1079,6 +1354,7 @@ export function listCredentials(env: NodeJS.ProcessEnv = process.env): Credentia
     slug,
     isDefault: user.defaultWorkspace === slug,
     storage: entry.apiKey ? "file" : "keychain",
+    credentialType: entry.oauth ? "oauth-user" : "api-key",
   }));
 }
 
@@ -1115,7 +1391,7 @@ const KEY_ALIASES: Record<SettableKey, readonly string[]> = {
 };
 
 /** Keys that must never be written to a project file, and why. */
-const SECRET_KEYS = new Set(["api_key", "workspaces", "default_workspace", "keyring"]);
+const SECRET_KEYS = new Set(["api_key", "workspaces", "default_workspace", "keyring", "oauth"]);
 
 /**
  * Where `config init` writes and `config set` falls back to when no project

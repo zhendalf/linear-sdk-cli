@@ -35,18 +35,33 @@ lin --version
 
 ### Authentication
 
-The CLI accepts either a Linear personal API key or an OAuth access token:
+The CLI supports distinct human, hosted-app, and personal-key lifecycles:
 
-1. **OAuth access token** via `--access-token <token>` or `LINEAR_ACCESS_TOKEN` — use this
-   for Linear apps, agents, and service accounts. Prefer the environment variable so the secret
-   does not appear in argv:
+1. **Human browser OAuth (default)** via Authorization Code + PKCE S256, `actor=user`:
+
+   ```bash
+   linear auth login                    # opens Linear; read + write scopes
+   linear auth login --read-only        # read scope only
+   linear auth login --no-browser       # prints URL; loopback callback still required
+   ```
+
+   The CLI validates the viewer/workspace and stores the access token, rotating refresh token,
+   expiry, scopes, client identity, and workspace identity only in the OS keyring. It refreshes
+   before expiry and once after an authentication failure. `--admin` is explicit; no client secret
+   is embedded. `auth logout` revokes this grant before removing it (`--local-only` skips
+   revocation). Remote/headless callers need the loopback host reachable; Linear has no documented
+   device-code flow.
+
+2. **Invocation OAuth access token** via `--access-token <token>` or `LINEAR_ACCESS_TOKEN` — use
+   this for hosted Linear apps, agents, and service accounts. Prefer the environment variable so
+   the secret does not appear in argv:
 
    ```bash
    LINEAR_ACCESS_TOKEN=... linear whoami --json
    ```
 
    The host application owns OAuth installation, token refresh/client-credentials exchange,
-   client-secret storage, and webhooks. The CLI never stores OAuth tokens or client secrets.
+   client-secret storage, and webhooks. These tokens remain invocation-scoped.
    Long-lived hosts can import `ClientCredentialsTokenProvider` from `linear-sdk-cli`; it caches
    the 30-day app token in memory, renews before expiry, coalesces concurrent exchanges, and
    supports invalidation or forced renewal for one bounded retry after a `401`. Keep the client
@@ -54,21 +69,23 @@ The CLI accepts either a Linear personal API key or an OAuth access token:
    Serverless hosts need a secure shared token cache or broker so cold starts do not mint a new
    token for every command.
 
-2. **`--api-key <key>`** flag (per invocation) or **`LINEAR_API_KEY`** env var — best
+3. **`--api-key <key>`** flag (per invocation) or **`LINEAR_API_KEY`** env var — best
    for CI and ephemeral agent runs:
 
    ```bash
    LINEAR_API_KEY=lin_api_... linear whoami --json
    ```
 
-3. **Stored API-key credentials** via `linear auth login` (validates the key and saves it):
+4. **Stored personal API-key credentials** via the explicit compatibility path:
 
    ```bash
-   linear auth login --key lin_api_...        # non-interactive
-   linear auth login                          # prompts for the key (interactive only)
+   printf '%s\n' "$LINEAR_API_KEY" | linear auth login --key -
    ```
 
-4. **Multiple workspaces** — store several API-key credentials and select one per call with
+   Passing `--key <value>` also works but exposes it in argv and produces a warning. API keys may
+   use `--plaintext`; browser OAuth is always keyring-only.
+
+5. **Multiple workspaces** — store several OAuth or API-key credentials and select one per call with
    `--workspace <slug>`; set a default with `linear auth default <slug>`:
 
    ```bash
@@ -79,7 +96,7 @@ The CLI accepts either a Linear personal API key or an OAuth access token:
 
 An explicit credential flag overrides environment credentials. If both credential kinds occur at
 the same precedence level, the CLI fails rather than silently choosing an actor. Inspect resolution
-with `linear auth status`. `linear auth token` exports stored API keys only.
+with `linear auth status`. `linear auth token` exports stored API keys only and never OAuth tokens.
 
 ## Agent best practices
 
