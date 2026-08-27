@@ -35,23 +35,40 @@ lin --version
 
 ### Authentication
 
-The CLI needs a Linear API key. Three ways to provide one, in order of precedence:
+The CLI accepts either a Linear personal API key or an OAuth access token:
 
-1. **`--api-key <key>`** flag (per invocation) or **`LINEAR_API_KEY`** env var — best
+1. **OAuth access token** via `--access-token <token>` or `LINEAR_ACCESS_TOKEN` — use this
+   for Linear apps, agents, and service accounts. Prefer the environment variable so the secret
+   does not appear in argv:
+
+   ```bash
+   LINEAR_ACCESS_TOKEN=... linear whoami --json
+   ```
+
+   The host application owns OAuth installation, token refresh/client-credentials exchange,
+   client-secret storage, and webhooks. The CLI never stores OAuth tokens or client secrets.
+   Long-lived hosts can import `ClientCredentialsTokenProvider` from `linear-sdk-cli`; it caches
+   the 30-day app token in memory, renews before expiry, coalesces concurrent exchanges, and
+   supports invalidation or forced renewal for one bounded retry after a `401`. Keep the client
+   secret in the host's secret manager and inject only `LINEAR_ACCESS_TOKEN` into CLI children.
+   Serverless hosts need a secure shared token cache or broker so cold starts do not mint a new
+   token for every command.
+
+2. **`--api-key <key>`** flag (per invocation) or **`LINEAR_API_KEY`** env var — best
    for CI and ephemeral agent runs:
 
    ```bash
    LINEAR_API_KEY=lin_api_... linear whoami --json
    ```
 
-2. **Stored credentials** via `linear auth login` (validates the key and saves it):
+3. **Stored API-key credentials** via `linear auth login` (validates the key and saves it):
 
    ```bash
    linear auth login --key lin_api_...        # non-interactive
    linear auth login                          # prompts for the key (interactive only)
    ```
 
-3. **Multiple workspaces** — store several credentials and select one per call with
+4. **Multiple workspaces** — store several API-key credentials and select one per call with
    `--workspace <slug>`; set a default with `linear auth default <slug>`:
 
    ```bash
@@ -60,8 +77,9 @@ The CLI needs a Linear API key. Three ways to provide one, in order of precedenc
    linear issue list --workspace acme --json
    ```
 
-Inspect resolution with `linear auth status`. Get the resolved key for scripting
-(e.g. raw `curl`) with `linear auth token`.
+An explicit credential flag overrides environment credentials. If both credential kinds occur at
+the same precedence level, the CLI fails rather than silently choosing an actor. Inspect resolution
+with `linear auth status`. `linear auth token` exports stored API keys only.
 
 ## Agent best practices
 

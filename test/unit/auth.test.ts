@@ -4,7 +4,7 @@
  * validates the key against the API; everything else needs no network.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createProgram } from "../../src/cli.js";
@@ -18,6 +18,7 @@ let savedHome: string | undefined;
 let savedCwd: string;
 let savedApiKey: string | undefined;
 let savedApiToken: string | undefined;
+let savedAccessToken: string | undefined;
 let savedWorkspace: string | undefined;
 
 beforeEach(() => {
@@ -28,6 +29,7 @@ beforeEach(() => {
   savedCwd = process.cwd();
   savedApiKey = process.env.LINEAR_API_KEY;
   savedApiToken = process.env.LINEAR_API_TOKEN;
+  savedAccessToken = process.env.LINEAR_ACCESS_TOKEN;
   savedWorkspace = process.env.LINEAR_WORKSPACE;
   process.env.XDG_CONFIG_HOME = join(root, "xdg");
   process.env.HOME = root;
@@ -36,6 +38,7 @@ beforeEach(() => {
   // never from an ambient LINEAR_API_KEY (e.g. set in a dev/CI environment).
   delete process.env.LINEAR_API_KEY;
   delete process.env.LINEAR_API_TOKEN;
+  delete process.env.LINEAR_ACCESS_TOKEN;
   delete process.env.LINEAR_WORKSPACE;
   kr = memoryKeyring();
   setKeyringBackend(kr);
@@ -52,6 +55,8 @@ afterEach(() => {
   else process.env.LINEAR_API_KEY = savedApiKey;
   if (savedApiToken === undefined) delete process.env.LINEAR_API_TOKEN;
   else process.env.LINEAR_API_TOKEN = savedApiToken;
+  if (savedAccessToken === undefined) delete process.env.LINEAR_ACCESS_TOKEN;
+  else process.env.LINEAR_ACCESS_TOKEN = savedAccessToken;
   if (savedWorkspace === undefined) delete process.env.LINEAR_WORKSPACE;
   else process.env.LINEAR_WORKSPACE = savedWorkspace;
   process.chdir(savedCwd);
@@ -73,6 +78,18 @@ async function runJson(args: string[]): Promise<any> {
 }
 
 describe("auth status", () => {
+  it("reports an ephemeral OAuth access token without a workspace profile", async () => {
+    process.env.LINEAR_ACCESS_TOKEN = "oauth_access_abcdefgh1234";
+    const st = await runJson(["auth", "status"]);
+    expect(st).toMatchObject({
+      authenticated: true,
+      credentialType: "oauth-access-token",
+      source: "env",
+      workspace: null,
+      key: "oaut••••1234",
+    });
+  });
+
   it("reports Source: keychain for a keyring-backed workspace", async () => {
     writeFileSync(userConfigPath(), `[workspaces."acme"]\nkeyring = true\n`);
     kr.store.set("acme", "lin_api_fromkeychain0000");
@@ -97,6 +114,31 @@ describe("auth status", () => {
     setKeyringBackend(null);
     const st = await runJson(["auth", "status"]);
     expect(st).toMatchObject({ authenticated: false, source: "none", keyring: null });
+  });
+});
+
+describe("OAuth credentials stay invocation-scoped", () => {
+  it("does not let auth login persist an OAuth access token", async () => {
+    await expect(
+      createProgram().parseAsync([
+        "node",
+        "linear",
+        "auth",
+        "login",
+        "--access-token",
+        "oauth_access_1234",
+        "--json",
+      ]),
+    ).rejects.toThrow(/stores personal API keys only/);
+    expect(existsSync(userConfigPath())).toBe(false);
+    expect(kr.store.size).toBe(0);
+  });
+
+  it("does not re-export an injected OAuth token through auth token", async () => {
+    process.env.LINEAR_ACCESS_TOKEN = "oauth_access_1234";
+    await expect(
+      createProgram().parseAsync(["node", "linear", "auth", "token", "--json"]),
+    ).rejects.toThrow(/exports stored API keys only/);
   });
 });
 

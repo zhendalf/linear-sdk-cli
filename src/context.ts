@@ -28,6 +28,7 @@ export interface GlobalOptions {
   /** `--no-input`. Present (true) only when passed. */
   noInput?: boolean;
   apiKey?: string;
+  accessToken?: string;
   /** A key, or several — `issue list`/`mine`/`search` make `--team` repeatable. */
   team?: string | string[];
   workspace?: string;
@@ -60,6 +61,7 @@ export class Context {
       // and the config sees the first key.
       flags: {
         apiKey: options.apiKey,
+        accessToken: options.accessToken,
         team: firstTeam(options.team),
         workspace: options.workspace,
       },
