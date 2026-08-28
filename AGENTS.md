@@ -49,6 +49,16 @@ tag, version-order, compare-link, date, and duplicate-entry invariants. The pull
 refuses a changelog change unless the base already needs repair or the change is the matching
 Release Please version bump.
 
+## Linear Documentation
+
+Prefer Linear's current official Markdown documentation when checking product, API, or SDK
+behavior. Use `https://linear.app/llms.txt` as the catalog, then fetch the linked `.md` page
+directly, for example `https://linear.app/developers/sdk-fetching-and-modifying-data.md`.
+
+For focused search, use Context7 with `/websites/linear_app_developers` for developer guides and
+SDK usage, or `/websites/studio_apollographql_public_linear-api_variant_current` for current
+GraphQL types, fields, queries, and mutations. Keep each query specific and limited to one topic.
+
 ## Code and Output Contracts
 
 Use two-space indentation, semicolons, double quotes, trailing commas, and a 100-column target.
