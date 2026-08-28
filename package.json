@@ -61,8 +61,10 @@
     "test:contract": "bun test test/contract",
     "test:live": "LINEAR_CLI_LIVE=1 bun test --timeout 60000 test/integration",
     "test:live:admin": "LINEAR_CLI_LIVE=1 LINEAR_CLI_LIVE_ADMIN=1 bun test --timeout 60000 test/integration",
-    "verify": "bun run typecheck && bun run lint && bun run audit:coverage && bun run format:check && bun run test",
+    "verify": "bun run typecheck && bun run lint && bun run audit:changelog && bun run audit:coverage && bun run format:check && bun run test",
     "skill:docs": "bun run skills/linear-sdk-cli/scripts/generate-docs.ts",
+    "audit:changelog": "bun run scripts/changelog-audit.ts",
+    "audit:pr-title": "bun run scripts/pr-title-audit.ts",
     "audit:coverage": "bun run scripts/coverage-audit.ts",
     "janitor": "bun run test/janitor.ts"
   },

@@ -40,6 +40,15 @@ the generated references with the source change; do not hand-edit generated comm
 intentional SDK-coverage classification changes, review it and re-baseline explicitly with
 `bun run audit:coverage --update`. Never update the snapshot merely to silence unexplained drift.
 
+Release Please is the sole routine writer of `CHANGELOG.md`. Feature, fix, documentation, and
+dependency pull requests must not edit it directly. Use a Conventional Commit pull request title;
+the repository squash-merges that title into the one commit Release Please reads. If one pull
+request needs several or corrected release notes, put Release Please's documented
+`BEGIN_COMMIT_OVERRIDE` block in the pull request body. `bun run audit:changelog` verifies package,
+tag, version-order, compare-link, date, and duplicate-entry invariants. The pull request CI also
+refuses a changelog change unless the base already needs repair or the change is the matching
+Release Please version bump.
+
 ## Code and Output Contracts
 
 Use two-space indentation, semicolons, double quotes, trailing commas, and a 100-column target.
@@ -61,12 +70,12 @@ remain gated by `LINEAR_CLI_LIVE` (and `LINEAR_CLI_LIVE_ADMIN` where applicable)
 
 ## Commits and Pull Requests
 
-Keep changes scoped and preserve unrelated work. History uses concise, imperative Conventional
-Commit-style subjects such as `feat:`, `fix:`, `test(live):`, and `docs(parity):`, sometimes ending
-with a Linear issue such as `(TES-610)`. Pull requests should explain user-visible CLI behavior,
-link the relevant issue, list verification performed, and include help or JSON examples when an
-interface changes. Commit generated skill references and coverage artifacts with their source
-changes.
+Keep changes scoped and preserve unrelated work. Pull request titles must use concise, imperative
+Conventional Commit subjects such as `feat:`, `fix:`, `test(live):`, and `docs(parity):`, sometimes
+ending with a Linear issue such as `(TES-610)`. The squash commit uses that title, keeping one
+release-note unit per pull request. Pull requests should explain user-visible CLI behavior, link the
+relevant issue, list verification performed, and include help or JSON examples when an interface
+changes. Commit generated skill references and coverage artifacts with their source changes.
 
 ## Security and Local Configuration
 

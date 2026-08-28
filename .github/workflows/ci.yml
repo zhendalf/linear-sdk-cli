@@ -5,6 +5,15 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      base_ref:
+        description: "Base ref for changelog ownership verification"
+        required: false
+        type: string
+      pr_title:
+        description: "Pull request title for release-note verification"
+        required: false
+        type: string
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -20,6 +29,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -27,6 +38,19 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Verify pull request title
+        if: github.event_name == 'pull_request' || inputs.pr_title != ''
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title || inputs.pr_title }}
+        run: bun run audit:pr-title "$PR_TITLE"
+
+      - name: Verify changelog ownership
+        if: github.event_name == 'pull_request' || inputs.base_ref != ''
+        env:
+          BASE_REF: ${{ inputs.base_ref || format('origin/{0}', github.base_ref) }}
+          PR_TITLE: ${{ github.event.pull_request.title || inputs.pr_title }}
+        run: bun run audit:changelog --base-ref "$BASE_REF" --pr-title "$PR_TITLE"
 
       - name: Verify
         run: bun run verify
