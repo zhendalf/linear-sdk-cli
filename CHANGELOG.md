@@ -1,14 +1,13 @@
 # Changelog
 
-All notable changes to this project are documented here. The format is based on
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
-[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+Release Please generates this file from Conventional Commits. Feature and fix pull requests do
+not edit it directly; their squash-commit titles are the release-note source of truth. This project
+adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.0](https://github.com/zhendalf/linear-sdk-cli/compare/v0.2.4...v0.3.0) (2026-08-27)
+## [0.3.0](https://github.com/zhendalf/linear-sdk-cli/compare/v0.2.4...v0.3.0) (2026-08-28)
 
 ### Features
 
-- **auth:** add browser OAuth login with PKCE ([8a3a12d](https://github.com/zhendalf/linear-sdk-cli/commit/8a3a12daa6239091b4c63c66af30a51adf61e4e5))
 - **auth:** add browser OAuth login with PKCE (LIN-740) ([d5826e1](https://github.com/zhendalf/linear-sdk-cli/commit/d5826e1ebdc9015e876faa29b004f4953a190b43))
 - **auth:** support OAuth access tokens ([#28](https://github.com/zhendalf/linear-sdk-cli/issues/28)) ([4fecb6c](https://github.com/zhendalf/linear-sdk-cli/commit/4fecb6c1a40533804ff2fde5ace689d39c70d4bc))
 
@@ -41,10 +40,18 @@ All notable changes to this project are documented here. The format is based on
 ### Features
 
 - expand CLI workflows and terminal UX ([0fe31cc](https://github.com/zhendalf/linear-sdk-cli/commit/0fe31cca7e71d0fa6eee2b7c1461ecaf0a01103f))
+- **comments:** add explicit, notification-capable mentions with repeatable `--mention`
+  ([TES-738](https://linear.app/issue/TES-738)). Literal `@name` text remains Markdown; comment
+  commands resolve users exactly and prepend real Linear mention tokens.
 
 ### Bug Fixes
 
 - **ci:** give release dispatch repository context ([#15](https://github.com/zhendalf/linear-sdk-cli/issues/15)) ([e3f51e6](https://github.com/zhendalf/linear-sdk-cli/commit/e3f51e600102416f3bd3212578b364a13a452e49))
+
+### Changed
+
+- Replace ESLint with Oxlint while preserving the existing JavaScript and TypeScript checks.
+- Use TypeScript 7 for type-checking without source or configuration compatibility changes.
 
 ## [0.1.3](https://github.com/zhendalf/linear-sdk-cli/compare/v0.1.2...v0.1.3) (2026-08-24)
 
@@ -52,29 +59,20 @@ All notable changes to this project are documented here. The format is based on
 
 - **ci:** grant OIDC to automated publisher ([#7](https://github.com/zhendalf/linear-sdk-cli/issues/7)) ([acc6e4b](https://github.com/zhendalf/linear-sdk-cli/commit/acc6e4b9c4ab485ce39eeec7eb2c835892016e59))
 
-## [Unreleased]
+## [0.1.2](https://github.com/zhendalf/linear-sdk-cli/compare/v0.1.1...v0.1.2) (2026-08-24)
+
+### Dependencies
+
+- Upgrade the runtime and development dependencies ([#2](https://github.com/zhendalf/linear-sdk-cli/issues/2)).
+
+### Continuous Integration
+
+- Run verification on pull requests using the latest Bun release ([#3](https://github.com/zhendalf/linear-sdk-cli/issues/3)).
+
+## [0.1.1](https://github.com/zhendalf/linear-sdk-cli/releases/tag/v0.1.1) (2026-08-24)
 
 ### Added
 
-- **Browser OAuth login with PKCE (`actor=user`, LIN-740).** Bare `linear auth login` now opens
-  Linear using Authorization Code + mandatory PKCE S256, validates CSRF state and the authenticated
-  viewer/workspace, and stores the complete rotating session only in an isolated per-workspace OS
-  keyring record. Access tokens refresh before expiry and once after an authentication failure;
-  logout revokes the grant. `--no-browser`, read-only and explicit admin scopes, secret-safe JSON
-  failures, and the existing `auth login --key -` personal-key fallback are covered. OAuth login
-  and logout preserve a pre-existing API-key profile for the same workspace.
-- **OAuth access tokens for apps, agents, and hosted service accounts.** Commands accept an
-  invocation-scoped `LINEAR_ACCESS_TOKEN` or `--access-token`, initialize the SDK with its OAuth
-  bearer-token path, and fail closed if an API key and OAuth identity are ambiguous. The exported
-  `ClientCredentialsTokenProvider` gives long-lived hosts a concurrency-safe, expiry-aware token
-  cache with forced renewal after a `401`; hosted tokens remain invocation-scoped and the CLI never
-  persists client secrets. This app-actor lifecycle stays separate from human browser login.
-- **Explicit, notification-capable comment mentions (`--mention`, TES-738).** Ordinary `@name`
-  text remains literal Markdown. Comment-writing commands now accept repeatable
-  `--mention <name|email|me|id>`, resolve each user exactly, deduplicate repeats, and prepend real
-  Linear mention tokens as their own paragraph. The option is available on `issue comment`,
-  `comment add`, `comment reply`, and `comment update`, including the shared
-  `issue comment add/update` mounts.
 - **Every command declares its `--json` output, and `linear commands <path>` prints it (TES-610).**
   An agent driving the CLI cold guessed key names and filed false bugs (`.user` read as `.author`,
   `.parent` as `.parentId`); the field names were knowable only from the source. Each node of
@@ -347,11 +345,6 @@ true` is sent unless `--no-default-template` (also accepted under the reference'
 
 ### Changed
 
-- **Development linting now uses Oxlint instead of ESLint.** The migrated configuration preserves
-  the existing recommended JavaScript and TypeScript checks and underscore-prefixed unused-variable
-  exceptions while reducing the lint dependency tree and execution time.
-- **TypeScript 7 now powers type-checking.** The native compiler replaces TypeScript 6 without
-  source or configuration compatibility changes in this project.
 - **`--fields`, `--limit` and `--all` are refused on commands that never read them** (TES-637 (2),
   TES-596). All twelve globals are registered on every command so they can sit anywhere on the
   line, but `--fields` projects a _rendered_ result (a table or a detail block) and `--limit`/`--all`
@@ -856,7 +849,7 @@ column 36`), never an excerpt from a credential-bearing file, and strip control 
 - **`roadmap delete` alias is now `rm`** (was `del`), matching the `rm` delete alias used by
   every other group.
 
-## [0.1.0]
+## [0.1.0] (2026-06-26)
 
 Initial release. An ergonomic CLI for Linear built on `@linear/sdk`, with human-readable output
 by default and a stable `--json` mode for scripts and agents.

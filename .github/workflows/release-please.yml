@@ -79,8 +79,11 @@ jobs:
           HEAD_BRANCH: ${{ steps.release-pr.outputs.head_branch }}
         run: |
           head_sha="$(git rev-parse HEAD)"
+          release_version="$(node -p "require('./package.json').version")"
           started_at="$(date -u -d '-1 minute' '+%Y-%m-%dT%H:%M:%SZ')"
-          gh workflow run ci.yml --ref "$HEAD_BRANCH"
+          gh workflow run ci.yml --ref "$HEAD_BRANCH" \
+            --field base_ref=origin/main \
+            --field pr_title="chore(main): release $release_version"
 
           run_id=""
           for attempt in {1..60}; do

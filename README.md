@@ -607,6 +607,7 @@ await createProgram().parseAsync(["node", "linear", "issue", "list", "--json"]);
 bun run verify           # typecheck + lint + unit/contract tests
 bun run test:live        # live integration tests (needs LINEAR_API_KEY + LINEAR_CLI_LIVE=1)
 bun run test:live:admin  # also runs admin-tier suites (e.g. team create/update)
+bun run audit:changelog  # verify package, tag, and generated release-note history
 bun run audit:coverage   # regenerate COVERAGE.md (add --update to re-baseline the snapshot)
 bun run janitor          # sweep leaked `clitest-` fixtures from the test workspace
 ```
@@ -614,6 +615,11 @@ bun run janitor          # sweep leaked `clitest-` fixtures from the test worksp
 Architecture is three layers — **commands** (commander wiring) → **services** (one module per
 resource, the only place that touches the SDK) → **`@linear/sdk`**. The machine JSON envelope is
 locked and contract-tested so output never silently drifts.
+
+Release Please owns `CHANGELOG.md`. Pull requests use Conventional Commit titles and are squash
+merged, giving each change one release-note entry. Do not edit the changelog in a feature or fix
+pull request; use a `BEGIN_COMMIT_OVERRIDE` block in the pull request body when a change needs
+several or specially worded release notes.
 
 > Live integration tests run against a real workspace and share one API key; running the entire
 > suite repeatedly can hit Linear's rate limit. Run a subset (a few files at a time) or re-run
