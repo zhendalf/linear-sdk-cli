@@ -4,11 +4,11 @@
 [`@linear/sdk`](https://www.npmjs.com/package/@linear/sdk).**
 
 It's designed to be pleasant for humans _and_ dependable for scripts and agents. By default you
-get clean, aligned tables and detail views; add `--json` to any command for a stable,
+get clean, aligned tables and detail views; add `--json` to any data command for a stable,
 machine-readable shape. It's git-aware (the "current issue" comes from your branch name) and
 forgiving about input (`--assignee me`, team key `TES`, state and label by name). Anything the
 curated commands don't wrap is still reachable through a raw GraphQL escape hatch (`linear api`),
-so nothing in the Linear API is out of bounds.
+subject to the permissions granted to your Linear credential.
 
 ```sh
 linear issue list --assignee me --state started   # what's on my plate
@@ -18,6 +18,43 @@ linear issue list --json | jq -r '.[].identifier'  # ready for scripts
 
 > Design influenced by [`schpet/linear-cli`](https://github.com/schpet/linear-cli) (human-first,
 > git-aware) and [`linearis`](https://github.com/linearis-oss/linearis) (JSON-first for agents).
+
+## Why this project exists
+
+This project grew from strong ideas in earlier tools, especially the human-first, git-aware
+workflow credited above. Four requirements made a separate implementation the better fit for our
+use case:
+
+- **A smaller cloud deployment surface.** The reference implementation and its development path
+  centered on the full Deno runtime. Carrying that runtime into our cloud environments was more
+  infrastructure than the CLI warranted. This package ships its TypeScript source directly and
+  reuses the Bun runtime already present in our environment instead of packaging another runtime
+  for one tool. Later prebuilt releases moved that runtime into the artifact rather than
+  eliminating its footprint: for example, the
+  [v2.5.0 macOS ARM build](https://github.com/schpet/linear-cli/releases/tag/v2.5.0) expands to a
+  146 MB executable. Avoiding a heavyweight per-tool binary keeps cloud images and ephemeral agent
+  environments simpler and smaller.
+- **Lower invocation overhead for agent loops.** An interactive CLI may start once; an agent can
+  start it dozens or hundreds of times while completing one workflow, so even modest cold-start
+  latency compounds. A public
+  [startup-time report](https://github.com/schpet/linear-cli/issues/261) documented the difference
+  against a compiled alternative and identified repeated agent calls as the motivating case. The
+  Bun-first implementation makes process startup a product constraint and reduces that recurring
+  overhead in our deployment model.
+- **Alignment with Linear's official SDK.** The CLI is built directly on `@linear/sdk` and follows
+  its release cycle. Linear's SDK remains the source of truth for the API model, generated types,
+  connections, and transport; this project can focus on command design and stable output instead
+  of recreating official API machinery. A coverage audit catches additions, removals, and
+  classification drift among the SDK client's top-level members.
+- **Agent-native development and maintenance.** This project was built from scratch by coding
+  agents, and agents continue to implement features, update dependencies, regenerate
+  documentation, run verification, and prepare maintenance and release work. Versioned maintenance
+  policy, CI, coverage checks, and release automation provide the guardrails that make that model
+  repeatable rather than ad hoc.
+
+Together, those requirements made `linear-sdk-cli` the default for our deployments and automation
+workflows. That is a statement about fit, not a claim that earlier tools are obsolete; this CLI
+retains their best ideas and provides a careful compatibility and migration path.
 
 ## Highlights
 
@@ -32,8 +69,8 @@ linear issue list --json | jq -r '.[].identifier'  # ready for scripts
 
 ## Install
 
-Requires [Bun](https://bun.sh) **1.1 or newer** and a Linear API key
-(Settings → Security & access → **Personal API keys**). The CLI ships as TypeScript and runs
+Requires [Bun](https://bun.sh) **1.1 or newer**. Authenticate with browser OAuth (the default), an
+invocation-scoped OAuth access token, or a personal API key. The CLI ships as TypeScript and runs
 directly on Bun — no build step, no bundle, no Node.
 
 ```sh
@@ -44,35 +81,12 @@ lin --help
 This installs two equivalent binaries: **`linear`** and the shorter **`lin`**. If you already
 have a different tool named `linear` on your `PATH`, just use `lin`.
 
-### If you already have `schpet/linear-cli` installed
+### Existing `linear` installations
 
-Both CLIs install a binary called **`linear`**, so whichever is earlier on your `PATH` wins and
-the other is silently shadowed — `linear --version` tells you which you got (`0.x` is this one,
-`2.x` is schpet's), and `which -a linear` lists both. Three ways out, pick one:
-
-- **Use `lin`.** It is ours alone; nothing of theirs claims it. Every example in this README works
-  with `lin` in place of `linear`. Zero-risk for the transition week.
-- **Keep theirs reachable as `linear-schpet`** and let ours have `linear`:
-
-  ```sh
-  # installed with deno: reinstall under a new name, then drop the old one
-  deno install -A --reload -f -g -n linear-schpet jsr:@schpet/linear-cli
-  deno uninstall -g linear
-  # installed with homebrew (schpet/tap/linear): keep the keg, relink under a new name
-  brew unlink schpet/tap/linear
-  ln -s "$(brew --prefix)/opt/linear/bin/linear" ~/.local/bin/linear-schpet   # any dir on your PATH
-  # installed with npm/bun globally: rename the shim in place
-  mv "$(command -v linear)" "$(dirname "$(command -v linear)")/linear-schpet"
-  ```
-
-  (A package-manager upgrade of theirs may put `linear` back; re-run the line for your channel.)
-
-- **Uninstall theirs** once you no longer need it. Your credentials survive: they are in the OS
-  keyring under the same service and account, and we read them — see [Authentication](#authentication).
-
-Their project-pinned install (`bun add -D @schpet/linear-cli`, run as `bunx linear`) does not
-collide with a global install of ours; inside such a project `bunx linear` is theirs and
-`linear`/`lin` on your `PATH` is ours.
+Another CLI may already provide a binary named `linear`; whichever appears first on `PATH` wins.
+Use this package's collision-free **`lin`** alias while evaluating or migrating. See
+[`MIGRATING.md`](MIGRATING.md) for side-by-side installation, credential and config compatibility,
+and the few commands whose behavior intentionally differs.
 
 <details>
 <summary>Run from source instead</summary>
@@ -88,7 +102,7 @@ bun run src/bin/linear.ts --help     # or: bun run dev -- --help
 ## Quickstart
 
 ```sh
-export LINEAR_API_KEY=lin_api_xxxxxxxx     # quickest way to get going
+linear auth login                          # browser OAuth; or set LINEAR_API_KEY
 linear whoami                              # confirm you're connected
 
 linear issue list --assignee me --state started        # my in-progress work
@@ -141,10 +155,10 @@ with `LINEAR_OAUTH_REDIRECT_URI`. No OAuth client secret is embedded, accepted, 
 
 For a personal API key, `auth login --key -` reads stdin, validates the viewer/workspace, stores the
 key in the system keyring by default, and writes only a marker to the config. `--plaintext` is an
-API-key-only compatibility option. API-key entries use `account = <workspace slug>`, matching
-[schpet/linear-cli](https://github.com/schpet/linear-cli). Passing a key as `--key <value>` works but
-warns because argv is visible to other processes. `auth migrate` moves legacy plaintext keys into
-the keyring, and `auth token` exports stored API keys only; OAuth tokens are never printed.
+API-key-only compatibility option. API-key entries use `account = <workspace slug>`, preserving
+compatibility with existing keyring profiles. Passing a key as `--key <value>` works but warns
+because argv is visible to other processes. `auth migrate` moves legacy plaintext keys into the
+keyring, and `auth token` exports stored API keys only; OAuth tokens are never printed.
 
 ### Apps, agents, and service accounts
 
@@ -269,8 +283,8 @@ linear issue pr --json | jq -r .url        # the created PR URL is the only thin
 ```
 
 `issue describe` prints a whole commit message — `TES-123 Title`, a blank line, then two git
-trailers, `Linear-issue: Fixes TES-123` and `Linear-issue-url: <url>` (the same text
-schpet/linear-cli prints, so `git interpret-trailers` and jj read it back). The magic word sits
+trailers, `Linear-issue: Fixes TES-123` and `Linear-issue-url: <url>` (compatible with existing
+workflows, so `git interpret-trailers` and jj read it back). The magic word sits
 right before the id, which is where Linear's
 [git integration](https://linear.app/docs/github#link-prs-and-commits) reads it, so the issue is
 linked — and closed on merge — when the commit lands; `-r` swaps in `References` to link without
@@ -488,15 +502,15 @@ versioned maintenance policy. See [`skills/README.md`](skills/README.md) for the
 contract.
 
 The CLI skill is self-contained: an agent that has only the skill and no CLI is told to
-`bun add -g linear-sdk-cli`, and one arriving from `schpet/linear-cli` is told not to re-enter a
-key before `linear auth status`, since existing credentials are found. `linear commands --json`
-gives it the full command surface at runtime, so the reference docs are a starting point, not a
-cage.
+`bun add -g linear-sdk-cli`, and a migrating user is told to check `linear auth status` before
+re-entering a key because compatible credentials are discovered automatically. `linear commands
+--json` gives it the full command surface at runtime, so the reference docs are a starting point,
+not a cage.
 
 ## Coming from linear-cli
 
 > The full guide — install without a collision, credentials found without a re-login, config
-> read from the same files, and the three places the two CLIs would silently differ — is
+> compatibility, and the places where behavior intentionally differs — is
 > [`MIGRATING.md`](MIGRATING.md). This section is the flag-level cheat sheet.
 
 If your fingers or your scripts learned the other `linear-cli`, most of its spellings work here
@@ -554,12 +568,11 @@ Precedence, highest first — `linear config` prints each value with the tier an
 1. the flag (`--team`, `--workspace`, `--sort`)
 2. the environment (`LINEAR_TEAM`/`LINEAR_TEAM_ID`, `LINEAR_WORKSPACE`, `LINEAR_ISSUE_SORT`)
 3. the **project config**: the first file found walking up from the working directory, checking in
-   each directory `linear.toml`, then `.linear.toml`, then `.config/linear.toml` — the same
-   names and order as [schpet/linear-cli](https://github.com/schpet/linear-cli), so a repo set
-   up with its `linear config` (which writes `<git root>/.config/linear.toml`) is picked up as-is
+   each directory `linear.toml`, then `.linear.toml`, then `.config/linear.toml`; compatible
+   existing project configuration is picked up as-is
 4. the **user config**, `~/.config/linear/config.toml` (`$XDG_CONFIG_HOME` honored)
-5. schpet/linear-cli's **global config**, `~/.config/linear/linear.toml` — read for non-secret
-   settings only, so a migrating user's defaults carry over
+5. the legacy **global config**, `~/.config/linear/linear.toml` — read for non-secret settings
+   only, so a migrating user's defaults carry over
 
 Keys: `team` (or `team_id`), `workspace`, and `sort` (or `issue_sort`). You can write these from
 the CLI — comments and layout in an existing file are preserved, and the write is atomic:
@@ -616,8 +629,8 @@ Use `linear schema` to discover types and fields first, then reach for `linear a
 ### Coverage
 
 Coverage of the SDK is **measured, not asserted.** `linear api` reaches the full GraphQL API, and
-a generated audit ([COVERAGE.md](./COVERAGE.md)) classifies every one of the ~460 `LinearClient`
-members as `curated` (a first-class command), `raw-only` (reachable via `linear api`), or
+a generated audit ([COVERAGE.md](./COVERAGE.md)) classifies every current `LinearClient` member as
+`curated` (a first-class command), `raw-only` (reachable via `linear api`), or
 `excluded` (admin/integration/SDK plumbing). CI fails on any drift from the committed snapshot, so
 the claim stays honest as the SDK evolves.
 
