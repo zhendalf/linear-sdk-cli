@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import { run, runJson, LIVE, ensureBuilt, FIXTURE_PREFIX } from "./_helpers.js";
 
 const suite = LIVE ? describe : describe.skip;
-const TEAM = process.env.LINEAR_CLI_TEST_TEAM || "TES";
+const TEAM = process.env.LINEAR_CLI_TEST_TEAM || "LIN";
 
 suite("label — issue label lifecycle (live)", () => {
   // Track created labels so we can sweep them in cleanup even if a test fails.
