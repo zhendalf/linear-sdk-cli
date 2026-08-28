@@ -4,6 +4,12 @@ Release Please generates this file from Conventional Commits. Feature and fix pu
 not edit it directly; their squash-commit titles are the release-note source of truth. This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0](https://github.com/zhendalf/linear-sdk-cli/compare/v0.3.3...v0.4.0) (2026-08-28)
+
+### Features
+
+- add custom view commands ([#38](https://github.com/zhendalf/linear-sdk-cli/issues/38)) ([fa99ae6](https://github.com/zhendalf/linear-sdk-cli/commit/fa99ae64ccbb23538bf53dc5fb8778e63ebd1b64))
+
 ## [0.3.3](https://github.com/zhendalf/linear-sdk-cli/compare/v0.3.2...v0.3.3) (2026-08-28)
 
 ### Bug Fixes
