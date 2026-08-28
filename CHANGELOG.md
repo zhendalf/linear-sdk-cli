@@ -6,10 +6,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.3.3](https://github.com/zhendalf/linear-sdk-cli/compare/v0.3.2...v0.3.3) (2026-08-28)
 
-
 ### Bug Fixes
 
-* **deps:** publish @linear/sdk 92.0.0 upgrade ([eb7cb94](https://github.com/zhendalf/linear-sdk-cli/commit/eb7cb942a76ee810f1c79f614a369809258d2bc1))
+- **deps:** publish @linear/sdk 92.0.0 upgrade ([eb7cb94](https://github.com/zhendalf/linear-sdk-cli/commit/eb7cb942a76ee810f1c79f614a369809258d2bc1))
 
 ## [0.3.2](https://github.com/zhendalf/linear-sdk-cli/compare/v0.3.1...v0.3.2) (2026-08-28)
 
