@@ -452,6 +452,8 @@
   "updateViewPreferences": "excluded",
   "updateWebhook": "curated",
   "updateWorkflowState": "raw-only",
+  "usageAlert": "raw-only",
+  "usageAlerts": "raw-only",
   "user": "curated",
   "userChangeRole": "excluded",
   "userDiscordConnect": "raw-only",
