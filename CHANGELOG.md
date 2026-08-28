@@ -6,10 +6,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.3.2](https://github.com/zhendalf/linear-sdk-cli/compare/v0.3.1...v0.3.2) (2026-08-28)
 
-
 ### Bug Fixes
 
-* **auth:** disable inquirer password mask-toggle for API key entry ([#27](https://github.com/zhendalf/linear-sdk-cli/issues/27)) ([b043678](https://github.com/zhendalf/linear-sdk-cli/commit/b043678ec10bf59aeacaf38e7445ff1df800243a))
+- **auth:** disable inquirer password mask-toggle for API key entry ([#27](https://github.com/zhendalf/linear-sdk-cli/issues/27)) ([b043678](https://github.com/zhendalf/linear-sdk-cli/commit/b043678ec10bf59aeacaf38e7445ff1df800243a))
 
 ## [0.3.1](https://github.com/zhendalf/linear-sdk-cli/compare/v0.3.0...v0.3.1) (2026-08-28)
 
