@@ -19,6 +19,44 @@ linear issue list --json | jq -r '.[].identifier'  # ready for scripts
 > Design influenced by [`schpet/linear-cli`](https://github.com/schpet/linear-cli) (human-first,
 > git-aware) and [`linearis`](https://github.com/linearis-oss/linearis) (JSON-first for agents).
 
+## Why this project exists
+
+This project began with respect for `schpet/linear-cli`, not because its core ideas were wrong.
+It established much of the human-first, git-aware workflow that this CLI deliberately preserves.
+But four requirements made a separate implementation the better fit for our use case:
+
+- **A smaller cloud deployment surface.** When this project was created, schpet's implementation
+  and development path centered on the full Deno runtime. Carrying that runtime into our cloud
+  environments was more infrastructure than the CLI warranted. This package is Bun-first and
+  ships its TypeScript source directly, reusing the Bun runtime already present in our environment
+  instead of packaging another runtime for one tool. Schpet has since added prebuilt binaries, but
+  that moves the runtime into the artifact rather than eliminating its footprint: for example, the
+  [v2.5.0 macOS ARM release](https://github.com/schpet/linear-cli/releases/tag/v2.5.0) expands to a
+  146 MB executable. Avoiding a heavyweight per-tool binary keeps cloud images and ephemeral agent
+  environments simpler and smaller.
+- **Lower invocation overhead for agent loops.** An interactive CLI may start once; an agent can
+  start it dozens or hundreds of times while completing one workflow, so even modest cold-start
+  latency compounds. The concern is captured directly in schpet's
+  [startup-time issue](https://github.com/schpet/linear-cli/issues/261), where the reported help
+  invocation was an order of magnitude slower than a compiled alternative and repeated Claude
+  calls were the motivating case. The Bun-first implementation makes process startup a product
+  constraint and reduces that recurring overhead in our deployment model.
+- **Alignment with Linear's official SDK.** The CLI is built directly on `@linear/sdk` and follows
+  its release cycle. Linear's SDK remains the source of truth for the API model, generated types,
+  connections, and transport; this project can focus on command design and stable output instead
+  of recreating official API machinery. A coverage audit makes SDK drift visible whenever Linear
+  adds or changes capabilities.
+- **Agent-native development and maintenance.** This project was built from scratch by coding
+  agents, and agents continue to implement features, update dependencies, regenerate
+  documentation, run verification, and prepare maintenance and release work. Versioned maintenance
+  policy, CI, coverage checks, and release automation provide the guardrails that make that model
+  repeatable rather than ad hoc.
+
+For those reasons, `linear-sdk-cli` superseded `schpet/linear-cli` **for our deployments and
+automation workflows**. That is a statement about fit, not a claim that the original project is
+obsolete: its design remains an important influence, and this CLI intentionally provides a
+careful compatibility and migration path for its users.
+
 ## Highlights
 
 - **Human-first by default** — aligned tables, rendered Markdown, safe paging for long detail,
