@@ -29,6 +29,7 @@ import { registerRoadmap } from "./commands/roadmap.js";
 import { registerNotification } from "./commands/notification.js";
 import { registerOrganization } from "./commands/organization.js";
 import { registerWebhook } from "./commands/webhook.js";
+import { registerCustomView } from "./commands/custom-view.js";
 import { registerOpen } from "./commands/open.js";
 import { registerCommands, registerSchema } from "./commands/discover.js";
 import { Context, type GlobalOptions } from "./context.js";
@@ -87,6 +88,7 @@ export function createProgram(): Command {
   registerNotification(program);
   registerOrganization(program);
   registerWebhook(program);
+  registerCustomView(program);
 
   // Discovery commands need the fully-built program tree, so register them last.
   registerCommands(program);

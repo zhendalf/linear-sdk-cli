@@ -25,6 +25,11 @@ import { AGENT_SESSION_DETAIL_SHAPE, AGENT_SESSION_ROW_SHAPE } from "../services
 import { ATTACHMENT_ROW_SHAPE } from "../services/attachment.js";
 import { COMMENT_ROW_SHAPE } from "../services/comment.js";
 import { CYCLE_DETAIL_SHAPE, CYCLE_ROW_SHAPE } from "../services/cycle.js";
+import {
+  CUSTOM_VIEW_DETAIL_SHAPE,
+  CUSTOM_VIEW_RESULT_ROW_SHAPE,
+  CUSTOM_VIEW_ROW_SHAPE,
+} from "../services/custom-view.js";
 import type { DocumentDetail, DocumentRow, DocumentTargets } from "../services/document.js";
 import { FAVORITE_ROW_SHAPE } from "../services/favorite.js";
 import {
@@ -328,6 +333,26 @@ export const OUTPUT_SHAPES: Record<string, OutputShape | null> = {
   "cycle list": list(CYCLE_ROW_SHAPE),
   "cycle update": receipt({ id: "string", number: "number" }),
   "cycle view": CYCLE_VIEW,
+
+  "custom-view": runs("custom-view view", object(CUSTOM_VIEW_DETAIL_SHAPE)),
+  "custom-view create": receipt({
+    id: "string",
+    name: "string",
+    type: "string",
+    shared: "boolean",
+    slugId: "string",
+  }),
+  "custom-view delete": receipt(NAMED_DELETED),
+  "custom-view list": list(CUSTOM_VIEW_ROW_SHAPE),
+  "custom-view results": list(CUSTOM_VIEW_RESULT_ROW_SHAPE),
+  "custom-view update": receipt({
+    id: "string",
+    name: "string",
+    type: "string",
+    shared: "boolean",
+    slugId: "string",
+  }),
+  "custom-view view": object(CUSTOM_VIEW_DETAIL_SHAPE),
 
   document: runs("document view", object(DOCUMENT_DETAIL_SHAPE)),
   "document create": receipt({ id: "string", title: "string", url: "string" }),

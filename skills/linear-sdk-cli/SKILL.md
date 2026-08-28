@@ -317,6 +317,14 @@ linear config init
 linear config set
 linear config show
 
+linear custom-view
+linear custom-view create
+linear custom-view delete
+linear custom-view list
+linear custom-view results
+linear custom-view update
+linear custom-view view
+
 linear cycle
 linear cycle create
 linear cycle current
@@ -481,6 +489,7 @@ prints the same). These are supplementary — `--help` on any command is authori
 - [comment](references/comment.md) — Manage comments
 - [completion](references/completion.md) — Output a shell completion script
 - [config](references/config.md) — Show the resolved configuration (secrets redacted)
+- [custom-view](references/custom-view.md) — Create and manage saved custom views
 - [cycle](references/cycle.md) — Work with cycles
 - [document](references/document.md) — Work with documents
 - [favorite](references/favorite.md) — Manage your favorites
