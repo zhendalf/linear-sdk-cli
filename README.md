@@ -44,8 +44,8 @@ use case:
 - **Alignment with Linear's official SDK.** The CLI is built directly on `@linear/sdk` and follows
   its release cycle. Linear's SDK remains the source of truth for the API model, generated types,
   connections, and transport; this project can focus on command design and stable output instead
-  of recreating official API machinery. A coverage audit makes SDK drift visible whenever Linear
-  adds or changes capabilities.
+  of recreating official API machinery. A coverage audit catches additions, removals, and
+  classification drift among the SDK client's top-level members.
 - **Agent-native development and maintenance.** This project was built from scratch by coding
   agents, and agents continue to implement features, update dependencies, regenerate
   documentation, run verification, and prepare maintenance and release work. Versioned maintenance
