@@ -79,6 +79,13 @@ const CURATED: Record<string, string[]> = {
   // `fileUpload` is the signed-URL step behind `issue attach` and `comment add --attach` (TES-602).
   attachment: ["attachments", "attachment", "createAttachment", "deleteAttachment", "fileUpload"],
   favorite: ["favorites", "favorite", "createFavorite", "deleteFavorite"],
+  "custom-view": [
+    "customViews",
+    "customView",
+    "createCustomView",
+    "updateCustomView",
+    "deleteCustomView",
+  ],
   // phase 4 — initiatives, roadmaps, notifications, organization invites, webhooks
   // (`organization` member is already curated under `meta` — not duplicated here)
   initiative: [

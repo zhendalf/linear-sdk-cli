@@ -123,6 +123,12 @@ export const SCALARS: Record<string, unknown> = {
   issueId: UUID,
   documentId: UUID,
   templateData: null,
+  modelName: "Issue",
+  shared: true,
+  filterData: {},
+  projectFilterData: null,
+  initiativeFilterData: null,
+  feedItemFilterData: null,
 };
 
 /**

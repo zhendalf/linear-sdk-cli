@@ -306,6 +306,35 @@ Status updates (`project-update`/`pu`, `initiative-update`/`iu`) take the body f
 `--body-file <path>` (`-` for stdin), or `--editor` (`$EDITOR`), plus an optional
 `--health <onTrack|atRisk|offTrack>`.
 
+**Custom views** — create and inspect saved Issue, Project, and Initiative filters without writing
+GraphQL. A filter is the current Linear `IssueFilter`, `ProjectFilter`, or `InitiativeFilter` JSON
+object; pass it inline or from a file/stdin. The selected `--type` decides which typed SDK input
+field receives it, and an omitted filter becomes `{}` so the view type still round-trips.
+
+```sh
+linear custom-view list
+linear cv create --name "Urgent" --type issue \
+  --filter '{"priority":{"eq":1}}' --shared
+linear cv view 01234567-89ab-cdef-0123-456789abcdef
+linear cv results 01234567-89ab-cdef-0123-456789abcdef --all
+linear cv update 01234567-89ab-cdef-0123-456789abcdef \
+  --filter-file issue-filter.json --personal
+linear cv delete 01234567-89ab-cdef-0123-456789abcdef --yes
+```
+
+Create can attach a view with one of `--scope-team`, `--scope-project`, or `--scope-initiative`.
+Linear marks project/initiative scope fields internal on update, so update exposes only the public
+team scope (`--scope-team` / `--clear-team-scope`) and never rewrites an unspecified scope. View
+references are UUID-only: names are not unique, and Linear's `customViews` query intentionally
+omits project- and initiative-scoped views. Those scoped views remain accessible by UUID. Initiative
+views require an eligible Linear plan.
+
+```sh
+linear cv list --json | jq -r '.[] | [.id, .name, .type] | @tsv'
+linear cv results 01234567-89ab-cdef-0123-456789abcdef --json
+# [{"type":"issue","id":"…","identifier":"ENG-42","name":"Fix login","url":"…"}]
+```
+
 ## Command overview
 
 Every group has `--help` with full options and (for the busy ones) an Examples section. Aliases
@@ -327,6 +356,7 @@ are shown in parentheses. For a machine-readable tree of _every_ command, run
 | **`document`** (`doc`)         | `list` · `view` · `create` · `update` · `delete`                                                                                                                                                                                                                                    |
 | **`attachment`** (`at`)        | `list` · `create` · `delete`                                                                                                                                                                                                                                                        |
 | **`favorite`** (`fav`)         | `list` · `add` · `remove`                                                                                                                                                                                                                                                           |
+| **`custom-view`** (`cv`)       | `list` · `view` · `results` · `create` · `update` · `delete`                                                                                                                                                                                                                        |
 | **`initiative`** (`init`)      | `list` · `view` · `create` · `update` · `archive` · `delete`                                                                                                                                                                                                                        |
 | **`initiative-update`** (`iu`) | `create` · `list` (initiative status updates, with `--health`)                                                                                                                                                                                                                      |
 | **`roadmap`** (`rm`)           | `list` · `view` · `create` · `update` · `delete` &nbsp;<sup>†</sup>                                                                                                                                                                                                                 |
