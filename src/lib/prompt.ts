@@ -77,6 +77,7 @@ export async function promptSecret(
   return inquirerPassword({
     message,
     mask: true,
+    toggleMask: false,
     validate: (v) => (opts.required && !v.trim() ? "Required" : true),
   });
 }

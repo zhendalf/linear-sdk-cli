@@ -96,6 +96,12 @@ describe("promptSecret", () => {
     expect(calls[0]!.config.mask).toBe(true);
   });
 
+  it("disables the mask-toggle so the secret can't be revealed on screen", async () => {
+    const ctx = interactiveContext();
+    await promptSecret(ctx, "Linear API key:", { required: true });
+    expect(calls[0]!.config.toggleMask).toBe(false);
+  });
+
   it("returns the secret without printing it to either stream", async () => {
     const ctx = interactiveContext();
     let secret = "";
