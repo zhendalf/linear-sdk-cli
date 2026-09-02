@@ -22,10 +22,11 @@ apiKeySource: string
 accessToken: string
 accessTokenSource: string
 credentialWorkspace: string | null
+workspaceProfile: string | null
 team: string | null
 workspace: string | null
 sort: string
-origins: {team: {source: string, path?: string, key?: string}, workspace: {source: string, path?: string, key?: string}, sort: {source: string, path?: string, key?: string}}
+origins: {team: {source: string, path?: string, key?: string, workspace?: string}, workspace: {source: string, path?: string, key?: string, workspace?: string}, sort: {source: string, path?: string, key?: string, workspace?: string}}
 userConfigPath: string
 projectConfigPath: string | null
 globalConfigPath: string | null
@@ -57,16 +58,16 @@ sort?: string
 
 ### `linear config set`
 
-Set one project setting (team, workspace, sort) in the project config
+Set one project or user setting (team, workspace, sort)
 
 ```
 linear config set [options] <key> <value>
 ```
 
-| Option          | Description                                                  |
-| --------------- | ------------------------------------------------------------ |
-| `--user`        | write the user config (~/.config/linear/config.toml) instead |
-| `--path <file>` | write this file instead of the project config in effect      |
+| Option          | Description                                                               |
+| --------------- | ------------------------------------------------------------------------- |
+| `--user`        | write the user config (team + --workspace targets that workspace profile) |
+| `--path <file>` | write this file instead of the project config in effect                   |
 
 **Output (`--json`)**: a receipt object
 
@@ -75,6 +76,7 @@ success: boolean
 path: string
 key: string
 value: string
+workspace?: string
 ```
 
 ### `linear config show`
@@ -93,10 +95,11 @@ apiKeySource: string
 accessToken: string
 accessTokenSource: string
 credentialWorkspace: string | null
+workspaceProfile: string | null
 team: string | null
 workspace: string | null
 sort: string
-origins: {team: {source: string, path?: string, key?: string}, workspace: {source: string, path?: string, key?: string}, sort: {source: string, path?: string, key?: string}}
+origins: {team: {source: string, path?: string, key?: string, workspace?: string}, workspace: {source: string, path?: string, key?: string, workspace?: string}, sort: {source: string, path?: string, key?: string, workspace?: string}}
 userConfigPath: string
 projectConfigPath: string | null
 globalConfigPath: string | null

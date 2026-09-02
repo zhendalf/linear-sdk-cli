@@ -261,7 +261,7 @@ describe("auth migrate", () => {
   it("moves plaintext keys into the keyring; the file keeps only markers, and status flips", async () => {
     writeFileSync(
       userConfigPath(),
-      `default_workspace = "a"\n[workspaces."a"]\napi_key = "lin_api_a00000000000"\n[workspaces."b"]\napi_key = "lin_api_b00000000000"\n`,
+      `default_workspace = "a"\n[workspaces."a"]\napi_key = "lin_api_a00000000000"\nteam = "AAA"\n[workspaces."b"]\napi_key = "lin_api_b00000000000"\nteam = "BBB"\n`,
     );
     expect((await runJson(["auth", "status"])).source).toBe("user");
     const res = await runJson(["auth", "migrate"]);
@@ -269,6 +269,8 @@ describe("auth migrate", () => {
     expect(kr.store.get("a")).toBe("lin_api_a00000000000");
     expect(kr.store.get("b")).toBe("lin_api_b00000000000");
     expect(readFileSync(userConfigPath(), "utf8")).not.toContain("lin_api_");
+    expect(readFileSync(userConfigPath(), "utf8")).toContain('team = "AAA"');
+    expect(readFileSync(userConfigPath(), "utf8")).toContain('team = "BBB"');
     expect(await runJson(["auth", "status"])).toMatchObject({ source: "keychain", workspace: "a" });
     // Idempotent.
     expect((await runJson(["auth", "migrate"])).migrated).toEqual([]);
@@ -313,6 +315,7 @@ describe("auth logout", () => {
       workspace: "acme",
       removed: true,
       revocation: "revoked",
+      teamMetadataRemoved: false,
     });
     expect(requestBody).toContain("token=refresh-secret");
     expect(requestBody).toContain("token_type_hint=refresh_token");
@@ -320,10 +323,15 @@ describe("auth logout", () => {
   });
 
   it("removes the keyring entry and the workspace table", async () => {
-    writeFileSync(userConfigPath(), `[workspaces."acme"]\nkeyring = true\n`);
+    writeFileSync(userConfigPath(), `[workspaces."acme"]\nkeyring = true\nteam = "ENG"\n`);
     kr.store.set("acme", "lin_api_fromkeychain0000");
     const out = await runJson(["auth", "logout", "--yes"]);
-    expect(out).toMatchObject({ success: true, workspace: "acme", removed: true });
+    expect(out).toMatchObject({
+      success: true,
+      workspace: "acme",
+      removed: true,
+      teamMetadataRemoved: true,
+    });
     expect(kr.store.has("acme")).toBe(false);
     expect(await runJson(["auth", "list"])).toEqual([]);
   });

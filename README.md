@@ -64,7 +64,8 @@ retains their best ideas and provides a careful compatibility and migration path
 - **Git-aware** — the current issue is inferred from your branch (`tes-123-fix` → `TES-123`), so most issue commands let you drop the id.
 - **Git + GitHub workflow** — `issue start` checks out the branch and marks the issue started, `issue describe` prints a commit message with Linear-issue trailers, `issue pr` opens a GitHub PR — all linked back to the issue.
 - **Forgiving inputs** — refer to things the way you think of them: `TES-123`, team `TES`, `--assignee me`, `--cycle current`, state and label by name.
-- **Multi-workspace** — store credentials for several workspaces and switch with a global `--workspace`.
+- **Multi-workspace** — store credentials and a non-secret default team per workspace, then switch
+  both contexts with a global `--workspace`.
 - **Complete & honest** — first-class commands for the core resource graph, a raw `linear api` for everything else, and a [measured coverage audit](#coverage) that CI keeps honest.
 
 ## Install
@@ -230,6 +231,7 @@ linear auth login --workspace other-org    # …and another workspace
 linear auth login --workspace acme --key - # personal API-key fallback via stdin
 linear auth list                           # show configured workspaces + which is default
 linear auth default acme                   # choose the default workspace
+linear config set team ENG --user --workspace acme # set its validated default team
 linear --workspace other-org issue list    # use a specific workspace for one command
 linear auth logout --workspace acme        # revoke OAuth, then remove one credential
 ```
@@ -239,11 +241,13 @@ If browser login temporarily superseded an existing personal API-key profile for
 OAuth logout preserves and reactivates the API key instead of deleting it.
 
 **Selection precedence** (strict): an explicit `--api-key` or `--access-token` flag bypasses the
-environment and workspace selection entirely. Otherwise `LINEAR_API_KEY` or
-`LINEAR_ACCESS_TOKEN` is absolute. With no invocation-scoped credential, the workspace is chosen
-by `--workspace` → `LINEAR_WORKSPACE` env → project config `workspace` → `default_workspace` in the
-user config. With one configured workspace it's used automatically; with several and no selection,
-the CLI asks you to pick (via `--workspace`, project config, or `auth default`).
+environment and stored-credential lookup. Otherwise `LINEAR_API_KEY` or `LINEAR_ACCESS_TOKEN` is
+absolute. With no invocation-scoped credential, the workspace is chosen by `--workspace` →
+`LINEAR_WORKSPACE` env → project config `workspace` → `default_workspace` in the user config. With
+one configured workspace it's used automatically; with several and no selection, the CLI asks you
+to pick (via `--workspace`, project config, or `auth default`). An invocation credential does not
+silently inherit the default or project profile's team; pair it with `--workspace` (or
+`LINEAR_WORKSPACE`) naming a configured profile when that profile metadata should apply.
 
 ## Core concepts
 
@@ -563,41 +567,54 @@ Non-secret defaults live in `~/.config/linear/config.toml` (user-wide) or a proj
 file. **Secrets never go in a project file** — the API key is only ever read from the flag, the
 env, the user config, or the OS keyring.
 
-Precedence, highest first — `linear config` prints each value with the tier and file it came from:
+Effective team precedence, highest first — `linear config` prints the tier, file, and selected
+profile slug where applicable:
 
 1. the flag (`--team`, `--workspace`, `--sort`)
 2. the environment (`LINEAR_TEAM`/`LINEAR_TEAM_ID`, `LINEAR_WORKSPACE`, `LINEAR_ISSUE_SORT`)
 3. the **project config**: the first file found walking up from the working directory, checking in
    each directory `linear.toml`, then `.linear.toml`, then `.config/linear.toml`; compatible
    existing project configuration is picked up as-is
-4. the **user config**, `~/.config/linear/config.toml` (`$XDG_CONFIG_HOME` honored)
-5. the legacy **global config**, `~/.config/linear/linear.toml` — read for non-secret settings
+4. `team` on the selected `[workspaces."<slug>"]` profile
+5. the legacy top-level `team` in the **user config**, `~/.config/linear/config.toml`
+   (`$XDG_CONFIG_HOME` honored)
+6. the legacy **global config**, `~/.config/linear/linear.toml` — read for non-secret settings
    only, so a migrating user's defaults carry over
+7. no default team
+
+`workspace` and `sort` keep their existing flag → environment → project → user → legacy-global
+order. Workspace credential selection is independent and follows the order described above.
 
 Keys: `team` (or `team_id`), `workspace`, and `sort` (or `issue_sort`). You can write these from
-the CLI — comments and layout in an existing file are preserved, and the write is atomic:
+the CLI. Project and top-level setting edits preserve comments and layout. Profile updates preserve
+all TOML data and use the same locked, atomic rewrite as credential updates:
 
 ```sh
 linear config init                    # pick a team from a list → <git root>/.linear.toml
 linear config init --team TES         # …or say which (scripts); --sort, --path, --force
 linear config set sort updated        # edit one key in the project config in effect
-linear config set team ENG --user     # …or in ~/.config/linear/config.toml
+linear config set team ENG --user     # legacy top-level user fallback (backward compatible)
+linear config set team ENG --user --workspace acme # validated default for the acme profile
 linear config                         # show the result, with each value's source
 ```
 
 `config set` will not write `api_key` or anything else that belongs to the credential store — that
-is what `auth login` is for.
+is what `auth login` is for. A profile team is validated against the selected workspace whenever a
+credential is available. Login, adopt, OAuth refresh/fallback, and credential migration preserve
+profile metadata. Logout reports whether removing a whole profile also removed its team metadata.
 
 ```toml
 # ~/.config/linear/config.toml
 default_workspace = "acme"     # which stored credential is active
-team = "TES"                   # default team key
+team = "TES"                   # optional legacy/global fallback team
 sort = "priority"              # default issue-list sort: priority | updated | created
 
 [workspaces."acme"]            # per-workspace credentials (hyphenated slugs are quoted)
 keyring = true                 # secret lives in the OS keyring (service linear-cli, account acme)
+team = "ENG"                   # non-secret default team for this workspace
 [workspaces."other-org"]
 api_key = "lin_api_yyyyyyyy"   # …or, with `auth login --plaintext`, in this 0600 file
+team = "OPS"
 ```
 
 Relevant environment variables: **`LINEAR_API_KEY`** or **`LINEAR_ACCESS_TOKEN`** (absolute —

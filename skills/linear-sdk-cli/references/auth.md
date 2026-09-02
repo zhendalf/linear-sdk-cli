@@ -119,6 +119,7 @@ workspace: string
 removed: boolean
 revocation: string
 fallbackCredentialType: string | null
+teamMetadataRemoved: boolean
 ```
 
 ### `linear auth migrate`
