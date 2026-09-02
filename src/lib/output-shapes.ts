@@ -154,6 +154,7 @@ const SETTING_ORIGIN_SHAPE = shape<SettingOrigin>({
   source: "string",
   "path?": "string",
   "key?": "string",
+  "workspace?": "string",
 });
 const SETTING_ORIGINS_SHAPE = shape<SettingOrigins>({
   team: SETTING_ORIGIN_SHAPE,
@@ -168,6 +169,7 @@ const CONFIG_SHOW_SHAPE: ObjectFields = {
   accessToken: "string",
   accessTokenSource: "string",
   credentialWorkspace: "string|null",
+  workspaceProfile: "string|null",
   team: "string|null",
   workspace: "string|null",
   sort: "string",
@@ -291,6 +293,7 @@ export const OUTPUT_SHAPES: Record<string, OutputShape | null> = {
     removed: "boolean",
     revocation: "string",
     fallbackCredentialType: "string|null",
+    teamMetadataRemoved: "boolean",
   }),
   "auth migrate": receipt({ success: "boolean", migrated: ["string"], path: "string" }),
   "auth status": object({
@@ -324,7 +327,13 @@ export const OUTPUT_SHAPES: Record<string, OutputShape | null> = {
 
   config: runs("config show", object(CONFIG_SHOW_SHAPE)),
   "config init": receipt({ success: "boolean", path: "string", team: "string", "sort?": "string" }),
-  "config set": receipt({ success: "boolean", path: "string", key: "string", value: "string" }),
+  "config set": receipt({
+    success: "boolean",
+    path: "string",
+    key: "string",
+    value: "string",
+    "workspace?": "string",
+  }),
   "config show": object(CONFIG_SHOW_SHAPE),
 
   cycle: null,

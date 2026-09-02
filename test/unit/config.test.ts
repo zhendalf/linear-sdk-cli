@@ -19,11 +19,14 @@ import {
   redactKey,
   userConfigPath,
   writeCredential,
+  adoptKeyringCredential,
   writeOAuthCredential,
   readOAuthCredential,
   rotateOAuthCredential,
   setDefaultWorkspace,
+  setWorkspaceTeam,
   removeCredential,
+  removeCredentialWithMetadata,
   removeOAuthCredential,
   listCredentials,
   migrateCredentials,
@@ -33,6 +36,7 @@ import {
   assertSettableKey,
   defaultProjectConfigPath,
   SETTABLE_KEYS,
+  type ConfigSource,
   type ConfigInputs,
 } from "../../src/config.js";
 import type { OAuthUserCredential } from "../../src/oauth.js";
@@ -174,6 +178,99 @@ describe("resolveConfig precedence", () => {
   it("applies sensible defaults", () => {
     const cfg = resolveConfig({ env: baseEnv() });
     expect(cfg.sort).toBe("priority");
+  });
+
+  it("pins every effective-team precedence tier in order", () => {
+    type TeamTierCase = {
+      name: ConfigSource;
+      flag?: string;
+      env?: string;
+      project?: string;
+      profile?: string;
+      user?: string;
+      global?: string;
+    };
+    const cases: TeamTierCase[] = [
+      {
+        name: "flag",
+        flag: "FLAG",
+        env: "ENV",
+        project: "PROJECT",
+        profile: "PROFILE",
+        user: "USER",
+        global: "GLOBAL",
+      },
+      {
+        name: "env",
+        env: "ENV",
+        project: "PROJECT",
+        profile: "PROFILE",
+        user: "USER",
+        global: "GLOBAL",
+      },
+      {
+        name: "project",
+        project: "PROJECT",
+        profile: "PROFILE",
+        user: "USER",
+        global: "GLOBAL",
+      },
+      { name: "workspace-profile", profile: "PROFILE", user: "USER", global: "GLOBAL" },
+      { name: "user", user: "USER", global: "GLOBAL" },
+      { name: "global", global: "GLOBAL" },
+      { name: "none" },
+    ];
+
+    for (const [index, testCase] of cases.entries()) {
+      const fixture = join(root, `team-tier-${index}`);
+      const cwd = join(fixture, "project");
+      const configHome = join(fixture, "xdg");
+      mkdirSync(cwd, { recursive: true });
+      mkdirSync(join(configHome, "linear"), { recursive: true });
+      writeFileSync(
+        userConfigPath({ XDG_CONFIG_HOME: configHome, HOME: fixture }),
+        `default_workspace = "acme"\n${testCase.user ? `team = "${testCase.user}"\n` : ""}` +
+          `[workspaces.acme]\napi_key = "lin_api_acme000000"\n${testCase.profile ? `team = "${testCase.profile}"\n` : ""}`,
+      );
+      if (testCase.project)
+        writeFileSync(join(cwd, ".linear.toml"), `team = "${testCase.project}"\n`);
+      if (testCase.global) {
+        writeFileSync(join(configHome, "linear", "linear.toml"), `team = "${testCase.global}"\n`);
+      }
+      const cfg = resolveConfig({
+        cwd,
+        env: {
+          XDG_CONFIG_HOME: configHome,
+          HOME: fixture,
+          LINEAR_TEAM: testCase.env,
+        },
+        flags: { team: testCase.flag },
+      });
+      expect(cfg.team, testCase.name).toBe(
+        testCase.flag ??
+          testCase.env ??
+          testCase.project ??
+          testCase.profile ??
+          testCase.user ??
+          testCase.global,
+      );
+      expect(cfg.origins.team.source, testCase.name).toBe(testCase.name);
+    }
+  });
+
+  it("reports workspace-profile provenance with the selected slug", () => {
+    writeUserConfig(
+      `default_workspace = "acme"\n[workspaces.acme]\napi_key = "lin_api_acme000000"\nteam = "ENG"\n`,
+    );
+    const cfg = resolveConfig({ env: baseEnv() });
+    expect(cfg.team).toBe("ENG");
+    expect(cfg.workspaceProfile).toBe("acme");
+    expect(cfg.origins.team).toEqual({
+      source: "workspace-profile",
+      path: userConfigPath(baseEnv()),
+      key: "team",
+      workspace: "acme",
+    });
   });
 });
 
@@ -399,6 +496,87 @@ describe("multi-workspace credential resolution", () => {
     writeProjectConfig(projectDir, `workspace = "proj-ws"`);
     const cfg = resolveConfig({ env: baseEnv(), cwd: projectDir, flags: { workspace: "org-a" } });
     expect(cfg.workspace).toBe("org-a");
+  });
+
+  it("switches the profile team with the effective credential workspace", () => {
+    writeWorkspaces(
+      `default_workspace = "org-a"\n` +
+        `[workspaces.org-a]\napi_key = "lin_api_a000000000"\nteam = "AAA"\n` +
+        `[workspaces.org-b]\napi_key = "lin_api_b000000000"\nteam = "BBB"\n`,
+    );
+    expect(resolveConfig({ env: baseEnv() })).toMatchObject({
+      credentialWorkspace: "org-a",
+      workspaceProfile: "org-a",
+      team: "AAA",
+    });
+    expect(resolveConfig({ env: baseEnv(), flags: { workspace: "org-b" } })).toMatchObject({
+      credentialWorkspace: "org-b",
+      workspaceProfile: "org-b",
+      team: "BBB",
+    });
+  });
+
+  it("lets a project team override its selected workspace profile", () => {
+    writeWorkspaces(
+      `default_workspace = "org-a"\n[workspaces.org-b]\napi_key = "lin_api_b000000000"\nteam = "BBB"\n`,
+    );
+    writeProjectConfig(projectDir, `workspace = "org-b"\nteam = "PROJECT"\n`);
+    const cfg = resolveConfig({ env: baseEnv(), cwd: projectDir });
+    expect(cfg).toMatchObject({ credentialWorkspace: "org-b", team: "PROJECT" });
+    expect(cfg.origins.team.source).toBe("project");
+  });
+
+  it("keeps the legacy user team when a selected profile has no team", () => {
+    writeWorkspaces(
+      `default_workspace = "org-a"\nteam = "LEGACY"\n[workspaces.org-a]\napi_key = "lin_api_a000000000"\n`,
+    );
+    const cfg = resolveConfig({ env: baseEnv() });
+    expect(cfg.team).toBe("LEGACY");
+    expect(cfg.origins.team.source).toBe("user");
+  });
+
+  it("does not bind invocation credentials to an implicit or invalid profile", () => {
+    writeWorkspaces(
+      `default_workspace = "org-a"\nteam = "LEGACY"\n` +
+        `[workspaces.org-a]\napi_key = "lin_api_a000000000"\nteam = "AAA"\n` +
+        `[workspaces.org-b]\napi_key = "lin_api_b000000000"\nteam = "BBB"\n`,
+    );
+    expect(resolveConfig({ env: baseEnv(), flags: { apiKey: "injected" } })).toMatchObject({
+      team: "LEGACY",
+      workspaceProfile: undefined,
+    });
+    expect(
+      resolveConfig({
+        env: baseEnv(),
+        cwd: projectDir,
+        flags: { accessToken: "injected" },
+      }),
+    ).toMatchObject({ team: "LEGACY", workspaceProfile: undefined });
+    expect(
+      resolveConfig({
+        env: baseEnv(),
+        flags: { apiKey: "injected", workspace: "missing" },
+      }),
+    ).toMatchObject({ team: "LEGACY", workspaceProfile: undefined });
+  });
+
+  it("binds invocation credentials only to an explicitly selected configured profile", () => {
+    writeWorkspaces(
+      `default_workspace = "org-a"\nteam = "LEGACY"\n` +
+        `[workspaces.org-a]\napi_key = "lin_api_a000000000"\nteam = "AAA"\n` +
+        `[workspaces.org-b]\napi_key = "lin_api_b000000000"\nteam = "BBB"\n`,
+    );
+    expect(
+      resolveConfig({
+        env: baseEnv(),
+        flags: { accessToken: "injected", workspace: "org-b" },
+      }),
+    ).toMatchObject({ team: "BBB", workspaceProfile: "org-b", credentialWorkspace: undefined });
+    expect(
+      resolveConfig({
+        env: baseEnv({ LINEAR_API_KEY: "injected", LINEAR_WORKSPACE: "org-b" }),
+      }),
+    ).toMatchObject({ team: "BBB", workspaceProfile: "org-b", credentialWorkspace: undefined });
   });
 });
 
@@ -887,11 +1065,15 @@ describe("keyring-backed credentials", () => {
     });
 
     it("a re-login moves a plaintext key into the keyring rather than leaving a copy", () => {
-      writeCredential("acme", "lin_api_old00000000", { plaintext: true });
+      writeUserConfig(
+        `[workspaces.acme]\napi_key = "lin_api_old00000000"\nteam = "ENG"\nlabel = "keep"\n`,
+      );
       writeCredential("acme", "lin_api_new00000000");
       const obj = readBack();
       expect(obj.workspaces.acme.api_key).toBeUndefined();
       expect(obj.workspaces.acme.keyring).toBe(true);
+      expect(obj.workspaces.acme.team).toBe("ENG");
+      expect(obj.workspaces.acme.label).toBe("keep");
       expect(kr.store.get("acme")).toBe("lin_api_new00000000");
       expect(resolveConfig({ env: baseEnv() }).apiKey).toBe("lin_api_new00000000");
     });
@@ -933,6 +1115,19 @@ describe("keyring-backed credentials", () => {
     });
   });
 
+  describe("adoptKeyringCredential", () => {
+    it("preserves existing profile team metadata while adopting the keyring marker", () => {
+      writeUserConfig(`[workspaces.acme]\nteam = "ENG"\nnote = "keep"\n`);
+      kr.store.set("acme", "lin_api_adopt000000");
+      adoptKeyringCredential("acme", "lin_api_adopt000000");
+      expect(readBack().workspaces.acme).toEqual({
+        team: "ENG",
+        note: "keep",
+        keyring: true,
+      });
+    });
+  });
+
   describe("listCredentials / setDefaultWorkspace", () => {
     it("lists file, keyring and reference-CLI workspaces with their storage", () => {
       writeUserConfig(
@@ -961,10 +1156,44 @@ describe("keyring-backed credentials", () => {
       expect(readBack().default_workspace).toBe("lumiere");
       expect(() => setDefaultWorkspace("ghost")).toThrow(/not configured/);
     });
+
+    it("sets a profile team atomically while preserving credentials and unrelated metadata", () => {
+      writeUserConfig(
+        `default_workspace = "acme"\nteam = "LEGACY"\n` +
+          `[workspaces.acme]\napi_key = "lin_api_acme000000"\nnote = "keep"\n` +
+          `[workspaces.other]\nkeyring = true\nteam = "OTHER"\n`,
+      );
+      const before = statSync(userConfigPath(baseEnv())).ino;
+      expect(setWorkspaceTeam("acme", "ENG", baseEnv())).toBe(userConfigPath(baseEnv()));
+      const obj = readBack();
+      expect(statSync(userConfigPath(baseEnv())).ino).not.toBe(before);
+      expect(obj.default_workspace).toBe("acme");
+      expect(obj.team).toBe("LEGACY");
+      expect(obj.workspaces.acme).toEqual({
+        api_key: "lin_api_acme000000",
+        note: "keep",
+        team: "ENG",
+      });
+      expect(obj.workspaces.other).toEqual({ keyring: true, team: "OTHER" });
+    });
+
+    it("adds metadata to a reference-listed profile without rewriting its credential list", () => {
+      writeReference(`default = "lumiere"\nworkspaces = ["lumiere"]\n`);
+      const before = readFileSync(referenceCredentialsPath(baseEnv()), "utf8");
+      setWorkspaceTeam("lumiere", "LUMI", baseEnv());
+      expect(readBack().workspaces.lumiere).toEqual({ team: "LUMI" });
+      expect(readFileSync(referenceCredentialsPath(baseEnv()), "utf8")).toBe(before);
+    });
+
+    it("refuses to create team metadata for an unknown profile", () => {
+      expect(() => setWorkspaceTeam("ghost", "ENG", baseEnv())).toThrow(/not configured/);
+      expect(existsSync(userConfigPath(baseEnv()))).toBe(false);
+    });
   });
 
   describe("OAuth keyring credentials", () => {
     it("stores the entire session only in the keyring and resolves it as an access token", () => {
+      writeUserConfig(`[workspaces.acme]\nkeyring = true\nteam = "ENG"\nnote = "keep"\n`);
       const credential = oauthCredential();
       writeOAuthCredential(credential);
       const file = readFileSync(userConfigPath(), "utf8");
@@ -972,6 +1201,12 @@ describe("keyring-backed credentials", () => {
       expect(file).not.toContain("access-old");
       expect(file).not.toContain("refresh-old");
       expect(kr.store.get("oauth:acme")).toContain("refresh-old");
+      expect(readBack().workspaces.acme).toMatchObject({
+        keyring: true,
+        oauth: true,
+        team: "ENG",
+        note: "keep",
+      });
       expect(readOAuthCredential("acme")).toEqual(credential);
       const resolved = resolveConfig({ env: baseEnv() });
       expect(resolved).toMatchObject({
@@ -1002,16 +1237,18 @@ describe("keyring-backed credentials", () => {
 
     it("preserves and restores an existing keyring API-key profile", () => {
       writeCredential("acme", "lin_api_existing0000");
+      setWorkspaceTeam("acme", "ENG", baseEnv());
       writeOAuthCredential(oauthCredential());
       expect(resolveConfig({ env: baseEnv() }).oauthCredential).toBeDefined();
 
       expect(removeOAuthCredential("acme")).toEqual({
         removed: true,
         fallbackCredentialType: "api-key",
+        teamMetadataRemoved: false,
       });
       expect(kr.store.has("oauth:acme")).toBe(false);
       expect(kr.store.get("acme")).toBe("lin_api_existing0000");
-      expect(readBack().workspaces.acme).toEqual({ keyring: true });
+      expect(readBack().workspaces.acme).toEqual({ keyring: true, team: "ENG" });
       expect(resolveConfig({ env: baseEnv() }).apiKey).toBe("lin_api_existing0000");
     });
 
@@ -1025,6 +1262,17 @@ describe("keyring-backed credentials", () => {
 
       expect(removeOAuthCredential("acme").fallbackCredentialType).toBe("api-key");
       expect(readBack().workspaces.acme).toEqual({ api_key: "lin_api_plain000000" });
+    });
+
+    it("reports team metadata removal when OAuth logout removes the whole profile", () => {
+      writeOAuthCredential(oauthCredential());
+      setWorkspaceTeam("acme", "ENG", baseEnv());
+      expect(removeOAuthCredential("acme")).toEqual({
+        removed: true,
+        fallbackCredentialType: null,
+        teamMetadataRemoved: true,
+      });
+      expect(readBack().workspaces).toBeUndefined();
     });
   });
 
@@ -1050,14 +1298,27 @@ describe("keyring-backed credentials", () => {
       writeCredential("acme", "lin_api_secret00000");
       expect(removeCredential("ghost")).toBe(false);
     });
+
+    it("reports whether removing the profile also removed team metadata", () => {
+      writeCredential("acme", "lin_api_secret00000");
+      setWorkspaceTeam("acme", "ENG", baseEnv());
+      expect(removeCredentialWithMetadata("acme")).toEqual({
+        removed: true,
+        teamMetadataRemoved: true,
+      });
+      expect(removeCredentialWithMetadata("ghost")).toEqual({
+        removed: false,
+        teamMetadataRemoved: false,
+      });
+    });
   });
 
   describe("migrateCredentials", () => {
     it("moves every plaintext key into the keyring and leaves markers", () => {
       writeUserConfig(
         `default_workspace = "a"\nteam = "TES"\n` +
-          `[workspaces."a"]\napi_key = "lin_api_a000000000"\n` +
-          `[workspaces."b"]\napi_key = "lin_api_b000000000"\n` +
+          `[workspaces."a"]\napi_key = "lin_api_a000000000"\nteam = "AAA"\n` +
+          `[workspaces."b"]\napi_key = "lin_api_b000000000"\nteam = "BBB"\n` +
           `[workspaces."c"]\nkeyring = true\n`,
       );
       const res = migrateCredentials();
@@ -1067,8 +1328,8 @@ describe("keyring-backed credentials", () => {
       const text = readFileSync(userConfigPath(baseEnv()), "utf8");
       expect(text).not.toContain("lin_api_");
       const obj = readBack();
-      expect(obj.workspaces.a).toEqual({ keyring: true });
-      expect(obj.workspaces.b).toEqual({ keyring: true });
+      expect(obj.workspaces.a).toEqual({ keyring: true, team: "AAA" });
+      expect(obj.workspaces.b).toEqual({ keyring: true, team: "BBB" });
       expect(obj.team).toBe("TES");
       expect(obj.default_workspace).toBe("a");
       expect(resolveConfig({ env: baseEnv() })).toMatchObject({

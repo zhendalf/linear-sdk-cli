@@ -18,6 +18,13 @@ import { join } from "node:path";
 import { createProgram } from "../../src/cli.js";
 import { userConfigPath } from "../../src/config.js";
 import { memoryKeyring, setKeyringBackend } from "../../src/lib/keyring.js";
+import {
+  setWorkspaceTeamValidatorForTests,
+  validateWorkspaceTeam,
+} from "../../src/commands/meta.js";
+import { usageError } from "../../src/lib/errors.js";
+import { connection } from "./_fakes.js";
+import type { Context } from "../../src/context.js";
 
 let root: string;
 let repo: string;
@@ -34,14 +41,34 @@ beforeEach(() => {
   execFileSync("git", ["init", "-q"], { cwd: repo });
   savedCwd = process.cwd();
   process.chdir(sub);
-  savedEnv = { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME, HOME: process.env.HOME };
+  savedEnv = {
+    XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+    HOME: process.env.HOME,
+    LINEAR_API_KEY: process.env.LINEAR_API_KEY,
+    LINEAR_API_TOKEN: process.env.LINEAR_API_TOKEN,
+    LINEAR_ACCESS_TOKEN: process.env.LINEAR_ACCESS_TOKEN,
+    LINEAR_TEAM: process.env.LINEAR_TEAM,
+    LINEAR_TEAM_ID: process.env.LINEAR_TEAM_ID,
+    LINEAR_WORKSPACE: process.env.LINEAR_WORKSPACE,
+  };
   process.env.XDG_CONFIG_HOME = join(root, "xdg");
   process.env.HOME = root;
+  for (const key of [
+    "LINEAR_API_KEY",
+    "LINEAR_API_TOKEN",
+    "LINEAR_ACCESS_TOKEN",
+    "LINEAR_TEAM",
+    "LINEAR_TEAM_ID",
+    "LINEAR_WORKSPACE",
+  ]) {
+    delete process.env[key];
+  }
   setKeyringBackend(memoryKeyring());
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
+  setWorkspaceTeamValidatorForTests(undefined);
   process.chdir(savedCwd);
   for (const [k, v] of Object.entries(savedEnv)) {
     if (v === undefined) delete process.env[k];
@@ -103,6 +130,18 @@ describe("config init", () => {
 });
 
 describe("config set", () => {
+  it("rejects a credential whose organization differs from the target profile", async () => {
+    const ctx = {
+      client: {
+        organization: Promise.resolve({ urlKey: "other-org" }),
+        teams: async () => connection([{ id: "team-1", key: "ENG", name: "Engineering" }]),
+      },
+    } as unknown as Context;
+    await expect(validateWorkspaceTeam(ctx, "acme", "ENG")).rejects.toThrow(
+      /does not match the credential's workspace 'other-org'/,
+    );
+  });
+
   it("edits the project config in effect — wherever discovery found it", async () => {
     // A schpet-style file at the git root: `set` changes it, in its spelling.
     mkdirSync(join(repo, ".config"));
@@ -128,6 +167,64 @@ describe("config set", () => {
     expect(text).toContain('api_key = "lin_api_secret00000"');
     expect((await runJson(["auth", "status"])).authenticated).toBe(true);
     expect((await runJson(["config"])).origins.team.source).toBe("user");
+  });
+
+  it("--user --workspace writes and validates that profile's team without retargeting legacy team", async () => {
+    writeFileSync(
+      userConfigPath(),
+      `default_workspace = "acme"\nteam = "LEGACY"\n` +
+        `[workspaces.acme]\napi_key = "lin_api_secret00000"\nnote = "keep"\n`,
+    );
+    const validate = vi.fn(async (_ctx, workspace: string, team: string) => {
+      expect(workspace).toBe("acme");
+      expect(team).toBe("ENG");
+      return "ENG";
+    });
+    setWorkspaceTeamValidatorForTests(validate);
+
+    const out = await runJson(["config", "set", "team", "eng", "--user", "--workspace", "acme"]);
+    expect(out).toEqual({
+      success: true,
+      path: userConfigPath(),
+      key: "team",
+      value: "ENG",
+      workspace: "acme",
+    });
+    expect(validate).toHaveBeenCalledTimes(1);
+    const text = readFileSync(userConfigPath(), "utf8");
+    expect(text).toContain('team = "LEGACY"');
+    expect(text).toContain('note = "keep"');
+    const shown = await runJson(["config", "show", "--workspace", "acme"]);
+    expect(shown).toMatchObject({
+      team: "ENG",
+      workspaceProfile: "acme",
+      origins: {
+        team: { source: "workspace-profile", key: "team", workspace: "acme" },
+      },
+    });
+    expect(JSON.stringify(shown)).not.toContain("lin_api_secret00000");
+  });
+
+  it("rejects a profile team that validation cannot find in the selected workspace", async () => {
+    writeFileSync(userConfigPath(), `[workspaces.acme]\napi_key = "lin_api_secret00000"\n`);
+    setWorkspaceTeamValidatorForTests(async () => {
+      throw usageError("No team matching 'NOPE' in workspace 'acme'.");
+    });
+    await expect(
+      run(["config", "set", "team", "NOPE", "--user", "--workspace", "acme"]),
+    ).rejects.toThrow(/No team matching/);
+    expect(readFileSync(userConfigPath(), "utf8")).not.toContain("team =");
+  });
+
+  it("keeps config set team --user as the legacy top-level write without --workspace", async () => {
+    writeFileSync(
+      userConfigPath(),
+      `[workspaces.acme]\napi_key = "lin_api_secret00000"\nteam = "PROFILE"\n`,
+    );
+    await run(["config", "set", "team", "LEGACY", "--user"]);
+    const text = readFileSync(userConfigPath(), "utf8");
+    expect(text).toMatch(/^team = "LEGACY"/);
+    expect(text).toContain('team = "PROFILE"');
   });
 
   it("refuses secrets, unknown keys, bad values, and --user with --path", async () => {

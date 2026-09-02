@@ -3,8 +3,9 @@
  *
  * Two tiers with different trust boundaries:
  *  - Non-secret settings (team, workspace, sort): flag > env > project
- *    config > user config (`~/.config/linear/config.toml`) > the reference
- *    CLI's global config (`~/.config/linear/linear.toml`, read-only).
+ *    config > selected workspace profile (team only) > user config
+ *    (`~/.config/linear/config.toml`) > the reference CLI's global config
+ *    (`~/.config/linear/linear.toml`, read-only).
  *    The project config is the first file found walking cwd → filesystem
  *    root, checking `linear.toml`, `.linear.toml`, `.config/linear.toml` in
  *    each directory — every location schpet/linear-cli 2.5 reads (it checks
@@ -70,7 +71,15 @@ export interface RawSettings {
  * `global` is the reference CLI's `~/.config/linear/linear.toml`, read for
  * non-secret settings only; `keychain` is the OS keyring (API key or human OAuth session).
  */
-export type ConfigSource = "flag" | "env" | "project" | "user" | "global" | "keychain" | "none";
+export type ConfigSource =
+  | "flag"
+  | "env"
+  | "project"
+  | "workspace-profile"
+  | "user"
+  | "global"
+  | "keychain"
+  | "none";
 
 /** Where a stored workspace credential's secret lives. */
 export type CredentialStorage = "file" | "keychain";
@@ -81,6 +90,8 @@ export interface SettingOrigin {
   path?: string;
   /** Exact spelling found in the file (`issue_sort`, not just canonical `sort`). */
   key?: string;
+  /** Workspace slug for a value read from `[workspaces."<slug>"]`. */
+  workspace?: string;
 }
 
 /** The non-secret settings, each with its provenance. */
@@ -104,6 +115,8 @@ export interface ResolvedConfig {
   apiKeyError?: CliError;
   /** Workspace slug whose stored credential was used, if any. */
   credentialWorkspace?: string;
+  /** Selected stored profile whose non-secret metadata may participate. */
+  workspaceProfile?: string;
   team?: string;
   /** Non-secret display workspace setting (separate from credentialWorkspace). */
   workspace?: string;
@@ -174,6 +187,8 @@ interface WorkspaceEntry {
   apiKey?: string;
   /** This workspace uses the isolated `oauth:<slug>` keyring account. */
   oauth?: boolean;
+  /** Non-secret default team for this workspace. */
+  team?: string;
 }
 
 /** Parsed view of the user config: top-level settings + nested workspace creds. */
@@ -328,6 +343,7 @@ function readUserConfig(path: string): UserConfig {
         workspaces[slug] = {
           apiKey: asString(table.api_key),
           oauth: table.oauth === true,
+          team: asString(table.team),
         };
       }
     }
@@ -450,6 +466,7 @@ export function resolveConfig(inputs: ConfigInputs = {}): ResolvedConfig {
   let accessTokenSource: ConfigSource = "none";
   let oauthCredential: OAuthUserCredential | undefined;
   let credentialWorkspace: string | undefined;
+  let workspaceProfile: string | undefined;
   let apiKeyError: CliError | undefined;
 
   if (flags.apiKey && flags.accessToken) {
@@ -531,8 +548,27 @@ export function resolveConfig(inputs: ConfigInputs = {}): ResolvedConfig {
     }
   }
 
+  // A stored credential binds its own profile. An invocation-scoped credential
+  // never inherits the default/project workspace implicitly; it may bind only
+  // when this invocation explicitly selected a profile by flag or environment
+  // and that profile is actually configured.
+  if (credentialWorkspace && user.workspaces[credentialWorkspace]) {
+    workspaceProfile = credentialWorkspace;
+  } else {
+    const invocationCredential =
+      apiKeySource === "flag" ||
+      apiKeySource === "env" ||
+      accessTokenSource === "flag" ||
+      accessTokenSource === "env";
+    const explicitWorkspace = flags.workspace ?? envSettings.workspace;
+    if (invocationCredential && explicitWorkspace && user.workspaces[explicitWorkspace]) {
+      workspaceProfile = explicitWorkspace;
+    }
+  }
+
   // ----- Non-secret settings (project + global config MAY participate) -----
-  // flag > env > project file > our user file > the reference CLI's global file.
+  // Workspace and sort keep their existing order. Team inserts the selected
+  // workspace profile between project and the legacy top-level user fallback.
   const tiers: Array<[ConfigSource, RawSettings, string | undefined, SettingKeys | undefined]> = [
     ["flag", flags, undefined, undefined],
     ["env", envSettings, undefined, undefined],
@@ -543,13 +579,30 @@ export function resolveConfig(inputs: ConfigInputs = {}): ResolvedConfig {
   const pick = <K extends "team" | "workspace" | "sort">(key: K): string | undefined =>
     tiers.find(([, settings]) => settings[key] !== undefined)?.[1][key];
 
+  const profileTeam = workspaceProfile ? user.workspaces[workspaceProfile]?.team : undefined;
+  const teamTiers: typeof tiers = [
+    ["flag", flags, undefined, undefined],
+    ["env", envSettings, undefined, undefined],
+    ["project", project.settings, projectPath, project.keys],
+    [
+      "workspace-profile",
+      profileTeam ? { team: profileTeam } : {},
+      userPath,
+      profileTeam ? { team: "team" } : undefined,
+    ],
+    ["user", user.settings, userPath, user.settingKeys],
+    ["global", global.settings, globalPath, global.keys],
+  ];
+
   /** Which tier `pick` took the value from, and which file if it was one. */
   const originOf = (key: "team" | "workspace" | "sort"): SettingOrigin => {
-    const hit = tiers.find(([, settings]) => settings[key] !== undefined);
+    const candidates = key === "team" ? teamTiers : tiers;
+    const hit = candidates.find(([, settings]) => settings[key] !== undefined);
     if (!hit) return { source: "none" };
     const origin: SettingOrigin = { source: hit[0], path: hit[2] };
     const spelling = hit[3]?.[key];
     if (spelling !== undefined) origin.key = spelling;
+    if (hit[0] === "workspace-profile") origin.workspace = workspaceProfile;
     return origin;
   };
 
@@ -567,7 +620,8 @@ export function resolveConfig(inputs: ConfigInputs = {}): ResolvedConfig {
     oauthCredential,
     apiKeyError,
     credentialWorkspace,
-    team: pick("team"),
+    workspaceProfile,
+    team: teamTiers.find(([, settings]) => settings.team !== undefined)?.[1].team,
     // The display setting walks every tier. Credential selection above uses
     // the flag, env, and project tiers, then the auth-specific user default.
     workspace: pick("workspace"),
@@ -823,6 +877,7 @@ interface WorkspaceTable {
   api_key?: string;
   keyring?: boolean;
   oauth?: boolean;
+  team?: string;
 }
 
 function workspacesTable(obj: Record<string, unknown>): Record<string, WorkspaceTable> {
@@ -1151,6 +1206,31 @@ export function setDefaultWorkspace(slug: string): string {
   });
 }
 
+/** Set non-secret team metadata on one existing workspace profile. */
+export function setWorkspaceTeam(
+  slug: string,
+  team: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const path = userConfigPath(env);
+  return withUserConfigLock(path, () => {
+    const known = readUserConfig(path).workspaces;
+    if (!known[slug]) {
+      throw new CliError(
+        `Workspace '${sanitize(slug)}' is not configured. Run \`linear auth login --workspace ${sanitize(slug)}\` first.`,
+        "not_found",
+      );
+    }
+    const obj = readUserObject(path);
+    const ws = workspacesTable(obj);
+    const table: WorkspaceTable = { ...(ws[slug] ?? {}) };
+    table.team = team;
+    ws[slug] = table;
+    writeUserObject(path, obj);
+    return path;
+  });
+}
+
 /**
  * Drop `slug` from the reference CLI's keyring-format credentials list, if it
  * is there, in that file's own layout (`default` first, sorted `workspaces`).
@@ -1176,10 +1256,17 @@ function removeFromReferenceCredentials(slug: string): boolean {
  * removed slug was the default, the default is repointed to a remaining
  * workspace (or cleared). Returns true if anything was removed.
  */
-export function removeCredential(slug: string): boolean {
+export interface RemoveCredentialResult {
+  removed: boolean;
+  teamMetadataRemoved: boolean;
+}
+
+/** Detailed removal receipt used by `auth logout`. */
+export function removeCredentialWithMetadata(slug: string): RemoveCredentialResult {
   const path = userConfigPath();
   return withUserConfigLock(path, () => {
     let removed = false;
+    let teamMetadataRemoved = false;
 
     const backend = keyring();
     if (backend) {
@@ -1188,11 +1275,12 @@ export function removeCredential(slug: string): boolean {
     }
     if (removeFromReferenceCredentials(slug)) removed = true;
 
-    if (!existsSync(path)) return removed;
+    if (!existsSync(path)) return { removed, teamMetadataRemoved };
     const obj = readUserObject(path);
     const ws = workspacesTable(obj);
     const listed = Boolean(ws[slug]);
     if (listed) {
+      teamMetadataRemoved = asString(ws[slug]?.team) !== undefined;
       delete ws[slug];
       removed = true;
     }
@@ -1206,13 +1294,19 @@ export function removeCredential(slug: string): boolean {
     } else if (listed) {
       writeUserObject(path, obj);
     }
-    return removed;
+    return { removed, teamMetadataRemoved };
   });
+}
+
+/** Backward-compatible boolean removal API. */
+export function removeCredential(slug: string): boolean {
+  return removeCredentialWithMetadata(slug).removed;
 }
 
 export interface RemoveOAuthCredentialResult {
   removed: boolean;
   fallbackCredentialType: "api-key" | null;
+  teamMetadataRemoved: boolean;
 }
 
 /** Remove only the human OAuth lifecycle, restoring a pre-existing API-key profile if present. */
@@ -1223,6 +1317,7 @@ export function removeOAuthCredential(slug: string): RemoveOAuthCredentialResult
     let oauthRaw: string | null = null;
     let keyringApiKey = false;
     let removed = false;
+    let teamMetadataRemoved = false;
     if (backend) {
       try {
         oauthRaw = backend.get(oauthAccount(slug));
@@ -1237,7 +1332,11 @@ export function removeOAuthCredential(slug: string): RemoveOAuthCredentialResult
     }
 
     if (!existsSync(path)) {
-      return { removed, fallbackCredentialType: keyringApiKey ? "api-key" : null };
+      return {
+        removed,
+        fallbackCredentialType: keyringApiKey ? "api-key" : null,
+        teamMetadataRemoved,
+      };
     }
     try {
       const obj = readUserObject(path);
@@ -1255,6 +1354,7 @@ export function removeOAuthCredential(slug: string): RemoveOAuthCredentialResult
         else fallback.keyring = true;
         ws[slug] = fallback;
       } else if (table) {
+        teamMetadataRemoved = asString(table.team) !== undefined;
         delete ws[slug];
       }
       if (Object.keys(ws).length === 0) delete obj.workspaces;
@@ -1270,6 +1370,7 @@ export function removeOAuthCredential(slug: string): RemoveOAuthCredentialResult
       return {
         removed,
         fallbackCredentialType: apiKeyFallback ? "api-key" : null,
+        teamMetadataRemoved,
       };
     } catch (err) {
       try {

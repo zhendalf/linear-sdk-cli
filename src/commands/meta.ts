@@ -12,7 +12,7 @@ import {
   writeCredential,
   probeKeyringCredential,
   adoptKeyringCredential,
-  removeCredential,
+  removeCredentialWithMetadata,
   removeOAuthCredential,
   setDefaultWorkspace,
   listCredentials,
@@ -24,6 +24,7 @@ import {
   defaultProjectConfigPath,
   assertSettableKey,
   setConfigKey,
+  setWorkspaceTeam,
   initProjectConfig,
   SETTABLE_KEYS,
   type SettableKey,
@@ -33,6 +34,7 @@ import { readStdinSync } from "../lib/body.js";
 import { authError, normalizeError, usageError } from "../lib/errors.js";
 import { confirmDestructive, promptSelect } from "../lib/prompt.js";
 import { listTeams } from "../services/team.js";
+import { resolveTeam } from "../lib/resolve.js";
 import { ISSUE_SORTS } from "../services/issue.js";
 import { firstTeam, type Context } from "../context.js";
 import { openUrl } from "../lib/open.js";
@@ -103,6 +105,31 @@ export function setAuthValidationClientFactoryForTests(
   factory: AuthValidationClientFactory | undefined,
 ): void {
   authValidationClientFactory = factory ?? defaultAuthValidationClientFactory;
+}
+
+type WorkspaceTeamValidator = (ctx: Context, workspace: string, team: string) => Promise<string>;
+
+/** Validate that an effective credential and team both belong to the requested workspace. */
+export const validateWorkspaceTeam: WorkspaceTeamValidator = async (ctx, workspace, team) => {
+  const [organization, resolved] = await Promise.all([
+    withRetry(() => ctx.client.organization),
+    resolveTeam(ctx.client, team, undefined),
+  ]);
+  if (organization.urlKey !== workspace) {
+    throw usageError(
+      `--workspace '${workspace}' does not match the credential's workspace '${organization.urlKey}'.`,
+    );
+  }
+  return resolved.key;
+};
+
+let workspaceTeamValidator = validateWorkspaceTeam;
+
+/** Test seam for profile-team validation; production always checks Linear. */
+export function setWorkspaceTeamValidatorForTests(
+  validator: WorkspaceTeamValidator | undefined,
+): void {
+  workspaceTeamValidator = validator ?? validateWorkspaceTeam;
 }
 
 /** Merge the local and global login spellings without silently choosing one. */
@@ -529,7 +556,7 @@ export function registerMeta(program: Command): void {
         const local =
           entry?.credentialType === "oauth-user"
             ? removeOAuthCredential(slug)
-            : { removed: removeCredential(slug), fallbackCredentialType: null };
+            : { ...removeCredentialWithMetadata(slug), fallbackCredentialType: null };
         ctx.output.emit(
           {
             success: true,
@@ -537,11 +564,12 @@ export function registerMeta(program: Command): void {
             removed: local.removed,
             revocation,
             fallbackCredentialType: local.fallbackCredentialType,
+            teamMetadataRemoved: local.teamMetadataRemoved,
           },
           () =>
             local.removed
               ? ctx.output.success(
-                  `Removed workspace '${slug}'.${revocation === "revoked" ? " OAuth access was revoked." : revocation === "already-revoked" ? " OAuth access was already revoked." : ""}${local.fallbackCredentialType ? " The existing personal API-key profile is active again." : ""}`,
+                  `Removed workspace '${slug}'.${revocation === "revoked" ? " OAuth access was revoked." : revocation === "already-revoked" ? " OAuth access was already revoked." : ""}${local.fallbackCredentialType ? " The existing personal API-key profile is active again." : ""}${local.teamMetadataRemoved ? " Its default team metadata was removed." : ""}`,
                 )
               : ctx.output.info(`No credential for workspace '${slug}' to remove.`),
         );
@@ -589,6 +617,7 @@ export function registerMeta(program: Command): void {
             accessToken: redactKey(c.accessToken),
             accessTokenSource: c.accessTokenSource,
             credentialWorkspace: c.credentialWorkspace ?? null,
+            workspaceProfile: c.workspaceProfile ?? null,
             team: c.team ?? null,
             workspace: c.workspace ?? null,
             sort: c.sort,
@@ -601,6 +630,7 @@ export function registerMeta(program: Command): void {
             ["API key", `${redactKey(c.apiKey)} (${c.apiKeySource})`],
             ["OAuth access token", `${redactKey(c.accessToken)} (${c.accessTokenSource})`],
             ["Credential workspace", c.credentialWorkspace ?? "(none)"],
+            ["Workspace profile", c.workspaceProfile ?? "(none)"],
             ["Team", show("team", c.team)],
             ["Workspace", show("workspace", c.workspace)],
             ["Sort", show("sort", c.sort)],
@@ -656,8 +686,8 @@ export function registerMeta(program: Command): void {
   // set ---------------------------------------------------------------------
   config
     .command("set <key> <value>")
-    .description(`Set one project setting (${SETTABLE_KEYS.join(", ")}) in the project config`)
-    .option("--user", "write the user config (~/.config/linear/config.toml) instead")
+    .description(`Set one project or user setting (${SETTABLE_KEYS.join(", ")})`)
+    .option("--user", "write the user config (team + --workspace targets that workspace profile)")
     .option("--path <file>", "write this file instead of the project config in effect")
     .action(
       action(async (ctx: Context, opts, key: string, value: string) => {
@@ -676,10 +706,26 @@ export function registerMeta(program: Command): void {
           // here — or a fresh .linear.toml at the git root if there is none.
           path = ctx.config.projectConfigPath ?? defaultProjectConfigPath();
         }
-        const spelling = setConfigKey(path, key, clean, { mode });
-        ctx.output.emit({ success: true, path, key: spelling, value: clean }, () =>
-          ctx.output.success(`Set ${spelling} = ${JSON.stringify(clean)} in ${path}`),
-        );
+        const profileWorkspace = opts.user && key === "team" ? ctx.options.workspace : undefined;
+        if (profileWorkspace) {
+          let team = clean;
+          if (ctx.config.apiKey || ctx.config.accessToken) {
+            team = await workspaceTeamValidator(ctx, profileWorkspace, clean);
+          }
+          path = setWorkspaceTeam(profileWorkspace, team);
+          ctx.output.emit(
+            { success: true, path, key: "team", value: team, workspace: profileWorkspace },
+            () =>
+              ctx.output.success(
+                `Set team = ${JSON.stringify(team)} for workspace '${profileWorkspace}' in ${path}`,
+              ),
+          );
+        } else {
+          const spelling = setConfigKey(path, key, clean, { mode });
+          ctx.output.emit({ success: true, path, key: spelling, value: clean }, () =>
+            ctx.output.success(`Set ${spelling} = ${JSON.stringify(clean)} in ${path}`),
+          );
+        }
       }),
     );
 }
