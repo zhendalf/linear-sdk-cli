@@ -210,6 +210,28 @@ export const COMMAND_NODE_SHAPE = shape<CommandNode>({
 // Receipts shared by several commands.
 const ISSUE_REF: ObjectFields = { id: "string", identifier: "string" };
 const ISSUE_URL_RECEIPT: ObjectFields = { ...ISSUE_REF, url: "string" };
+const ISSUE_ASSIGNEE_SHAPE: FieldShape = {
+  nullable: { id: "string", displayName: "string", email: "string" },
+};
+const ISSUE_DELEGATE_SHAPE: FieldShape = {
+  nullable: { id: "string", displayName: "string", name: "string" },
+};
+const ISSUE_DELEGATION_RECEIPT: ObjectFields = {
+  ...ISSUE_URL_RECEIPT,
+  assignee: ISSUE_ASSIGNEE_SHAPE,
+  delegate: ISSUE_DELEGATE_SHAPE,
+};
+const ISSUE_MUTATION_PREVIEW: ObjectFields = {
+  operation: "string",
+  dryRun: "boolean",
+  target: { nullable: ISSUE_REF },
+  input: "object",
+};
+const ISSUE_DELEGATION_FULL_RESULT: ObjectFields = {
+  receipt: ISSUE_DELEGATION_RECEIPT,
+  resource: ISSUE_DETAIL_SHAPE,
+  verified: "boolean",
+};
 const NAMED_URL_RECEIPT: ObjectFields = { id: "string", name: "string", url: "string" };
 const NAMED_DELETED: ObjectFields = { id: "string", name: "string", deleted: "boolean" };
 const NAMED_ARCHIVED: ObjectFields = { id: "string", name: "string", archived: "boolean" };
@@ -417,6 +439,12 @@ export const OUTPUT_SHAPES: Record<string, OutputShape | null> = {
     },
   ),
   "issue assign": receipt(ISSUE_REF),
+  "issue delegate": receipt(ISSUE_DELEGATION_RECEIPT, {
+    variants: {
+      "--dry-run": receipt(ISSUE_MUTATION_PREVIEW),
+      "--full-result": receipt(ISSUE_DELEGATION_FULL_RESULT),
+    },
+  }),
   "issue attach": list(
     {
       id: "string",
@@ -447,6 +475,10 @@ export const OUTPUT_SHAPES: Record<string, OutputShape | null> = {
         checkedOut: "boolean",
         stateChanged: "boolean",
       }),
+      "--delegate": receipt(ISSUE_DELEGATION_RECEIPT),
+      "--clear-delegate": receipt(ISSUE_DELEGATION_RECEIPT),
+      "--dry-run": receipt(ISSUE_MUTATION_PREVIEW),
+      "--full-result": receipt(ISSUE_DELEGATION_FULL_RESULT),
     },
   }),
   "issue delete": receipt(
@@ -508,7 +540,14 @@ export const OUTPUT_SHAPES: Record<string, OutputShape | null> = {
   "issue title": receipt({ title: "string" }),
   "issue unarchive": receipt({ ...ISSUE_REF, archived: "boolean" }),
   "issue unsubscribe": receipt({ ...ISSUE_REF, subscribed: "boolean" }),
-  "issue update": receipt(ISSUE_URL_RECEIPT),
+  "issue update": receipt(ISSUE_URL_RECEIPT, {
+    variants: {
+      "--delegate": receipt(ISSUE_DELEGATION_RECEIPT),
+      "--clear-delegate": receipt(ISSUE_DELEGATION_RECEIPT),
+      "--dry-run": receipt(ISSUE_MUTATION_PREVIEW),
+      "--full-result": receipt(ISSUE_DELEGATION_FULL_RESULT),
+    },
+  }),
   "issue url": receipt({ url: "string" }),
   "issue view": ISSUE_VIEW,
 

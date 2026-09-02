@@ -10,8 +10,14 @@ import type { ResolvedConfig } from "../config.js";
 import { withRetry } from "../client.js";
 import { shape } from "../lib/shape.js";
 import { collect, collectRawQuery } from "../lib/pagination.js";
-import { usageError, notFound } from "../lib/errors.js";
+import { CliError, usageError, notFound } from "../lib/errors.js";
 import { assertMutation, unwrapMutation } from "../lib/mutation.js";
+import {
+  delegationFeatureError,
+  isDelegationReadUnavailable,
+  resolveDelegate,
+  type DelegateRef,
+} from "../lib/delegation.js";
 import {
   resolveUserId,
   resolveProjectId,
@@ -564,6 +570,7 @@ export interface IssueDetail {
   canceledAt: string | null;
   state: { id: string; name: string; type: string } | null;
   assignee: { id: string; displayName: string; email: string } | null;
+  delegate: DelegateRef | null;
   team: { id: string; key: string; name: string } | null;
   project: { id: string; name: string } | null;
   milestone: { id: string; name: string } | null;
@@ -600,6 +607,7 @@ export const ISSUE_DETAIL_SHAPE = shape<IssueDetail>({
   canceledAt: "string|null",
   state: { nullable: { id: "string", name: "string", type: "string" } },
   assignee: { nullable: { id: "string", displayName: "string", email: "string" } },
+  delegate: { nullable: { id: "string", displayName: "string", name: "string" } },
   team: { nullable: { id: "string", key: "string", name: "string" } },
   project: { nullable: { id: "string", name: "string" } },
   milestone: { nullable: { id: "string", name: "string" } },
@@ -714,6 +722,7 @@ query CliIssueDetail($filter: IssueFilter!, $includeComments: Boolean!) {
       createdAt updatedAt ${LIFECYCLE_FIELDS}
       state { id name type }
       assignee { id displayName email }
+      delegate { id displayName name }
       team { id key name }
       project { id name }
       projectMilestone { id name }
@@ -755,6 +764,12 @@ query CliIssueDetail($filter: IssueFilter!, $includeComments: Boolean!) {
   }
 }`;
 
+/** Ordinary issue reads remain usable against schemas that predate delegation. */
+const DETAIL_QUERY_WITHOUT_DELEGATE = DETAIL_QUERY.replace(
+  "      delegate { id displayName name }\n",
+  "",
+);
+
 const IDENTIFIER_RE = /^([a-zA-Z][a-zA-Z0-9]*)-(\d+)$/;
 
 /** The IssueFilter that names exactly one issue, by UUID or by `TES-123`. */
@@ -777,12 +792,27 @@ export async function getIssueDetail(
   opts: { includeComments?: boolean } = {},
 ): Promise<IssueDetail> {
   const { filter, label } = detailFilter(idArg);
-  const data: any = await withRetry(() =>
-    (client as any).client.rawRequest(DETAIL_QUERY, {
-      filter,
-      includeComments: opts.includeComments !== false,
-    }),
-  );
+  let data: any;
+  try {
+    data = await withRetry(() =>
+      (client as any).client.rawRequest(DETAIL_QUERY, {
+        filter,
+        includeComments: opts.includeComments !== false,
+      }),
+    );
+  } catch (err) {
+    if (!isDelegationReadUnavailable(err)) throw err;
+    // `delegate` belongs to Linear for Agents (Developer Preview). An older
+    // schema must not break every ordinary `issue view`; retry the established
+    // detail query and represent the unavailable relationship as null. Writes
+    // and delegate resolution do not use this fallback and still fail closed.
+    data = await withRetry(() =>
+      (client as any).client.rawRequest(DETAIL_QUERY_WITHOUT_DELEGATE, {
+        filter,
+        includeComments: opts.includeComments !== false,
+      }),
+    );
+  }
   const n = data.data?.issues?.nodes?.[0];
   if (!n) throw notFound(`No issue ${label}.`);
   return {
@@ -801,6 +831,7 @@ export async function getIssueDetail(
     ...lifecycle(n),
     state: n.state ?? null,
     assignee: n.assignee ?? null,
+    delegate: n.delegate ?? null,
     team: n.team ?? null,
     project: n.project ?? null,
     milestone: n.projectMilestone ?? null,
@@ -822,6 +853,45 @@ export async function getIssueDetail(
     inverseRelations: n.inverseRelations?.nodes ?? [],
     comments: (n.comments?.nodes ?? []).map(toIssueCommentDetail),
   };
+}
+
+export interface IssueDelegationReceipt {
+  id: string;
+  identifier: string;
+  url: string;
+  assignee: IssueDetail["assignee"];
+  delegate: IssueDetail["delegate"];
+}
+
+/** Stable relationship receipt used whenever a command changes delegation. */
+export function issueDelegationReceipt(detail: IssueDetail): IssueDelegationReceipt {
+  return {
+    id: detail.id,
+    identifier: detail.identifier,
+    url: detail.url,
+    assignee: detail.assignee,
+    delegate: detail.delegate,
+  };
+}
+
+/**
+ * Confirm the authoritative delegate matches the exact nullable mutation input.
+ * A mismatch happens after a successful write, so the error says the mutation
+ * may have committed rather than pretending it was rejected.
+ */
+export function verifyIssueDelegate(detail: IssueDetail, input: Record<string, unknown>): void {
+  if (!("delegateId" in input)) return;
+  const expected = input.delegateId ?? null;
+  const actual = detail.delegate?.id ?? null;
+  if (actual === expected) return;
+  throw new CliError(
+    `Issue mutation succeeded, but delegation read-back did not match (expected ${
+      expected ?? "no delegate"
+    }, got ${actual ?? "no delegate"}). The write may have committed.`,
+    "api",
+    { expectedDelegateId: expected, actualDelegateId: actual },
+    "Re-read the issue before retrying the mutation.",
+  );
 }
 
 /** Normalize nullable comment relations while preserving thread metadata. */
@@ -846,6 +916,9 @@ export interface CreateOptions {
   description?: string;
   team?: string;
   assignee?: string;
+  delegate?: string;
+  /** Explicitly create without a delegate (`delegateId: null`), distinct from omission. */
+  clearDelegate?: boolean;
   state?: string;
   priority?: number;
   label?: string[];
@@ -867,12 +940,26 @@ export interface CreateOptions {
   useDefaultTemplate?: boolean;
 }
 
-/** Build an IssueCreateInput, resolving every human reference to an id. */
-export async function createIssue(
+export interface IssueMutationTarget {
+  id: string;
+  identifier: string;
+}
+
+export interface IssueMutationPlan {
+  operation: "issue.create" | "issue.update" | "issue.delegate";
+  target: IssueMutationTarget | null;
+  input: Record<string, any>;
+}
+
+/** Build the exact IssueCreateInput without sending a mutation. */
+export async function prepareIssueCreate(
   client: LinearClient,
   opts: CreateOptions,
   defaultTeamKey: string | undefined,
-) {
+): Promise<IssueMutationPlan> {
+  if (opts.delegate !== undefined && opts.clearDelegate) {
+    throw usageError("Pass either --delegate or --clear-delegate, not both.");
+  }
   const team = await resolveTeam(client, opts.team, defaultTeamKey);
   const input: Record<string, any> = { teamId: team.id, title: opts.title };
   if (opts.description !== undefined) input.description = opts.description;
@@ -880,6 +967,10 @@ export async function createIssue(
   if (opts.estimate !== undefined) input.estimate = opts.estimate;
   if (opts.dueDate) input.dueDate = opts.dueDate;
   if (opts.assignee) input.assigneeId = await resolveUserId(client, opts.assignee);
+  if (opts.delegate !== undefined) {
+    input.delegateId = (await resolveDelegate(client, opts.delegate, team.id)).id;
+  }
+  if (opts.clearDelegate) input.delegateId = null;
   if (opts.state) input.stateId = await resolveStateId(client, team.id, opts.state);
   if (opts.label?.length) input.labelIds = await resolveLabelIds(client, opts.label, team.id);
   if (opts.project) input.projectId = await resolveProjectId(client, opts.project);
@@ -906,11 +997,30 @@ export async function createIssue(
   if (opts.template) input.templateId = await resolveTemplateId(client, team.id, opts.template);
   else if (opts.useDefaultTemplate !== false) input.useDefaultTemplate = true;
 
-  return unwrapMutation(
-    withRetry(() => client.createIssue(input as any)),
-    "issue",
-    "Issue creation",
-  );
+  return { operation: "issue.create", target: null, input };
+}
+
+/** Execute an already-resolved issue create plan. */
+export async function executeIssueCreate(client: LinearClient, plan: IssueMutationPlan) {
+  try {
+    return await unwrapMutation(
+      withRetry(() => client.createIssue(plan.input as any)),
+      "issue",
+      "Issue creation",
+    );
+  } catch (err) {
+    if ("delegateId" in plan.input) throw delegationFeatureError(err);
+    throw err;
+  }
+}
+
+/** Build and execute an issue create, preserving the existing service contract. */
+export async function createIssue(
+  client: LinearClient,
+  opts: CreateOptions,
+  defaultTeamKey: string | undefined,
+) {
+  return executeIssueCreate(client, await prepareIssueCreate(client, opts, defaultTeamKey));
 }
 
 export interface UpdateOptions {
@@ -919,6 +1029,7 @@ export interface UpdateOptions {
   /** Move the issue to another team (key, name, or id). Changes its identifier. */
   team?: string;
   assignee?: string;
+  delegate?: string;
   state?: string;
   priority?: number;
   project?: string;
@@ -933,16 +1044,26 @@ export interface UpdateOptions {
   removeLabel?: string[];
   /** Clear the assignee. Mutually exclusive with `assignee`. */
   unassign?: boolean;
+  /** Clear the delegate. Mutually exclusive with `delegate`. */
+  clearDelegate?: boolean;
   /** Remove the issue from its cycle. Mutually exclusive with `cycle`. */
   clearCycle?: boolean;
 }
 
-export async function updateIssue(client: LinearClient, idArg: string, opts: UpdateOptions) {
+/** Build the exact IssueUpdateInput without sending a mutation. */
+export async function prepareIssueUpdate(
+  client: LinearClient,
+  idArg: string,
+  opts: UpdateOptions,
+  operation: IssueMutationPlan["operation"] = "issue.update",
+): Promise<IssueMutationPlan> {
   // Contradictory pairs are a usage error rather than a silent last-one-wins.
   if (opts.unassign && opts.assignee)
     throw usageError("Pass either --assignee or --unassign, not both.");
   if (opts.clearCycle && opts.cycle)
     throw usageError("Pass either --cycle or --clear-cycle, not both.");
+  if (opts.clearDelegate && opts.delegate !== undefined)
+    throw usageError("Pass either --delegate or --clear-delegate, not both.");
   if (opts.label !== undefined && (opts.addLabel !== undefined || opts.removeLabel !== undefined))
     throw usageError("Pass either --label (replace all) or --add-label/--remove-label, not both.");
 
@@ -965,6 +1086,11 @@ export async function updateIssue(client: LinearClient, idArg: string, opts: Upd
   if (opts.assignee) input.assigneeId = await resolveUserId(client, opts.assignee);
   // null (not undefined) is what clears a relation in Linear's update inputs.
   if (opts.unassign) input.assigneeId = null;
+  if (opts.delegate !== undefined) {
+    if (!teamId) throw usageError("Cannot resolve a delegate without an issue team.");
+    input.delegateId = (await resolveDelegate(client, opts.delegate, teamId)).id;
+  }
+  if (opts.clearDelegate) input.delegateId = null;
   if (opts.clearCycle) input.cycleId = null;
   if (opts.state) {
     if (!teamId) throw usageError("Cannot resolve state without a team.");
@@ -987,14 +1113,33 @@ export async function updateIssue(client: LinearClient, idArg: string, opts: Upd
 
   if (Object.keys(input).length === 0)
     throw usageError("Nothing to update; pass at least one field.");
+  return {
+    operation,
+    target: { id: issue.id, identifier: issue.identifier },
+    input,
+  };
+}
+
+/** Execute an already-resolved issue update plan. */
+export async function executeIssueUpdate(client: LinearClient, plan: IssueMutationPlan) {
+  if (!plan.target) throw usageError("Issue update plan is missing its target.");
   // The updated issue comes from the payload, never from `issue` — falling back
   // to the pre-mutation entity would print "Updated TES-1" for a write the API
   // refused.
-  return unwrapMutation(
-    withRetry(() => client.updateIssue(issue.id, input as any)),
-    "issue",
-    "Issue update",
-  );
+  try {
+    return await unwrapMutation(
+      withRetry(() => client.updateIssue(plan.target!.id, plan.input as any)),
+      "issue",
+      "Issue update",
+    );
+  } catch (err) {
+    if ("delegateId" in plan.input) throw delegationFeatureError(err);
+    throw err;
+  }
+}
+
+export async function updateIssue(client: LinearClient, idArg: string, opts: UpdateOptions) {
+  return executeIssueUpdate(client, await prepareIssueUpdate(client, idArg, opts));
 }
 
 export async function archiveIssue(client: LinearClient, idArg: string, unarchive: boolean) {

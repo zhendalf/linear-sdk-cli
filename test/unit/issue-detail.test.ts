@@ -28,6 +28,7 @@ const node = {
   canceledAt: null,
   state: { id: "st-1", name: "In Progress", type: "started" },
   assignee: { id: "u-1", displayName: "ada", email: "ada@x.io" },
+  delegate: { id: "agent-1", displayName: "Codex", name: "OpenAI Codex" },
   team: { id: "team-1", key: "TES", name: "Test workspace" },
   project: { id: "p-1", name: "linear-sdk-cli" },
   projectMilestone: { id: "m-1", name: "Parity" },
@@ -191,6 +192,7 @@ describe("getIssueDetail — one round-trip", () => {
     for (const sel of [
       "state { id name type }",
       "assignee { id displayName email }",
+      "delegate { id displayName name }",
       "team { id key name }",
       "project { id name }",
       "projectMilestone { id name }",
@@ -234,6 +236,26 @@ describe("getIssueDetail — one round-trip", () => {
     expect(calls[0]!.vars.includeComments).toBe(false);
   });
 
+  it("falls back without delegate when the Developer Preview field is absent", async () => {
+    const calls: string[] = [];
+    const client = {
+      client: {
+        rawRequest: async (query: string) => {
+          calls.push(query);
+          if (calls.length === 1) {
+            throw new Error('Cannot query field "delegate" on type "Issue".');
+          }
+          return { data: { issues: { nodes: [{ ...node, delegate: undefined }] } } };
+        },
+      },
+    } as any;
+    const detail = await getIssueDetail(client, "TES-601");
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toContain("delegate { id displayName name }");
+    expect(calls[1]).not.toContain("delegate { id displayName name }");
+    expect(detail.delegate).toBeNull();
+  });
+
   it("an empty page is not_found, naming the issue as the user would", async () => {
     await expect(getIssueDetail(stub([]), "tes-9999")).rejects.toMatchObject({
       code: "not_found",
@@ -263,6 +285,11 @@ describe("getIssueDetail — structured relations", () => {
     expect(d.id).toBe(UUID);
     expect(d.state).toEqual({ id: "st-1", name: "In Progress", type: "started" });
     expect(d.assignee).toEqual({ id: "u-1", displayName: "ada", email: "ada@x.io" });
+    expect(d.delegate).toEqual({
+      id: "agent-1",
+      displayName: "Codex",
+      name: "OpenAI Codex",
+    });
     expect(d.team).toEqual({ id: "team-1", key: "TES", name: "Test workspace" });
     expect(d.project).toEqual({ id: "p-1", name: "linear-sdk-cli" });
     expect(d.milestone).toEqual({ id: "m-1", name: "Parity" });
@@ -304,6 +331,7 @@ describe("getIssueDetail — structured relations", () => {
       ...node,
       state: null,
       assignee: null,
+      delegate: null,
       team: null,
       project: null,
       projectMilestone: null,
@@ -323,6 +351,7 @@ describe("getIssueDetail — structured relations", () => {
     const d = await getIssueDetail(stub([bare]), "TES-601");
     expect(d.state).toBeNull();
     expect(d.assignee).toBeNull();
+    expect(d.delegate).toBeNull();
     expect(d.team).toBeNull();
     expect(d.project).toBeNull();
     expect(d.milestone).toBeNull();
@@ -475,6 +504,7 @@ describe("renderIssueDetail (human view)", () => {
     const { out } = await render(await detail());
     expect(out).toContain("State:       In Progress");
     expect(out).toContain("Assignee:    ada");
+    expect(out).toContain("Delegate:    Codex");
     expect(out).toContain("Team:        TES Test workspace");
     expect(out).toContain("Project:     linear-sdk-cli");
     expect(out).toContain("Milestone:   Parity");

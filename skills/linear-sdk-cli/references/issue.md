@@ -40,6 +40,7 @@ completedAt: string | null
 canceledAt: string | null
 state: {id: string, name: string, type: string} | null
 assignee: {id: string, displayName: string, email: string} | null
+delegate: {id: string, displayName: string, name: string} | null
 team: {id: string, key: string, name: string} | null
 project: {id: string, name: string} | null
 milestone: {id: string, name: string} | null
@@ -368,6 +369,10 @@ linear issue create [options]
 | `--description-file <path>` | read description from a file ('-' = stdin)                                                           |
 | `--editor`                  | compose the description in $EDITOR                                                                   |
 | `-a, --assignee <who>`      | assignee (me\|email\|name\|id)                                                                       |
+| `--delegate <agent>`        | delegate to an eligible agent app user (name or id)                                                  |
+| `--clear-delegate`          | explicitly create with no agent delegate                                                             |
+| `--dry-run`                 | resolve and show the delegation mutation input without writing                                       |
+| `--full-result`             | read back and verify the resulting delegate                                                          |
 | `-s, --state <name>`        | workflow state name or type                                                                          |
 | `-P, --priority <0-4>`      | priority                                                                                             |
 | `-l, --label <name>`        | label (repeatable / comma-separated)                                                                 |
@@ -395,6 +400,78 @@ With `--start`: the same, plus:
 branch: string
 checkedOut: boolean
 stateChanged: boolean
+```
+
+With `--delegate`: the same, plus:
+
+```text
+assignee: {id: string, displayName: string, email: string} | null
+delegate: {id: string, displayName: string, name: string} | null
+```
+
+With `--clear-delegate`: the same, plus:
+
+```text
+assignee: {id: string, displayName: string, email: string} | null
+delegate: {id: string, displayName: string, name: string} | null
+```
+
+With `--dry-run`: a receipt object
+
+```text
+operation: string
+dryRun: boolean
+target: {id: string, identifier: string} | null
+input: object
+```
+
+With `--full-result`: a receipt object
+
+```text
+receipt: {id: string, identifier: string, url: string, assignee: {id: string, displayName: string, email: string} | null, delegate: {id: string, displayName: string, name: string} | null}
+resource: {id: string, identifier: string, title: string, description: string | null, priority: number, priorityLabel: string, estimate: number | null, url: string, branchName: string, dueDate: string | null, createdAt: string, updatedAt: string, archivedAt: string | null, trashed: boolean, startedAt: string | null, completedAt: string | null, canceledAt: string | null, state: {id: string, name: string, type: string} | null, assignee: {id: string, displayName: string, email: string} | null, delegate: {id: string, displayName: string, name: string} | null, team: {id: string, key: string, name: string} | null, project: {id: string, name: string} | null, milestone: {id: string, name: string} | null, cycle: {id: string, number: number, name: string | null} | null, parent: {id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null} | null, children: Array<{id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}>, labels: Array<{id: string, name: string}>, subscribers: Array<{id: string, displayName: string}>, attachments: Array<{id: string, title: string, url: string, subtitle: string | null, sourceType: string | null, createdAt: string}>, documents: Array<{id: string, title: string, slugId: string, url: string, createdAt: string, updatedAt: string}>, relations: Array<{id: string, type: string, issue: {id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}, relatedIssue: {id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}}>, inverseRelations: Array<{id: string, type: string, issue: {id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}, relatedIssue: {id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}}>, comments: Array<{id: string, body: string, url: string, createdAt: string, editedAt: string | null, resolvedAt: string | null, parent: {id: string} | null, user: {id: string, displayName: string} | null, externalUser: {id: string, displayName: string} | null, resolvingCommentId: string | null, resolvingUser: {id: string, displayName: string} | null}>}
+verified: boolean
+```
+
+### `linear issue delegate`
+
+Delegate an issue to an eligible agent, or --clear it. Issue defaults to the branch.
+
+```
+linear issue delegate [options] [idOrAgent] [agent]
+```
+
+| Option          | Description                                                |
+| --------------- | ---------------------------------------------------------- |
+| `--clear`       | remove the agent delegate                                  |
+| `--dry-run`     | resolve and show the exact delegateId without writing      |
+| `--full-result` | read back the full issue and verify the resulting delegate |
+
+**Output (`--json`)**: a receipt object
+
+```text
+id: string
+identifier: string
+url: string
+assignee: {id: string, displayName: string, email: string} | null
+delegate: {id: string, displayName: string, name: string} | null
+```
+
+With `--dry-run`: a receipt object
+
+```text
+operation: string
+dryRun: boolean
+target: {id: string, identifier: string} | null
+input: object
+```
+
+With `--full-result`: a receipt object
+
+```text
+receipt: {id: string, identifier: string, url: string, assignee: {id: string, displayName: string, email: string} | null, delegate: {id: string, displayName: string, name: string} | null}
+resource: {id: string, identifier: string, title: string, description: string | null, priority: number, priorityLabel: string, estimate: number | null, url: string, branchName: string, dueDate: string | null, createdAt: string, updatedAt: string, archivedAt: string | null, trashed: boolean, startedAt: string | null, completedAt: string | null, canceledAt: string | null, state: {id: string, name: string, type: string} | null, assignee: {id: string, displayName: string, email: string} | null, delegate: {id: string, displayName: string, name: string} | null, team: {id: string, key: string, name: string} | null, project: {id: string, name: string} | null, milestone: {id: string, name: string} | null, cycle: {id: string, number: number, name: string | null} | null, parent: {id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null} | null, children: Array<{id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}>, labels: Array<{id: string, name: string}>, subscribers: Array<{id: string, displayName: string}>, attachments: Array<{id: string, title: string, url: string, subtitle: string | null, sourceType: string | null, createdAt: string}>, documents: Array<{id: string, title: string, slugId: string, url: string, createdAt: string, updatedAt: string}>, relations: Array<{id: string, type: string, issue: {id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}, relatedIssue: {id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}}>, inverseRelations: Array<{id: string, type: string, issue: {id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}, relatedIssue: {id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}}>, comments: Array<{id: string, body: string, url: string, createdAt: string, editedAt: string | null, resolvedAt: string | null, parent: {id: string} | null, user: {id: string, displayName: string} | null, externalUser: {id: string, displayName: string} | null, resolvingCommentId: string | null, resolvingUser: {id: string, displayName: string} | null}>}
+verified: boolean
 ```
 
 ### `linear issue delete`
@@ -817,26 +894,30 @@ Aliases: `edit`
 linear issue update [options] [id]
 ```
 
-| Option                      | Description                                             |
-| --------------------------- | ------------------------------------------------------- |
-| `--title <title>`           | new title                                               |
-| `-d, --description <text>`  | new description                                         |
-| `--description-file <path>` | read description from a file ('-' = stdin)              |
-| `-t, --team <key>`          | move the issue to another team (changes its identifier) |
-| `-a, --assignee <who>`      | assignee (me\|email\|name\|id)                          |
-| `-s, --state <name>`        | workflow state name or type                             |
-| `-P, --priority <0-4>`      | priority                                                |
-| `-p, --project <name>`      | project name or id                                      |
-| `--milestone <name>`        | project milestone                                       |
-| `--cycle <n>`               | cycle number, name, id, or 'current'                    |
-| `--estimate <n>`            | estimate points                                         |
-| `--parent <id>`             | parent issue id                                         |
-| `--due <date>`              | due date (YYYY-MM-DD)                                   |
-| `-l, --label <name>`        | replace all labels (repeatable / comma-separated)       |
-| `--add-label <name>`        | add a label (repeatable)                                |
-| `--remove-label <name>`     | remove a label (repeatable)                             |
-| `--unassign`                | clear the assignee                                      |
-| `--clear-cycle`             | remove the issue from its cycle                         |
+| Option                      | Description                                                    |
+| --------------------------- | -------------------------------------------------------------- |
+| `--title <title>`           | new title                                                      |
+| `-d, --description <text>`  | new description                                                |
+| `--description-file <path>` | read description from a file ('-' = stdin)                     |
+| `-t, --team <key>`          | move the issue to another team (changes its identifier)        |
+| `-a, --assignee <who>`      | assignee (me\|email\|name\|id)                                 |
+| `--delegate <agent>`        | delegate to an eligible agent app user (name or id)            |
+| `-s, --state <name>`        | workflow state name or type                                    |
+| `-P, --priority <0-4>`      | priority                                                       |
+| `-p, --project <name>`      | project name or id                                             |
+| `--milestone <name>`        | project milestone                                              |
+| `--cycle <n>`               | cycle number, name, id, or 'current'                           |
+| `--estimate <n>`            | estimate points                                                |
+| `--parent <id>`             | parent issue id                                                |
+| `--due <date>`              | due date (YYYY-MM-DD)                                          |
+| `-l, --label <name>`        | replace all labels (repeatable / comma-separated)              |
+| `--add-label <name>`        | add a label (repeatable)                                       |
+| `--remove-label <name>`     | remove a label (repeatable)                                    |
+| `--unassign`                | clear the assignee                                             |
+| `--clear-delegate`          | remove the agent delegate                                      |
+| `--clear-cycle`             | remove the issue from its cycle                                |
+| `--dry-run`                 | resolve and show the delegation mutation input without writing |
+| `--full-result`             | read back and verify the resulting delegate                    |
 
 **Output (`--json`)**: a receipt object
 
@@ -844,6 +925,37 @@ linear issue update [options] [id]
 id: string
 identifier: string
 url: string
+```
+
+With `--delegate`: the same, plus:
+
+```text
+assignee: {id: string, displayName: string, email: string} | null
+delegate: {id: string, displayName: string, name: string} | null
+```
+
+With `--clear-delegate`: the same, plus:
+
+```text
+assignee: {id: string, displayName: string, email: string} | null
+delegate: {id: string, displayName: string, name: string} | null
+```
+
+With `--dry-run`: a receipt object
+
+```text
+operation: string
+dryRun: boolean
+target: {id: string, identifier: string} | null
+input: object
+```
+
+With `--full-result`: a receipt object
+
+```text
+receipt: {id: string, identifier: string, url: string, assignee: {id: string, displayName: string, email: string} | null, delegate: {id: string, displayName: string, name: string} | null}
+resource: {id: string, identifier: string, title: string, description: string | null, priority: number, priorityLabel: string, estimate: number | null, url: string, branchName: string, dueDate: string | null, createdAt: string, updatedAt: string, archivedAt: string | null, trashed: boolean, startedAt: string | null, completedAt: string | null, canceledAt: string | null, state: {id: string, name: string, type: string} | null, assignee: {id: string, displayName: string, email: string} | null, delegate: {id: string, displayName: string, name: string} | null, team: {id: string, key: string, name: string} | null, project: {id: string, name: string} | null, milestone: {id: string, name: string} | null, cycle: {id: string, number: number, name: string | null} | null, parent: {id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null} | null, children: Array<{id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}>, labels: Array<{id: string, name: string}>, subscribers: Array<{id: string, displayName: string}>, attachments: Array<{id: string, title: string, url: string, subtitle: string | null, sourceType: string | null, createdAt: string}>, documents: Array<{id: string, title: string, slugId: string, url: string, createdAt: string, updatedAt: string}>, relations: Array<{id: string, type: string, issue: {id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}, relatedIssue: {id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}}>, inverseRelations: Array<{id: string, type: string, issue: {id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}, relatedIssue: {id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}}>, comments: Array<{id: string, body: string, url: string, createdAt: string, editedAt: string | null, resolvedAt: string | null, parent: {id: string} | null, user: {id: string, displayName: string} | null, externalUser: {id: string, displayName: string} | null, resolvingCommentId: string | null, resolvingUser: {id: string, displayName: string} | null}>}
+verified: boolean
 ```
 
 ### `linear issue url`
@@ -897,6 +1009,7 @@ completedAt: string | null
 canceledAt: string | null
 state: {id: string, name: string, type: string} | null
 assignee: {id: string, displayName: string, email: string} | null
+delegate: {id: string, displayName: string, name: string} | null
 team: {id: string, key: string, name: string} | null
 project: {id: string, name: string} | null
 milestone: {id: string, name: string} | null

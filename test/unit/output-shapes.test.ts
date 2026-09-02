@@ -41,7 +41,10 @@ interface Drive {
   /** argv after the command path; the harness appends `--json`. */
   args: string[];
   /** argv per declared variant key. */
-  variants?: Record<string, string[]>;
+  variants?: Record<
+    string,
+    string[] | { args: string[]; overrides?: Record<string, unknown>; nullOk?: string[] }
+  >;
   /** Run in the temporary git repository instead of the plain directory. */
   git?: boolean;
   /** Scalar values the fake should answer with for this run (`archivedAt` for an unarchive, …). */
@@ -130,6 +133,13 @@ const DRIVES: Record<string, Drive> = {
     variants: { "--bulk": ["--bulk", "TES-1,TES-2", "--yes"] },
   },
   "issue assign": { args: [T, "me"] },
+  "issue delegate": {
+    args: [T, UUID],
+    variants: {
+      "--dry-run": [T, UUID, "--dry-run"],
+      "--full-result": [T, UUID, "--full-result"],
+    },
+  },
   "issue attach": { args: [T, "FILE"] },
   "issue branch": { args: [T] },
   "issue comment": { args: [T, "hello"] },
@@ -138,7 +148,21 @@ const DRIVES: Record<string, Drive> = {
   "issue comment list": { args: [T] },
   "issue comment update": { args: [UUID, "a new body"] },
   "issue comments": { args: [T] },
-  "issue create": { args: ["--title", "t"], variants: { "--start": ["--title", "t", "--start"] } },
+  "issue create": {
+    args: ["--title", "t"],
+    variants: {
+      "--start": ["--title", "t", "--start"],
+      "--delegate": ["--title", "t", "--delegate", UUID],
+      "--clear-delegate": {
+        args: ["--title", "t", "--clear-delegate"],
+        overrides: { delegate: null },
+        nullOk: ["delegate"],
+      },
+      "--dry-run": ["--title", "t", "--delegate", UUID, "--dry-run"],
+      "--full-result": ["--title", "t", "--delegate", UUID, "--full-result"],
+    },
+    nullOk: ["target"],
+  },
   "issue delete": {
     args: [T, "--yes"],
     variants: { "--bulk": ["--bulk", "TES-1,TES-2", "--yes"] },
@@ -160,7 +184,19 @@ const DRIVES: Record<string, Drive> = {
   "issue title": { args: [T] },
   "issue unarchive": { args: [T] },
   "issue unsubscribe": { args: [T] },
-  "issue update": { args: [T, "--title", "t2"] },
+  "issue update": {
+    args: [T, "--title", "t2"],
+    variants: {
+      "--delegate": [T, "--delegate", UUID],
+      "--clear-delegate": {
+        args: [T, "--clear-delegate"],
+        overrides: { delegate: null },
+        nullOk: ["delegate"],
+      },
+      "--dry-run": [T, "--delegate", UUID, "--dry-run"],
+      "--full-result": [T, "--delegate", UUID, "--full-result"],
+    },
+  },
   "issue url": { args: [T] },
   "issue view": {
     args: [T],
@@ -395,12 +431,15 @@ describe("what each command prints under --json matches its declared shape", () 
     });
 
     for (const [when, variant] of Object.entries(declared.variants ?? {})) {
-      const argv = drive.variants?.[when];
+      const configured = drive.variants?.[when];
       it(`${path} with ${when}`, async () => {
-        expect(argv, `${path}: no drive for variant ${when}`).toBeDefined();
-        if (argv![0]?.startsWith("SKIP:")) return;
-        const value = await runJson(path, argv!, drive);
-        expect(drift(value, variant, drive.nullOk)).toEqual([]);
+        expect(configured, `${path}: no drive for variant ${when}`).toBeDefined();
+        const variantDrive = Array.isArray(configured)
+          ? { ...drive, args: configured }
+          : { ...drive, ...configured! };
+        if (variantDrive.args[0]?.startsWith("SKIP:")) return;
+        const value = await runJson(path, variantDrive.args, variantDrive);
+        expect(drift(value, variant, variantDrive.nullOk)).toEqual([]);
       });
     }
   }
