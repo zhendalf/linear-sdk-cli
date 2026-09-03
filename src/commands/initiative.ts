@@ -10,14 +10,26 @@ import { Command, Option } from "commander";
 import { action } from "../lib/action.js";
 import { resolveBody } from "../lib/body.js";
 import { confirmDestructive, promptInput } from "../lib/prompt.js";
-import { parseList, parseIntOption, addAliasOption, readAlias } from "../lib/options.js";
+import {
+  parseList,
+  parseIntOption,
+  addAliasOption,
+  readAlias,
+  addIncludeArchivedOption,
+} from "../lib/options.js";
 import type { Context } from "../context.js";
 import * as svc from "../services/initiative.js";
 import type { Column } from "../output/table.js";
+import { lifecycleSuffix } from "../output/lifecycle.js";
 
 const ROW_COLUMNS: Column<svc.InitiativeRow>[] = [
   { key: "name", header: "Name", value: (r) => r.name, max: 40 },
-  { key: "status", header: "Status", value: (r) => r.status ?? "—", max: 12 },
+  {
+    key: "status",
+    header: "Status",
+    value: (r) => `${r.status ?? "—"}${lifecycleSuffix(r)}`,
+    max: 24,
+  },
   {
     key: "priority",
     header: "Pri",
@@ -34,7 +46,7 @@ export function registerInitiative(program: Command): void {
     .description("Work with initiatives");
 
   // list --------------------------------------------------------------------
-  initiative
+  const list = initiative
     .command("list")
     .alias("ls")
     .description("List workspace initiatives (every status unless --status narrows)")
@@ -42,7 +54,6 @@ export function registerInitiative(program: Command): void {
     // in the tree, and a short flag means one thing everywhere here.
     .option("--status <name>", "filter by status (Planned, Active, Completed, Canceled, Proposed)")
     .option("--owner <who>", "filter by owner (me|email|name|id)")
-    .option("--archived", "include archived initiatives")
     // The reference CLI lists Active only and needs `--all-statuses` to widen;
     // this list is every status already, so the flag is accepted as the no-op
     // it is here rather than failing a transplanted script.
@@ -52,11 +63,13 @@ export function registerInitiative(program: Command): void {
         const rows = await svc.listInitiatives(ctx.client, ctx.limit, {
           status: opts.status,
           owner: opts.owner,
-          archived: !!opts.archived,
+          includeArchived: !!readAlias<boolean>(opts, "--include-archived", "--archived"),
         });
         ctx.output.list(rows, ROW_COLUMNS, rows);
       }),
     );
+  addIncludeArchivedOption(list);
+  list.addOption(new Option("--archived", "compatibility alias of --include-archived"));
 
   // view --------------------------------------------------------------------
   initiative
@@ -68,7 +81,11 @@ export function registerInitiative(program: Command): void {
         const detail = await svc.getInitiativeDetail(ctx.client, idArg);
         ctx.output.detail(detail, [
           ["Initiative", detail.name],
-          ["Archived", detail.archivedAt ? `YES (${detail.archivedAt})` : null],
+          [
+            "Trashed",
+            detail.trashed ? `YES (deleted ${detail.archivedAt ?? "at an unknown time"})` : null,
+          ],
+          ["Archived", !detail.trashed && detail.archivedAt ? `YES (${detail.archivedAt})` : null],
           ["Status", detail.status],
           ["Priority", detail.priority ? detail.priorityLabel : null],
           ["Labels", detail.labels.length ? detail.labels.join(", ") : null],

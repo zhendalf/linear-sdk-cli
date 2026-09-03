@@ -43,6 +43,7 @@ import * as svc from "../services/issue.js";
 import * as commentSvc from "../services/comment.js";
 import { isSelf, isUuid, normalizeIssueReference, resolveIssue } from "../lib/resolve.js";
 import type { Column } from "../output/table.js";
+import { lifecycleSuffix } from "../output/lifecycle.js";
 
 /** Resolve the target issue id from an argument/current branch, expanding `42` via the default team. */
 function requireId(idArg: string | undefined, defaultTeam?: string): string {
@@ -60,7 +61,7 @@ const ROW_COLUMNS: Column<svc.IssueRow>[] = [
   {
     key: "state",
     header: "State",
-    value: (r) => `${r.state?.name ?? ""}${lifecycleMark(r)}`,
+    value: (r) => `${r.state?.name ?? ""}${lifecycleSuffix(r)}`,
     max: 26,
   },
   { key: "priority", header: "Pri", value: (r) => shortPriority(r.priority) },
@@ -90,11 +91,6 @@ function cycleLabel(c: svc.IssueRow["cycle"]): string {
 
 function shortPriority(p: number): string {
   return ["—", "Urgent", "High", "Med", "Low"][p] ?? String(p);
-}
-
-/** ` (trashed)` / ` (archived)` for a row that is not live; empty otherwise. */
-function lifecycleMark(r: Pick<svc.IssueRow, "trashed" | "archivedAt">): string {
-  return r.trashed ? " (trashed)" : r.archivedAt ? " (archived)" : "";
 }
 
 /** A removed reference flag whose meaning is already this CLI's query default. */

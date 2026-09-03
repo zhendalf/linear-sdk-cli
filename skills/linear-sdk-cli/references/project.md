@@ -39,6 +39,7 @@ createdAt: string
 updatedAt: string
 completedAt: string | null
 archivedAt: string | null
+trashed: boolean
 lead: {id: string, displayName: string, email: string} | null
 teams: Array<{id: string, key: string, name: string}>
 members: Array<{id: string, displayName: string, email: string}>
@@ -125,10 +126,11 @@ Aliases: `ls`
 linear project list [options]
 ```
 
-| Option           | Description                                           |
-| ---------------- | ----------------------------------------------------- |
-| `--state <name>` | filter by status name or type (e.g. 'In QA', started) |
-| `--all-teams`    | every team's projects, ignoring the default team      |
+| Option               | Description                                                          |
+| -------------------- | -------------------------------------------------------------------- |
+| `--state <name>`     | filter by status name or type (e.g. 'In QA', started)                |
+| `--all-teams`        | every team's projects, ignoring the default team                     |
+| `--include-archived` | include archived resources (the API may also return trashed records) |
 
 **Output (`--json`)**: a bare array of objects
 
@@ -142,6 +144,8 @@ startDate: string | null
 targetDate: string | null
 status: {name: string} | null
 lead: {displayName: string} | null
+archivedAt: string | null
+trashed: boolean
 ```
 
 ### `linear project milestones`
@@ -228,6 +232,7 @@ createdAt: string
 updatedAt: string
 completedAt: string | null
 archivedAt: string | null
+trashed: boolean
 lead: {id: string, displayName: string, email: string} | null
 teams: Array<{id: string, key: string, name: string}>
 members: Array<{id: string, displayName: string, email: string}>

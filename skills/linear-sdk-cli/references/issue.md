@@ -573,24 +573,24 @@ Aliases: `ls`, `query`
 linear issue list [options]
 ```
 
-| Option                   | Description                                               |
-| ------------------------ | --------------------------------------------------------- |
-| `-t, --team <key>`       | filter by team key (repeatable; default: configured team) |
-| `-s, --state <name>`     | filter by workflow state name/type (repeatable)           |
-| `-a, --assignee <who>`   | filter by assignee (me\|email\|name)                      |
-| `-U, --unassigned`       | only issues with no assignee                              |
-| `-p, --project <name>`   | filter by project                                         |
-| `--project-label <name>` | filter by the project's label (excludes --project)        |
-| `--milestone <name>`     | filter by project milestone                               |
-| `-l, --label <name>`     | filter by label (repeat to narrow)                        |
-| `-P, --priority <0-4>`   | filter by priority                                        |
-| `--cycle <n>`            | cycle number, name, id, or 'current'                      |
-| `--created-after <date>` | only issues created at/after a date (YYYY-MM-DD)          |
-| `--updated-after <date>` | only issues updated at/after a date (YYYY-MM-DD)          |
-| `--all-teams`            | search every team, ignoring the default team              |
-| `--include-archived`     | include archived issues                                   |
-| `--query <text>`         | full-text search                                          |
-| `--sort <field>`         | sort order                                                |
+| Option                   | Description                                                          |
+| ------------------------ | -------------------------------------------------------------------- |
+| `-t, --team <key>`       | filter by team key (repeatable; default: configured team)            |
+| `-s, --state <name>`     | filter by workflow state name/type (repeatable)                      |
+| `-a, --assignee <who>`   | filter by assignee (me\|email\|name)                                 |
+| `-U, --unassigned`       | only issues with no assignee                                         |
+| `-p, --project <name>`   | filter by project                                                    |
+| `--project-label <name>` | filter by the project's label (excludes --project)                   |
+| `--milestone <name>`     | filter by project milestone                                          |
+| `-l, --label <name>`     | filter by label (repeat to narrow)                                   |
+| `-P, --priority <0-4>`   | filter by priority                                                   |
+| `--cycle <n>`            | cycle number, name, id, or 'current'                                 |
+| `--created-after <date>` | only issues created at/after a date (YYYY-MM-DD)                     |
+| `--updated-after <date>` | only issues updated at/after a date (YYYY-MM-DD)                     |
+| `--all-teams`            | search every team, ignoring the default team                         |
+| `--include-archived`     | include archived resources (the API may also return trashed records) |
+| `--query <text>`         | full-text search                                                     |
+| `--sort <field>`         | sort order                                                           |
 
 **Output (`--json`)**: a bare array of objects
 
@@ -624,23 +624,23 @@ List your unstarted issues (--all-states for every state)
 linear issue mine [options]
 ```
 
-| Option                   | Description                                               |
-| ------------------------ | --------------------------------------------------------- |
-| `-t, --team <key>`       | filter by team key (repeatable; default: configured team) |
-| `-s, --state <name>`     | filter by workflow state name/type (repeatable)           |
-| `-p, --project <name>`   | filter by project                                         |
-| `--project-label <name>` | filter by the project's label (excludes --project)        |
-| `--milestone <name>`     | filter by project milestone                               |
-| `-l, --label <name>`     | filter by label (repeat to narrow)                        |
-| `-P, --priority <0-4>`   | filter by priority                                        |
-| `--cycle <n>`            | cycle number, name, id, or 'current'                      |
-| `--created-after <date>` | only issues created at/after a date (YYYY-MM-DD)          |
-| `--updated-after <date>` | only issues updated at/after a date (YYYY-MM-DD)          |
-| `--all-teams`            | search every team, ignoring the default team              |
-| `--include-archived`     | include archived issues                                   |
-| `--query <text>`         | full-text search                                          |
-| `--sort <field>`         | sort order                                                |
-| `--all-states`           | include every workflow state, not just unstarted          |
+| Option                   | Description                                                          |
+| ------------------------ | -------------------------------------------------------------------- |
+| `-t, --team <key>`       | filter by team key (repeatable; default: configured team)            |
+| `-s, --state <name>`     | filter by workflow state name/type (repeatable)                      |
+| `-p, --project <name>`   | filter by project                                                    |
+| `--project-label <name>` | filter by the project's label (excludes --project)                   |
+| `--milestone <name>`     | filter by project milestone                                          |
+| `-l, --label <name>`     | filter by label (repeat to narrow)                                   |
+| `-P, --priority <0-4>`   | filter by priority                                                   |
+| `--cycle <n>`            | cycle number, name, id, or 'current'                                 |
+| `--created-after <date>` | only issues created at/after a date (YYYY-MM-DD)                     |
+| `--updated-after <date>` | only issues updated at/after a date (YYYY-MM-DD)                     |
+| `--all-teams`            | search every team, ignoring the default team                         |
+| `--include-archived`     | include archived resources (the API may also return trashed records) |
+| `--query <text>`         | full-text search                                                     |
+| `--sort <field>`         | sort order                                                           |
+| `--all-states`           | include every workflow state, not just unstarted                     |
 
 **Output (`--json`)**: a bare array of objects
 
@@ -741,23 +741,23 @@ Full-text search across issues (scoped to the default team; --all-teams widens)
 linear issue search [options] <text>
 ```
 
-| Option                   | Description                                               |
-| ------------------------ | --------------------------------------------------------- |
-| `-t, --team <key>`       | filter by team key (repeatable; default: configured team) |
-| `-s, --state <name>`     | filter by workflow state name/type (repeatable)           |
-| `-a, --assignee <who>`   | filter by assignee (me\|email\|name)                      |
-| `-U, --unassigned`       | only issues with no assignee                              |
-| `-p, --project <name>`   | filter by project                                         |
-| `--project-label <name>` | filter by the project's label (excludes --project)        |
-| `--milestone <name>`     | filter by project milestone                               |
-| `-l, --label <name>`     | filter by label (repeat to narrow)                        |
-| `-P, --priority <0-4>`   | filter by priority                                        |
-| `--cycle <n>`            | cycle number, name, id, or 'current'                      |
-| `--created-after <date>` | only issues created at/after a date (YYYY-MM-DD)          |
-| `--updated-after <date>` | only issues updated at/after a date (YYYY-MM-DD)          |
-| `--all-teams`            | search every team, ignoring the default team              |
-| `--include-archived`     | include archived issues                                   |
-| `--search-comments`      | match comment bodies as well as titles and descriptions   |
+| Option                   | Description                                                          |
+| ------------------------ | -------------------------------------------------------------------- |
+| `-t, --team <key>`       | filter by team key (repeatable; default: configured team)            |
+| `-s, --state <name>`     | filter by workflow state name/type (repeatable)                      |
+| `-a, --assignee <who>`   | filter by assignee (me\|email\|name)                                 |
+| `-U, --unassigned`       | only issues with no assignee                                         |
+| `-p, --project <name>`   | filter by project                                                    |
+| `--project-label <name>` | filter by the project's label (excludes --project)                   |
+| `--milestone <name>`     | filter by project milestone                                          |
+| `-l, --label <name>`     | filter by label (repeat to narrow)                                   |
+| `-P, --priority <0-4>`   | filter by priority                                                   |
+| `--cycle <n>`            | cycle number, name, id, or 'current'                                 |
+| `--created-after <date>` | only issues created at/after a date (YYYY-MM-DD)                     |
+| `--updated-after <date>` | only issues updated at/after a date (YYYY-MM-DD)                     |
+| `--all-teams`            | search every team, ignoring the default team                         |
+| `--include-archived`     | include archived resources (the API may also return trashed records) |
+| `--search-comments`      | match comment bodies as well as titles and descriptions              |
 
 **Output (`--json`)**: a bare array of objects
 

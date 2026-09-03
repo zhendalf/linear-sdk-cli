@@ -388,13 +388,14 @@ describe("linear-cli compatibility filters", () => {
     expect(option(find(["issue", "mine"]), "--unassigned")).toHaveLength(0);
   });
 
-  it("adds the project-label, milestone and date filters to all three queries", () => {
+  it("adds lifecycle, project-label, milestone and date filters to all three queries", () => {
     for (const name of queries) {
       const flags = find(["issue", name]).options.map((o) => o.long);
       expect(flags).toContain("--project-label");
       expect(flags).toContain("--milestone");
       expect(flags).toContain("--created-after");
       expect(flags).toContain("--updated-after");
+      expect(flags).toContain("--include-archived");
     }
   });
 
@@ -670,10 +671,12 @@ describe("flag gaps closed (TES-642)", () => {
     cmd.options.filter((o: any) => !o.hidden).map((o) => o.long);
 
   it("`project list --all-teams`, `team create --private`, `initiative list` filters", () => {
-    expect(visibleLongs(find(["project", "list"])!)).toContain("--all-teams");
+    expect(visibleLongs(find(["project", "list"])!)).toEqual(
+      expect.arrayContaining(["--all-teams", "--include-archived"]),
+    );
     expect(visibleLongs(find(["team", "create"])!)).toContain("--private");
     expect(visibleLongs(find(["initiative", "list"])!)).toEqual(
-      expect.arrayContaining(["--status", "--owner", "--archived"]),
+      expect.arrayContaining(["--status", "--owner", "--include-archived", "--archived"]),
     );
     // The reference CLI's `--all-statuses` is accepted (hidden) as a no-op.
     const allStatuses = find(["initiative", "list"])!.options.find(
@@ -692,6 +695,15 @@ describe("flag gaps closed (TES-642)", () => {
     expect(visibleLongs(find(["initiative", "add-project"])!)).toContain("--sort-order");
     expect(find(["initiative", "remove-project"])).toBeDefined();
     expect(find(["initiative", "unarchive"])).toBeDefined();
+  });
+
+  it("keeps archived-list visibility scoped to list commands, not name-resolved mutations", () => {
+    for (const group of ["project", "initiative"]) {
+      expect(visibleLongs(find([group, "list"])!)).toContain("--include-archived");
+      for (const verb of ["create", "update", "archive", "delete"]) {
+        expect(visibleLongs(find([group, verb])!)).not.toContain("--include-archived");
+      }
+    }
   });
 });
 

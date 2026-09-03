@@ -211,6 +211,20 @@ export function readAlias<T = string>(
 }
 
 /**
+ * Add the canonical lifecycle-listing option. Linear may return both archived
+ * and trashed records when this is true, so the help does not imply an
+ * archived-only filter.
+ */
+export function addIncludeArchivedOption(cmd: Command): Command {
+  return cmd.addOption(
+    new Option(
+      "--include-archived",
+      "include archived resources (the API may also return trashed records)",
+    ),
+  );
+}
+
+/**
  * A `--no-…` global registered as an ordinary boolean flag rather than as
  * commander's *negation* of a positive option. Two bugs came out of leaving
  * these as negations, and neither is obvious from the flag's spelling:
@@ -603,7 +617,7 @@ export function addCoreFilterOptions(cmd: Command, set: FilterOptionSet = {}): C
     cmd.addOption(new Option("-a, --assignee <who>", "filter by assignee (me|email|name)"));
     cmd.addOption(new Option("-U, --unassigned", "only issues with no assignee"));
   }
-  return cmd
+  cmd
     .addOption(new Option("-p, --project <name>", "filter by project"))
     .addOption(
       new Option("--project-label <name>", "filter by the project's label (excludes --project)"),
@@ -622,8 +636,8 @@ export function addCoreFilterOptions(cmd: Command, set: FilterOptionSet = {}): C
     .addOption(
       new Option("--updated-after <date>", "only issues updated at/after a date (YYYY-MM-DD)"),
     )
-    .addOption(new Option("--all-teams", "search every team, ignoring the default team"))
-    .addOption(new Option("--include-archived", "include archived issues"));
+    .addOption(new Option("--all-teams", "search every team, ignoring the default team"));
+  return addIncludeArchivedOption(cmd);
 }
 
 /**

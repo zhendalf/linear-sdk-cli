@@ -34,6 +34,8 @@ export interface ProjectRow {
   targetDate: string | null;
   status: { name: string } | null;
   lead: { displayName: string } | null;
+  archivedAt: string | null;
+  trashed: boolean;
 }
 
 /** The row's shape as `linear commands` advertises it (TES-610); checked against the interface. */
@@ -47,6 +49,8 @@ export const PROJECT_ROW_SHAPE = shape<ProjectRow>({
   targetDate: "string|null",
   status: { nullable: { name: "string" } },
   lead: { nullable: { displayName: "string" } },
+  archivedAt: "string|null",
+  trashed: "boolean",
 });
 
 export interface ListFilters {
@@ -54,13 +58,15 @@ export interface ListFilters {
   /** Every team's projects: no team clause at all, and the default team is not applied. */
   allTeams?: boolean;
   state?: string;
+  /** Widen the connection beyond live projects. */
+  includeArchived?: boolean;
 }
 
 const LIST_QUERY = `
 query CliProjects($filter: ProjectFilter, $first: Int!, $after: String, $includeArchived: Boolean) {
   projects(filter: $filter, first: $first, after: $after, includeArchived: $includeArchived) {
     nodes {
-      id name state progress url startDate targetDate
+      id name state progress url startDate targetDate archivedAt trashed
       status { name }
       lead { displayName }
     }
@@ -107,7 +113,7 @@ export async function listProjects(
   return collectRawQuery<ProjectRow>(
     client as any,
     LIST_QUERY,
-    { filter, includeArchived: false },
+    { filter, includeArchived: filters.includeArchived === true },
     "projects",
     limit,
     (n) => ({
@@ -120,6 +126,8 @@ export async function listProjects(
       targetDate: n.targetDate ?? null,
       status: n.status ?? null,
       lead: n.lead ?? null,
+      archivedAt: n.archivedAt ?? null,
+      trashed: n.trashed === true,
     }),
   );
 }
@@ -151,6 +159,7 @@ export interface ProjectDetail {
   updatedAt: string;
   completedAt: string | null;
   archivedAt: string | null;
+  trashed: boolean;
   lead: { id: string; displayName: string; email: string } | null;
   teams: Array<{ id: string; key: string; name: string }>;
   members: Array<{ id: string; displayName: string; email: string }>;
@@ -176,6 +185,7 @@ export const PROJECT_DETAIL_SHAPE = shape<ProjectDetail>({
   updatedAt: "string",
   completedAt: "string|null",
   archivedAt: "string|null",
+  trashed: "boolean",
   lead: { nullable: { id: "string", displayName: "string", email: "string" } },
   teams: [{ id: "string", key: "string", name: "string" }],
   members: [{ id: "string", displayName: "string", email: "string" }],
@@ -201,7 +211,7 @@ query CliProjectDetail($filter: ProjectFilter!, $includeArchived: Boolean!) {
   projects(filter: $filter, first: 2, includeArchived: $includeArchived) {
     nodes {
       id name description content state health progress priority priorityLabel url
-      startDate targetDate createdAt updatedAt completedAt archivedAt
+      startDate targetDate createdAt updatedAt completedAt archivedAt trashed
       status { id name type }
       lead { id displayName email }
       labels(first: 50) { nodes { id name } }
@@ -247,6 +257,7 @@ export async function getProjectDetail(
     updatedAt: p.updatedAt,
     completedAt: p.completedAt ?? null,
     archivedAt: p.archivedAt ?? null,
+    trashed: p.trashed === true,
     lead: p.lead ?? null,
     teams: p.teams?.nodes ?? [],
     members: p.members?.nodes ?? [],

@@ -345,7 +345,9 @@ EOF
 
 ```sh
 linear project list --team TES
+linear project list --include-archived --all --json
 linear project view "Q3 Launch"
+linear initiative list --include-archived --json
 linear project-update create "Q3 Launch" --health onTrack --body "Beta is out to 10% of users."
 linear initiative-update create "Platform" --health atRisk --body-file update.md
 ```
@@ -415,6 +417,62 @@ are shown in parentheses. For a machine-readable tree of _every_ command, run
 
 <sup>†</sup> Linear has **deprecated roadmaps** in favor of initiatives — reads still work, but the
 API rejects roadmap mutations with a deprecation notice. Use `initiative` for new work.
+
+### Archived resources
+
+Linear hides archived resources from paginated connections by default. On curated listings that
+expose lifecycle history, `--include-archived` widens the result to live plus historical records;
+it is not an archived-only filter. Linear can return trashed resources in that widened set, so
+project, initiative, and issue JSON rows expose both `archivedAt: string|null` and
+`trashed: boolean`, and human tables label `(archived)` and `(trashed)` separately. Notification
+rows expose `archivedAt` (the public schema has no `trashed` field for notifications).
+
+`--all` remains pagination-only. The two flags are independent and composable:
+
+```sh
+linear project list --include-archived --all --json
+linear initiative list --include-archived --status Completed --json
+linear issue search "migration" --include-archived --all --json
+```
+
+`initiative list --archived` remains a compatibility alias for `--include-archived`; passing both
+spellings is an explicit usage error. The alias is retained for the current compatibility window
+(all `0.x` releases; removal no earlier than `1.0`) and is listed by help and
+`linear commands --json`.
+
+The following matrix audits every curated list/search surface against the installed
+`@linear/sdk@92.0.0` types and the live public schema exposed by `linear schema`. “Schema support”
+means that the exact connection used by the command accepts `includeArchived`; it does not by
+itself add a CLI contract. This change standardizes the four resource families named by
+the issue. The remaining schema-capable collections stay unchanged until their own output and
+resolver semantics are designed, rather than acquiring a silent partial implementation.
+
+| Curated command(s)                                     | Connection audited                            | Schema support | CLI lifecycle option                           | Lifecycle fields in list JSON |
+| ------------------------------------------------------ | --------------------------------------------- | -------------- | ---------------------------------------------- | ----------------------------- |
+| `issue list`, `issue mine`                             | `Query.issues`                                | yes            | `--include-archived`                           | `archivedAt`, `trashed`       |
+| `issue search`                                         | `Query.searchIssues`                          | yes            | `--include-archived`                           | `archivedAt`, `trashed`       |
+| `project list`                                         | `Query.projects`                              | yes            | `--include-archived`                           | `archivedAt`, `trashed`       |
+| `initiative list`                                      | `Query.initiatives`                           | yes            | `--include-archived` (`--archived` alias)      | `archivedAt`, `trashed`       |
+| `notification list`                                    | `Query.notifications`                         | yes            | `--include-archived`                           | `archivedAt`                  |
+| `attachment list`                                      | `Issue.attachments`                           | yes            | not exposed                                    | not exposed                   |
+| `comment list`, `issue comment list`, `issue comments` | `Issue.comments`                              | yes            | not exposed                                    | not exposed                   |
+| `cycle list`, `team cycles`                            | `Team.cycles`                                 | yes            | not exposed                                    | not exposed                   |
+| `custom-view list`                                     | `Query.customViews`                           | yes            | not exposed                                    | `archivedAt`                  |
+| `custom-view results`                                  | `CustomView.issues/projects/initiatives`      | yes            | not exposed                                    | not exposed                   |
+| `document list`                                        | `Query.documents`                             | yes            | not exposed                                    | not exposed                   |
+| `favorite list`                                        | `Query.favorites`                             | yes            | not exposed                                    | not exposed                   |
+| `initiative-update list`                               | `Initiative.initiativeUpdates`                | yes            | not exposed                                    | not exposed                   |
+| `issue agent-session list`                             | `Query.agentSessions` / `Issue.agentSessions` | yes            | not exposed                                    | not exposed                   |
+| `label list`, `team labels`                            | `Query.issueLabels` / `Team.labels`           | yes            | not exposed                                    | not exposed                   |
+| `milestone list`, `project milestones`                 | `Project.projectMilestones`                   | yes            | not exposed                                    | not exposed                   |
+| `project-update list`                                  | `Project.projectUpdates`                      | yes            | not exposed                                    | not exposed                   |
+| `roadmap list`                                         | `Query.roadmaps`                              | yes            | not exposed                                    | not exposed                   |
+| `state list`, `team states`                            | `Team.states`                                 | yes            | not exposed                                    | not exposed                   |
+| `team list`                                            | `Query.teams`                                 | yes            | not exposed                                    | not exposed                   |
+| `team members`, `user list`, `organization members`    | user connections                              | yes            | not exposed (`--include-disabled` is separate) | not exposed                   |
+| `organization invites`                                 | `Query.organizationInvites`                   | yes            | not exposed                                    | not exposed                   |
+| `webhook list`                                         | `Query.webhooks`                              | yes            | not exposed                                    | not exposed                   |
+| `auth list`                                            | local credential registry (no API connection) | no             | not applicable                                 | not applicable                |
 
 ### Global flags
 
@@ -486,7 +544,8 @@ so prefer the `code` field for fine-grained handling and the exit code for coars
 - **`-q, --quiet`** — suppress success/status lines on stderr (errors still print).
 - **`-n, --limit <n>` / `--all`** — `--limit` caps results; `--all` exhausts pagination. With
   neither, the default cap is **50**. `--all` (and very large `--limit`) can be slow and
-  rate-limit-prone on big workspaces.
+  rate-limit-prone on big workspaces. It never includes archived resources; combine it with
+  `--include-archived` where that option is available.
 
 ```sh
 # agent-safe: no prompts, no chatter, fail fast with a parseable error

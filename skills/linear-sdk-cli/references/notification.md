@@ -43,9 +43,9 @@ Aliases: `ls`
 linear notification list [options]
 ```
 
-| Option               | Description                    |
-| -------------------- | ------------------------------ |
-| `--include-archived` | include archived notifications |
+| Option               | Description                                                          |
+| -------------------- | -------------------------------------------------------------------- |
+| `--include-archived` | include archived resources (the API may also return trashed records) |
 
 **Output (`--json`)**: a bare array of objects
 

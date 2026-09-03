@@ -124,6 +124,10 @@ Everything with no row is spelled identically.
 
 Passing both spellings at once (`--due` _and_ `--due-date`) is a usage error, not a coin flip.
 
+This CLI previously taught `initiative list --archived`. Its canonical spelling is now
+`--include-archived`, matching issue, project, and notification lists. The old spelling remains a
+compatibility alias throughout `0.x`; passing both spellings together is a usage error.
+
 **Short flags are the one place we did not follow.** schpet 2.5's own tree assigns `-a` four
 meanings (`--app`, `--all`, `--assignee`, `--attach`), `-f` four, `-y` three, `-t` two (`--title`
 and `--team`). There is no consistent target to copy. Ours holds **one meaning per letter across
@@ -154,6 +158,8 @@ Every one is now either identical, or says so on stderr, or is a usage error. Kn
    under `--quiet`) that deactivated users are still excluded and names `--include-disabled`, and
    `--help` says so up front. Not adopted: making `--all` mean "and deactivated" on two commands
    would give one global two meanings.
+   The same rule applies to lifecycle history: `--all` never includes archived records. Use
+   `--include-archived --all` to widen lifecycle visibility and exhaust pagination independently.
 5. **`-f <file>` on `project create/update`, `document create/update`** — theirs: `--description-file` /
    `--content-file`. Ours: `-f` is `--fields`, and it used to be _dropped_ on those commands, so
    `project create --name X -f desc.md` created the project with no description and exited 0.

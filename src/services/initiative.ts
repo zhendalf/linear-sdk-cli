@@ -51,6 +51,8 @@ export interface InitiativeRow {
   targetDate: string | null;
   health: string | null;
   url: string;
+  archivedAt: string | null;
+  trashed: boolean;
 }
 
 /** The row's shape as `linear commands` advertises it (TES-610); checked against the interface. */
@@ -62,13 +64,15 @@ export const INITIATIVE_ROW_SHAPE = shape<InitiativeRow>({
   targetDate: "string|null",
   health: "string|null",
   url: "string",
+  archivedAt: "string|null",
+  trashed: "boolean",
 });
 
 const LIST_QUERY = `
 query CliInitiatives($filter: InitiativeFilter, $first: Int!, $after: String, $includeArchived: Boolean) {
   initiatives(filter: $filter, first: $first, after: $after, includeArchived: $includeArchived) {
     nodes {
-      id name status priority targetDate health url
+      id name status priority targetDate health url archivedAt trashed
     }
     pageInfo { hasNextPage endCursor }
   }
@@ -80,7 +84,7 @@ export interface ListFilters {
   /** me|email|name|id — resolved to a user id. */
   owner?: string;
   /** Include archived initiatives (the API excludes them by default). */
-  archived?: boolean;
+  includeArchived?: boolean;
 }
 
 /** Build an InitiativeFilter from human options, resolving names to ids. Exported for tests. */
@@ -104,7 +108,7 @@ export async function listInitiatives(
   return collectRawQuery<InitiativeRow>(
     client as any,
     LIST_QUERY,
-    { filter, includeArchived: filters.archived === true },
+    { filter, includeArchived: filters.includeArchived === true },
     "initiatives",
     limit,
     (n) => ({
@@ -115,6 +119,8 @@ export async function listInitiatives(
       targetDate: n.targetDate ?? null,
       health: n.health ?? null,
       url: n.url,
+      archivedAt: n.archivedAt ?? null,
+      trashed: n.trashed === true,
     }),
   );
 }
@@ -137,6 +143,7 @@ export interface InitiativeDetail {
   startedAt: string | null;
   completedAt: string | null;
   archivedAt: string | null;
+  trashed: boolean;
   owner: string | null;
   creator: string | null;
   /** The projects linked to the initiative (`initiative add-project`), API order. */
@@ -162,6 +169,7 @@ export const INITIATIVE_DETAIL_SHAPE = shape<InitiativeDetail>({
   startedAt: "string|null",
   completedAt: "string|null",
   archivedAt: "string|null",
+  trashed: "boolean",
   owner: "string|null",
   creator: "string|null",
   projects: [
@@ -214,6 +222,7 @@ export async function getInitiativeDetail(
     startedAt: initiative.startedAt ? initiative.startedAt.toISOString() : null,
     completedAt: initiative.completedAt ? initiative.completedAt.toISOString() : null,
     archivedAt: initiative.archivedAt ? initiative.archivedAt.toISOString() : null,
+    trashed: initiative.trashed === true,
     owner: owner?.displayName ?? null,
     creator: creator?.displayName ?? null,
     projects: projectRows,
