@@ -6,13 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.5.0](https://github.com/zhendalf/linear-sdk-cli/compare/v0.4.0...v0.5.0) (2026-09-03)
 
-
 ### Features
 
-* **config:** support per-workspace default teams ([#50](https://github.com/zhendalf/linear-sdk-cli/issues/50)) ([06be757](https://github.com/zhendalf/linear-sdk-cli/commit/06be757ddb81652dea4da32434e63de773cb6760)), closes [#44](https://github.com/zhendalf/linear-sdk-cli/issues/44)
-* **issue:** add native agent delegation ([#52](https://github.com/zhendalf/linear-sdk-cli/issues/52)) ([15055ff](https://github.com/zhendalf/linear-sdk-cli/commit/15055ff73d46f6ddf31679b7bb5f37fc6e3fddda)), closes [#45](https://github.com/zhendalf/linear-sdk-cli/issues/45)
-* **issue:** set labels by group ([#54](https://github.com/zhendalf/linear-sdk-cli/issues/54)) ([4c471cd](https://github.com/zhendalf/linear-sdk-cli/commit/4c471cd23c9409ba395cf43514f9e251a42ef4d6)), closes [#46](https://github.com/zhendalf/linear-sdk-cli/issues/46)
-* standardize archived-resource listing ([#53](https://github.com/zhendalf/linear-sdk-cli/issues/53)) ([735d1c8](https://github.com/zhendalf/linear-sdk-cli/commit/735d1c87894736de257b8888edb8500934e502f3)), closes [#49](https://github.com/zhendalf/linear-sdk-cli/issues/49)
+- **config:** support per-workspace default teams ([#50](https://github.com/zhendalf/linear-sdk-cli/issues/50)) ([06be757](https://github.com/zhendalf/linear-sdk-cli/commit/06be757ddb81652dea4da32434e63de773cb6760)), closes [#44](https://github.com/zhendalf/linear-sdk-cli/issues/44)
+- **issue:** add native agent delegation ([#52](https://github.com/zhendalf/linear-sdk-cli/issues/52)) ([15055ff](https://github.com/zhendalf/linear-sdk-cli/commit/15055ff73d46f6ddf31679b7bb5f37fc6e3fddda)), closes [#45](https://github.com/zhendalf/linear-sdk-cli/issues/45)
+- **issue:** set labels by group ([#54](https://github.com/zhendalf/linear-sdk-cli/issues/54)) ([4c471cd](https://github.com/zhendalf/linear-sdk-cli/commit/4c471cd23c9409ba395cf43514f9e251a42ef4d6)), closes [#46](https://github.com/zhendalf/linear-sdk-cli/issues/46)
+- standardize archived-resource listing ([#53](https://github.com/zhendalf/linear-sdk-cli/issues/53)) ([735d1c8](https://github.com/zhendalf/linear-sdk-cli/commit/735d1c87894736de257b8888edb8500934e502f3)), closes [#49](https://github.com/zhendalf/linear-sdk-cli/issues/49)
 
 ## [0.4.0](https://github.com/zhendalf/linear-sdk-cli/compare/v0.3.3...v0.4.0) (2026-08-28)
 
