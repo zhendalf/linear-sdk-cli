@@ -147,6 +147,13 @@ const EXCLUDED: Array<{ pattern: RegExp; reason: string }> = [
   },
 ];
 
+/** Curated schema fields that are not separately enumerable LinearClient members. */
+const CURATED_FIELD_CAPABILITIES = [
+  "Issue delegation (Developer Preview) — `Issue.delegate`, `IssueCreateInput.delegateId`, " +
+    "`IssueUpdateInput.delegateId`, and eligible agent-user fields are covered by `issue delegate` " +
+    "and the delegation options on `issue create`/`issue update`.",
+];
+
 function clientMembers(): string[] {
   const c = new LinearClient({ apiKey: "x" });
   const names = new Set<string>();
@@ -196,6 +203,10 @@ async function main(): Promise<void> {
     "",
     "Every member is classified — CI fails otherwise. `raw-only` members are still",
     "100% reachable through the raw GraphQL escape hatch; they simply lack a tailored command.",
+    "",
+    "## Curated field capabilities",
+    "",
+    CURATED_FIELD_CAPABILITIES.map((capability) => `- ${capability}`).join("\n"),
     "",
     `## Curated (${curatedRows.length})`,
     "",

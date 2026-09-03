@@ -271,9 +271,39 @@ A few ideas run through every command:
 linear issue create --title "Fix login redirect" --team TES -P 2 --assignee me
 linear issue list --assignee me --state started
 linear issue update TES-42 --state "In Review" --add-label backend
+linear issue delegate TES-42 Codex
 linear issue comment TES-42 "ready for another look"
 linear issue archive TES-42 --yes
 ```
+
+**Agent delegation (Developer Preview)** — the assignee remains the human owner; the delegate is
+the agent working on their behalf. Create/update accept `--delegate <name|id>` and
+`--clear-delegate`; the focused command is convenient on a matching branch:
+
+```sh
+linear issue create --title "Investigate flaky CI" --assignee me --delegate Codex
+linear issue update TES-42 --delegate Codex
+linear issue update TES-42 --clear-delegate
+linear issue delegate TES-42 Codex
+linear issue delegate --clear                    # issue inferred from the branch
+linear issue delegate TES-42 Codex --dry-run --json
+linear issue delegate TES-42 Codex --full-result --json
+```
+
+Delegate resolution accepts an agent-user UUID, exact display name, or exact full name, preferring
+case-sensitive matches. It rejects human, inactive, non-assignable, ambiguous, and team-ineligible
+users before writing. `--dry-run` resolves every field and prints the exact nullable `delegateId`
+input without a mutation; `--full-result` (hidden alias `--read-back`) returns the relationship
+receipt plus the canonical issue read-back and verifies the resulting delegate. These modes are
+currently the delegation slice only: on `issue create`/`update`, pair them with `--delegate` or
+`--clear-delegate`.
+
+Delegating can trigger an externally observable Agent Session/webhook. Clearing a delegate does
+not claim to cancel a session that is already running. Linear for Agents is in Developer Preview;
+an unsupported workspace/schema returns `feature_not_accessible`, while ordinary `issue view`
+falls back safely and reports `delegate: null` if the preview field itself is unavailable.
+See Linear's current [agent integration guide](https://linear.app/developers/agents) and
+[issue-assignment guide](https://linear.app/docs/assigning-issues) for the platform semantics.
 
 **Git + GitHub PR** — turn an issue into commits and a pull request. The id is inferred from the
 branch everywhere below.
@@ -359,29 +389,29 @@ Every group has `--help` with full options and (for the busy ones) an Examples s
 are shown in parentheses. For a machine-readable tree of _every_ command, run
 `linear commands --json`.
 
-| Group                          | What you can do                                                                                                                                                                                                                                                                     |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **`issue`** (`i`)              | `view` · `list` · `mine` · `search` · `create` · `update` · `delete` · `archive`/`unarchive` · `start` (git branch) · `describe` · `pull-request`/`pr` · `assign` · `state` · `label` · `comment`/`comments` · `relation` · `subscribe`/`unsubscribe` · `id`/`title`/`url`/`branch` |
-| **`team`** (`t`)               | `list` · `view` · `members` · `states` · `labels` · `cycles` · `create` · `update`                                                                                                                                                                                                  |
-| **`project`** (`p`)            | `list` · `view` · `create` · `update` · `archive` · `milestones`                                                                                                                                                                                                                    |
-| **`project-update`** (`pu`)    | `create` · `list` (project status updates, with `--health`)                                                                                                                                                                                                                         |
-| **`milestone`** (`m`)          | `list` · `view` · `create` · `update` · `delete`                                                                                                                                                                                                                                    |
-| **`cycle`** (`c`)              | `list` · `view` · `current` · `create` · `update`                                                                                                                                                                                                                                   |
-| **`user`** (`u`)               | `list` · `view` · `me`                                                                                                                                                                                                                                                              |
-| **`label`** (`lb`)             | `list` · `create` · `update` · `delete`                                                                                                                                                                                                                                             |
-| **`state`** (`st`)             | `list` · `view` (workflow states)                                                                                                                                                                                                                                                   |
-| **`comment`** (`cm`)           | `list` · `add` · `reply` · `update` · `delete` · `resolve`/`unresolve`                                                                                                                                                                                                              |
-| **`document`** (`doc`)         | `list` · `view` · `create` · `update` · `delete`                                                                                                                                                                                                                                    |
-| **`attachment`** (`at`)        | `list` · `create` · `delete`                                                                                                                                                                                                                                                        |
-| **`favorite`** (`fav`)         | `list` · `add` · `remove`                                                                                                                                                                                                                                                           |
-| **`custom-view`** (`cv`)       | `list` · `view` · `results` · `create` · `update` · `delete`                                                                                                                                                                                                                        |
-| **`initiative`** (`init`)      | `list` · `view` · `create` · `update` · `archive` · `delete`                                                                                                                                                                                                                        |
-| **`initiative-update`** (`iu`) | `create` · `list` (initiative status updates, with `--health`)                                                                                                                                                                                                                      |
-| **`roadmap`** (`rm`)           | `list` · `view` · `create` · `update` · `delete` &nbsp;<sup>†</sup>                                                                                                                                                                                                                 |
-| **`notification`** (`notif`)   | `list` · `read`/`unread` · `read-all` · `archive` · `snooze`                                                                                                                                                                                                                        |
-| **`organization`** (`org`)     | `view` · `members` · `invites`                                                                                                                                                                                                                                                      |
-| **`webhook`** (`wh`)           | `list` · `view` · `create` · `update` · `delete`                                                                                                                                                                                                                                    |
-| **top-level**                  | `whoami` · `auth` (`login` · `list` · `default` · `token` · `status` · `logout`) · `config` · `api` · `commands` · `schema` · `completion`                                                                                                                                          |
+| Group                          | What you can do                                                                                                                                                                                                                                                                                  |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **`issue`** (`i`)              | `view` · `list` · `mine` · `search` · `create` · `update` · `delete` · `archive`/`unarchive` · `start` (git branch) · `describe` · `pull-request`/`pr` · `assign` · `delegate` · `state` · `label` · `comment`/`comments` · `relation` · `subscribe`/`unsubscribe` · `id`/`title`/`url`/`branch` |
+| **`team`** (`t`)               | `list` · `view` · `members` · `states` · `labels` · `cycles` · `create` · `update`                                                                                                                                                                                                               |
+| **`project`** (`p`)            | `list` · `view` · `create` · `update` · `archive` · `milestones`                                                                                                                                                                                                                                 |
+| **`project-update`** (`pu`)    | `create` · `list` (project status updates, with `--health`)                                                                                                                                                                                                                                      |
+| **`milestone`** (`m`)          | `list` · `view` · `create` · `update` · `delete`                                                                                                                                                                                                                                                 |
+| **`cycle`** (`c`)              | `list` · `view` · `current` · `create` · `update`                                                                                                                                                                                                                                                |
+| **`user`** (`u`)               | `list` · `view` · `me`                                                                                                                                                                                                                                                                           |
+| **`label`** (`lb`)             | `list` · `create` · `update` · `delete`                                                                                                                                                                                                                                                          |
+| **`state`** (`st`)             | `list` · `view` (workflow states)                                                                                                                                                                                                                                                                |
+| **`comment`** (`cm`)           | `list` · `add` · `reply` · `update` · `delete` · `resolve`/`unresolve`                                                                                                                                                                                                                           |
+| **`document`** (`doc`)         | `list` · `view` · `create` · `update` · `delete`                                                                                                                                                                                                                                                 |
+| **`attachment`** (`at`)        | `list` · `create` · `delete`                                                                                                                                                                                                                                                                     |
+| **`favorite`** (`fav`)         | `list` · `add` · `remove`                                                                                                                                                                                                                                                                        |
+| **`custom-view`** (`cv`)       | `list` · `view` · `results` · `create` · `update` · `delete`                                                                                                                                                                                                                                     |
+| **`initiative`** (`init`)      | `list` · `view` · `create` · `update` · `archive` · `delete`                                                                                                                                                                                                                                     |
+| **`initiative-update`** (`iu`) | `create` · `list` (initiative status updates, with `--health`)                                                                                                                                                                                                                                   |
+| **`roadmap`** (`rm`)           | `list` · `view` · `create` · `update` · `delete` &nbsp;<sup>†</sup>                                                                                                                                                                                                                              |
+| **`notification`** (`notif`)   | `list` · `read`/`unread` · `read-all` · `archive` · `snooze`                                                                                                                                                                                                                                     |
+| **`organization`** (`org`)     | `view` · `members` · `invites`                                                                                                                                                                                                                                                                   |
+| **`webhook`** (`wh`)           | `list` · `view` · `create` · `update` · `delete`                                                                                                                                                                                                                                                 |
+| **top-level**                  | `whoami` · `auth` (`login` · `list` · `default` · `token` · `status` · `logout`) · `config` · `api` · `commands` · `schema` · `completion`                                                                                                                                                       |
 
 <sup>†</sup> Linear has **deprecated roadmaps** in favor of initiatives — reads still work, but the
 API rejects roadmap mutations with a deprecation notice. Use `initiative` for new work.
@@ -671,6 +701,10 @@ bun run audit:changelog  # verify package, tag, and generated release-note histo
 bun run audit:coverage   # regenerate COVERAGE.md (add --update to re-baseline the snapshot)
 bun run janitor          # sweep leaked `clitest-` fixtures from the test workspace
 ```
+
+The live delegation suite is additionally gated by `LINEAR_CLI_LIVE_AGENT_ID`, the UUID of an
+explicit disposable-test agent. It can trigger that integration's Agent Session/webhook and is
+never enabled by the general live-test flag alone.
 
 Architecture is three layers — **commands** (commander wiring) → **services** (one module per
 resource, the only place that touches the SDK) → **`@linear/sdk`**. The machine JSON envelope is

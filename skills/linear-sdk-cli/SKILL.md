@@ -374,6 +374,7 @@ linear issue comment list
 linear issue comment update
 linear issue comments
 linear issue create
+linear issue delegate
 linear issue delete
 linear issue describe
 linear issue id

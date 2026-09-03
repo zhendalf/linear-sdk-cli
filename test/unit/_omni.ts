@@ -229,6 +229,12 @@ function build(selections: SelectionSetNode): Record<string, unknown> {
       out[key] = key === "__typename" && typename ? typename : rawScalar(field.name.value);
       continue;
     }
+    // A variant can model a cleared nullable relation (`delegate: null`) while
+    // the default sweep still insists that selected relations are populated.
+    if (field.name.value in OVERRIDES) {
+      out[key] = OVERRIDES[field.name.value];
+      continue;
+    }
     const inner = build(field.selectionSet);
     // A `parent { id }` that is its own id would make every comment a reply to
     // itself (and vanish from a threaded list); a parent is another record.

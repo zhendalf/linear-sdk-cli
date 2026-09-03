@@ -41,7 +41,7 @@ import { openUrl } from "../lib/open.js";
 import type { Context } from "../context.js";
 import * as svc from "../services/issue.js";
 import * as commentSvc from "../services/comment.js";
-import { isSelf, normalizeIssueReference, resolveIssue } from "../lib/resolve.js";
+import { isSelf, isUuid, normalizeIssueReference, resolveIssue } from "../lib/resolve.js";
 import type { Column } from "../output/table.js";
 
 /** Resolve the target issue id from an argument/current branch, expanding `42` via the default team. */
@@ -362,6 +362,10 @@ export function registerIssue(program: Command): void {
     .option("--description-file <path>", "read description from a file ('-' = stdin)")
     .option("--editor", "compose the description in $EDITOR")
     .option("-a, --assignee <who>", "assignee (me|email|name|id)")
+    .option("--delegate <agent>", "delegate to an eligible agent app user (name or id)")
+    .option("--clear-delegate", "explicitly create with no agent delegate")
+    .option("--dry-run", "resolve and show the delegation mutation input without writing")
+    .option("--full-result", "read back and verify the resulting delegate")
     .option("-s, --state <name>", "workflow state name or type")
     .option("-P, --priority <0-4>", "priority", parsePriority)
     .option("-l, --label <name>", "label (repeatable / comma-separated)", parseList)
@@ -386,6 +390,8 @@ export function registerIssue(program: Command): void {
         "",
         "Examples:",
         "  linear issue create --title 'Fix login' --team TES --assignee me",
+        "  linear issue create --title 'Fix login' --assignee me --delegate Codex",
+        "  linear issue create --title 'Fix login' --delegate Codex --dry-run --json",
         "  linear issue create --title 'Bug' -l bug -l urgent --priority 1",
         "  linear issue create --title 'Sprint task' --cycle current --state 'In Progress'",
         "  linear issue create --title 'Sub-task' --parent TES-42          # inherits TES-42's project",
@@ -396,6 +402,13 @@ export function registerIssue(program: Command): void {
     )
     .action(
       action(async (ctx: Context, opts) => {
+        const delegationChanged = opts.delegate !== undefined || opts.clearDelegate === true;
+        const mode = delegationMutationMode(opts, delegationChanged);
+        if (opts.start && mode.dryRun) {
+          throw usageError(
+            "--dry-run cannot be combined with --start, which also changes git and state.",
+          );
+        }
         // `--start` means *you* are starting on it, so it assigns to you (as the
         // reference CLI does); naming somebody else at the same time is a contradiction.
         if (opts.start && opts.assignee && !isSelf(opts.assignee)) {
@@ -411,13 +424,15 @@ export function registerIssue(program: Command): void {
           interactive: !!opts.editor && ctx.isTTY,
           editorRequested: !!opts.editor,
         });
-        const created = await svc.createIssue(
+        const plan = await svc.prepareIssueCreate(
           ctx.client,
           {
             title,
             description,
             team: opts.team ?? ctx.defaultTeam,
             assignee: opts.start ? (opts.assignee ?? "me") : opts.assignee,
+            delegate: opts.delegate,
+            clearDelegate: opts.clearDelegate,
             state: opts.state,
             priority: opts.priority,
             label: opts.label,
@@ -433,7 +448,16 @@ export function registerIssue(program: Command): void {
           },
           ctx.defaultTeam,
         );
+        if (mode.dryRun) {
+          emitMutationPreview(ctx, plan);
+          return;
+        }
+        const created = await svc.executeIssueCreate(ctx.client, plan);
         if (!opts.start) {
+          if (delegationChanged) {
+            await emitDelegationResult(ctx, created, plan, mode.fullResult, "Created");
+            return;
+          }
           ctx.output.emit(
             { id: created.id, identifier: created.identifier, url: created.url },
             () => ctx.output.success(`Created ${created.identifier}: ${created.url}`),
@@ -448,6 +472,16 @@ export function registerIssue(program: Command): void {
         // (dirty tree, invalid ref, …), the issue remains in its existing state.
         const branchResult = isGitRepo() ? checkoutBranch(created.branchName) : undefined;
         await svc.moveIssueState(ctx.client, created, { move: moved });
+        if (delegationChanged) {
+          await emitDelegationResult(ctx, created, plan, mode.fullResult, "Created");
+          if (branchResult)
+            ctx.output.success(
+              `${branchResult.created ? "Created and checked out" : "Checked out"} ${branchResult.branch}`,
+            );
+          else ctx.output.info(`Branch name: ${created.branchName}`);
+          if (moved) ctx.output.success(`Moved ${created.identifier} → started`);
+          return;
+        }
         ctx.output.emit(
           {
             id: created.id,
@@ -471,6 +505,7 @@ export function registerIssue(program: Command): void {
     );
   addAliasOption(create, "--due-date <date>", "--due");
   addAliasOption(create, "--no-use-default-template", "--no-default-template");
+  addAliasOption(create, "--read-back", "--full-result");
 
   // update ------------------------------------------------------------------
   const update = issue
@@ -485,6 +520,7 @@ export function registerIssue(program: Command): void {
     // lookup. (addGlobalOptions leaves a locally-declared global alone.)
     .option("-t, --team <key>", "move the issue to another team (changes its identifier)")
     .option("-a, --assignee <who>", "assignee (me|email|name|id)")
+    .option("--delegate <agent>", "delegate to an eligible agent app user (name or id)")
     .option("-s, --state <name>", "workflow state name or type")
     .option("-P, --priority <0-4>", "priority", parsePriority)
     .option("-p, --project <name>", "project name or id")
@@ -497,13 +533,18 @@ export function registerIssue(program: Command): void {
     .option("--add-label <name>", "add a label (repeatable)", parseList)
     .option("--remove-label <name>", "remove a label (repeatable)", parseList)
     .option("--unassign", "clear the assignee")
+    .option("--clear-delegate", "remove the agent delegate")
     .option("--clear-cycle", "remove the issue from its cycle")
+    .option("--dry-run", "resolve and show the delegation mutation input without writing")
+    .option("--full-result", "read back and verify the resulting delegate")
     .addHelpText(
       "after",
       [
         "",
         "Examples:",
         "  linear issue update TES-42 --state 'In Progress' --assignee me",
+        "  linear issue update TES-42 --delegate Codex",
+        "  linear issue update TES-42 --clear-delegate",
         "  linear issue update --priority 1 --add-label regression   # id from branch",
         "  linear issue update TES-42 --cycle current --json",
         "  linear issue update TES-42 --team ENG   # move to another team (new identifier)",
@@ -511,18 +552,21 @@ export function registerIssue(program: Command): void {
     )
     .action(
       action(async (ctx: Context, opts, idArg?: string) => {
+        const delegationChanged = opts.delegate !== undefined || opts.clearDelegate === true;
+        const mode = delegationMutationMode(opts, delegationChanged);
         const description = resolveBody({
           arg: opts.description,
           file: opts.descriptionFile,
           interactive: false,
         });
-        const updated = await svc.updateIssue(ctx.client, requireId(idArg, ctx.defaultTeam), {
+        const plan = await svc.prepareIssueUpdate(ctx.client, requireId(idArg, ctx.defaultTeam), {
           title: opts.title,
           description,
           // Only the explicit flag moves an issue — never `ctx.defaultTeam`, or
           // every update in a repo with a configured team would be a team move.
           team: opts.team,
           assignee: opts.assignee,
+          delegate: opts.delegate,
           state: opts.state,
           priority: opts.priority,
           project: opts.project,
@@ -535,8 +579,18 @@ export function registerIssue(program: Command): void {
           addLabel: opts.addLabel,
           removeLabel: opts.removeLabel,
           unassign: opts.unassign,
+          clearDelegate: opts.clearDelegate,
           clearCycle: opts.clearCycle,
         });
+        if (mode.dryRun) {
+          emitMutationPreview(ctx, plan);
+          return;
+        }
+        const updated = await svc.executeIssueUpdate(ctx.client, plan);
+        if (delegationChanged) {
+          await emitDelegationResult(ctx, updated, plan, mode.fullResult, "Updated");
+          return;
+        }
         ctx.output.emit(
           { id: updated.id, identifier: updated.identifier, url: updated.url },
           () => {
@@ -555,6 +609,7 @@ export function registerIssue(program: Command): void {
       }),
     );
   addAliasOption(update, "--due-date <date>", "--due");
+  addAliasOption(update, "--read-back", "--full-result");
 
   // assign / state ----------------------------------------------------------
   issue
@@ -571,6 +626,61 @@ export function registerIssue(program: Command): void {
         );
       }),
     );
+
+  const delegate = issue
+    .command("delegate [idOrAgent] [agent]")
+    .description(
+      "Delegate an issue to an eligible agent, or --clear it. Issue defaults to the branch.",
+    )
+    .option("--clear", "remove the agent delegate")
+    .option("--dry-run", "resolve and show the exact delegateId without writing")
+    .option("--full-result", "read back the full issue and verify the resulting delegate")
+    .addHelpText(
+      "after",
+      [
+        "",
+        "Examples:",
+        "  linear issue delegate TES-42 Codex",
+        "  linear issue delegate Codex              # issue from branch",
+        "  linear issue delegate <agent-user-uuid>  # issue from branch",
+        "  linear issue delegate TES-42 --clear",
+        "  linear issue delegate --clear             # issue from branch",
+        "",
+        "Delegating may trigger an Agent Session/webhook. Clearing the delegate does not",
+        "claim to cancel a session that is already running.",
+      ].join("\n"),
+    )
+    .action(
+      action(async (ctx: Context, opts, a?: string, b?: string) => {
+        const mode = delegationMutationMode(opts, true);
+        let idArg: string | undefined;
+        let change: svc.UpdateOptions;
+        if (opts.clear) {
+          if (b !== undefined || (a !== undefined && !ISSUE_ID_RE.test(a))) {
+            throw usageError("Pass either an agent or --clear, not both.");
+          }
+          idArg = a;
+          change = { clearDelegate: true };
+        } else {
+          const parsed = delegateOperands(a, b);
+          idArg = parsed.idArg;
+          change = { delegate: parsed.value };
+        }
+        const plan = await svc.prepareIssueUpdate(
+          ctx.client,
+          requireId(idArg, ctx.defaultTeam),
+          change,
+          "issue.delegate",
+        );
+        if (mode.dryRun) {
+          emitMutationPreview(ctx, plan);
+          return;
+        }
+        const updated = await svc.executeIssueUpdate(ctx.client, plan);
+        await emitDelegationResult(ctx, updated, plan, mode.fullResult, "Delegated");
+      }),
+    );
+  addAliasOption(delegate, "--read-back", "--full-result");
 
   issue
     .command("state [idOrState] [state]")
@@ -1062,6 +1172,70 @@ async function runBulkIssueMutation(
   if (failures > 0) process.exitCode = 1;
 }
 
+function delegationMutationMode(
+  opts: Record<string, any>,
+  delegationChanged: boolean,
+): { dryRun: boolean; fullResult: boolean } {
+  const dryRun = opts.dryRun === true;
+  const fullResult = readAlias<boolean>(opts, "--full-result", "--read-back") === true;
+  if (dryRun && fullResult) {
+    throw usageError("Pass either --dry-run or --full-result, not both.");
+  }
+  // #42 owns general mutation preview/read-back. This bounded slice exposes
+  // the modes only when #45's delegateId is actually part of the mutation.
+  if ((dryRun || fullResult) && !delegationChanged) {
+    throw usageError("--dry-run/--full-result currently require --delegate or --clear-delegate.");
+  }
+  return { dryRun, fullResult };
+}
+
+function emitMutationPreview(ctx: Context, plan: svc.IssueMutationPlan): void {
+  const value = {
+    operation: plan.operation,
+    dryRun: true,
+    target: plan.target,
+    input: plan.input,
+  };
+  ctx.output.detail(value, [
+    ["Operation", plan.operation],
+    ["Dry run", "yes (no mutation sent)"],
+    ["Target", plan.target?.identifier ?? null],
+    ["Input", `\n${JSON.stringify(plan.input, null, 2)}`],
+  ]);
+}
+
+async function emitDelegationResult(
+  ctx: Context,
+  issue: { id: string; identifier: string },
+  plan: svc.IssueMutationPlan,
+  fullResult: boolean,
+  verb: string,
+): Promise<void> {
+  // Read through the same canonical mapper as `issue view`; this is both the
+  // relationship receipt source and the full-result verification boundary.
+  let detail: svc.IssueDetail;
+  try {
+    detail = await svc.getIssueDetail(ctx.client, issue.id, { includeComments: false });
+  } catch (err) {
+    const normalized = normalizeError(err);
+    throw new CliError(
+      `Issue mutation succeeded, but delegation read-back failed: ${normalized.message}. The write may have committed.`,
+      normalized.code,
+      normalized.detail,
+      "Re-read the issue before retrying the mutation.",
+    );
+  }
+  svc.verifyIssueDelegate(detail, plan.input);
+  const receipt = svc.issueDelegationReceipt(detail);
+  const value = fullResult ? { receipt, resource: detail, verified: true } : receipt;
+  ctx.output.emit(value, () => {
+    ctx.output.success(`${verb} ${detail.identifier}`);
+    ctx.output.info(`Assignee: ${detail.assignee?.displayName ?? "none"}`);
+    ctx.output.info(`Delegate: ${detail.delegate?.displayName ?? "none"}`);
+    if (fullResult) ctx.output.success("Verified delegate by authoritative read-back");
+  });
+}
+
 /**
  * Render a single issue's detail block. Shared by `issue view` and the bare
  * `linear` command so `linear --json` === `issue view <id> --json`.
@@ -1088,6 +1262,7 @@ export async function renderIssueDetail(
     ["State", detail.state?.name ?? null],
     ["Priority", detail.priorityLabel],
     ["Assignee", detail.assignee?.displayName ?? null],
+    ["Delegate", detail.delegate?.displayName ?? null],
     ["Team", team ? `${team.key} ${team.name}` : null],
     ["Project", detail.project?.name ?? null],
     ["Milestone", detail.milestone?.name ?? null],
@@ -1238,6 +1413,19 @@ function oneOrTwo(
     );
   }
   return { value: a };
+}
+
+/**
+ * A lone UUID on `issue delegate` is the agent UUID, because a target issue
+ * without an agent is never a complete mutation. The issue therefore comes
+ * from the branch; two operands remain the explicit issue + agent form.
+ */
+export function delegateOperands(
+  a: string | undefined,
+  b: string | undefined,
+): { idArg?: string; value: string } {
+  if (a !== undefined && b === undefined && isUuid(a)) return { value: a };
+  return oneOrTwo(a, b, "agent");
 }
 
 /**
