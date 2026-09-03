@@ -38,6 +38,7 @@ updatedAt: string
 startedAt: string | null
 completedAt: string | null
 archivedAt: string | null
+trashed: boolean
 owner: string | null
 creator: string | null
 projects: Array<{id: string, name: string, status: {name: string, type: string} | null}>
@@ -138,11 +139,12 @@ Aliases: `ls`
 linear initiative list [options]
 ```
 
-| Option            | Description                                                       |
-| ----------------- | ----------------------------------------------------------------- |
-| `--status <name>` | filter by status (Planned, Active, Completed, Canceled, Proposed) |
-| `--owner <who>`   | filter by owner (me\|email\|name\|id)                             |
-| `--archived`      | include archived initiatives                                      |
+| Option               | Description                                                          |
+| -------------------- | -------------------------------------------------------------------- |
+| `--status <name>`    | filter by status (Planned, Active, Completed, Canceled, Proposed)    |
+| `--owner <who>`      | filter by owner (me\|email\|name\|id)                                |
+| `--include-archived` | include archived resources (the API may also return trashed records) |
+| `--archived`         | compatibility alias of --include-archived                            |
 
 **Output (`--json`)**: a bare array of objects
 
@@ -154,6 +156,8 @@ priority: number
 targetDate: string | null
 health: string | null
 url: string
+archivedAt: string | null
+trashed: boolean
 ```
 
 ### `linear initiative remove-project`
@@ -250,6 +254,7 @@ updatedAt: string
 startedAt: string | null
 completedAt: string | null
 archivedAt: string | null
+trashed: boolean
 owner: string | null
 creator: string | null
 projects: Array<{id: string, name: string, status: {name: string, type: string} | null}>

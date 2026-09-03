@@ -12,6 +12,7 @@ import {
   findProjectLink,
   removeProjectLink,
   resolveInitiative,
+  getInitiativeDetail,
 } from "../../src/services/initiative.js";
 import { connection, okPayload, failedPayload, payload, rawPage } from "./_fakes.js";
 
@@ -203,7 +204,7 @@ const PROJ = "11111111-1111-4111-8111-111111111111";
 /**
  * TES-603 / TES-642: `initiative list` filters. Ours lists every status by
  * default (the reference CLI lists Active only); `--status`, `--owner` and
- * `--archived` narrow or widen from there.
+ * `--include-archived` (or its compatibility alias `--archived`) widens from there.
  */
 describe("initiative list filters", () => {
   const client = {
@@ -227,7 +228,7 @@ describe("initiative list filters", () => {
     });
   });
 
-  it("passes the filter and --archived through to the query", async () => {
+  it("passes filters and --include-archived through while preserving lifecycle fields", async () => {
     const seen: any[] = [];
     const c = {
       ...client,
@@ -237,7 +238,16 @@ describe("initiative list filters", () => {
           return {
             data: {
               initiatives: rawPage(
-                [{ id: "i1", name: "Old", status: "Completed", url: "u" }],
+                [
+                  {
+                    id: "i1",
+                    name: "Old",
+                    status: "Completed",
+                    url: "u",
+                    archivedAt: "2026-01-01T00:00:00.000Z",
+                    trashed: true,
+                  },
+                ],
                 vars,
               ),
             },
@@ -245,15 +255,59 @@ describe("initiative list filters", () => {
         },
       },
     } as any;
-    const rows = await listInitiatives(c, 50, { status: "completed", archived: true });
+    const rows = await listInitiatives(c, 50, {
+      status: "completed",
+      includeArchived: true,
+    });
     expect(seen[0]).toMatchObject({
       filter: { status: { eq: "Completed" } },
       includeArchived: true,
     });
-    expect(rows[0]).toMatchObject({ id: "i1", status: "Completed", priority: 0 });
-    // Without --archived the API default (live only) is made explicit.
+    expect(rows[0]).toMatchObject({
+      id: "i1",
+      status: "Completed",
+      priority: 0,
+      archivedAt: "2026-01-01T00:00:00.000Z",
+      trashed: true,
+    });
+    // Without --include-archived the API default (live only) is made explicit.
     await listInitiatives(c, 50, {});
     expect(seen[1]).toMatchObject({ filter: {}, includeArchived: false });
+  });
+});
+
+describe("initiative detail lifecycle", () => {
+  it("keeps trashed distinct from archived in the detail shape", async () => {
+    const date = new Date("2026-01-01T00:00:00.000Z");
+    const client = {
+      initiative: async () => ({
+        id: UUID,
+        name: "Gone",
+        description: null,
+        status: "Canceled",
+        priority: 0,
+        health: null,
+        targetDate: null,
+        color: null,
+        icon: null,
+        url: "u",
+        createdAt: date,
+        updatedAt: date,
+        startedAt: null,
+        completedAt: null,
+        archivedAt: date,
+        trashed: true,
+        owner: Promise.resolve(null),
+        creator: Promise.resolve(null),
+        labels: async () => connection([]),
+        projects: async () => connection([]),
+      }),
+    } as any;
+
+    expect(await getInitiativeDetail(client, UUID)).toMatchObject({
+      archivedAt: date.toISOString(),
+      trashed: true,
+    });
   });
 });
 

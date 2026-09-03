@@ -11,8 +11,9 @@ import {
   updateProject,
   getProjectDetail,
   deleteProject,
+  listProjects,
 } from "../../src/services/project.js";
-import { connection, okPayload, failedPayload } from "./_fakes.js";
+import { connection, okPayload, failedPayload, rawPage } from "./_fakes.js";
 
 const client = {} as any;
 const UUID = "01234567-89ab-cdef-0123-456789abcdef";
@@ -77,6 +78,69 @@ describe("project buildFilter", () => {
         or: [{ name: { eqIgnoreCase: "started" } }, { type: { eqIgnoreCase: "started" } }],
       },
     });
+  });
+});
+
+describe("project list lifecycle and pagination", () => {
+  it("keeps inclusion orthogonal to filters and maps archived/trashed explicitly", async () => {
+    const seen: any[] = [];
+    const all = [
+      {
+        id: "p1",
+        name: "Live",
+        url: "u1",
+        archivedAt: null,
+        trashed: null,
+      },
+      {
+        id: "p2",
+        name: "Old",
+        url: "u2",
+        archivedAt: "2026-01-01T00:00:00.000Z",
+        trashed: false,
+      },
+      {
+        id: "p3",
+        name: "Gone",
+        url: "u3",
+        archivedAt: "2026-01-02T00:00:00.000Z",
+        trashed: true,
+      },
+    ];
+    const client = {
+      client: {
+        rawRequest: async (_query: string, vars: any) => {
+          seen.push(vars);
+          return { data: { projects: rawPage(all, vars) } };
+        },
+      },
+    } as any;
+
+    const rows = await listProjects(
+      client,
+      { team: "tes", state: "started", includeArchived: true },
+      Infinity,
+      undefined,
+    );
+    expect(rows).toHaveLength(3);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({
+      includeArchived: true,
+      filter: {
+        accessibleTeams: { some: { key: { eq: "TES" } } },
+        status: {
+          or: [{ name: { eqIgnoreCase: "started" } }, { type: { eqIgnoreCase: "started" } }],
+        },
+      },
+    });
+    expect(rows.map(({ archivedAt, trashed }) => ({ archivedAt, trashed }))).toEqual([
+      { archivedAt: null, trashed: false },
+      { archivedAt: "2026-01-01T00:00:00.000Z", trashed: false },
+      { archivedAt: "2026-01-02T00:00:00.000Z", trashed: true },
+    ]);
+
+    await listProjects(client, {}, 1, undefined);
+    expect(seen.at(-1)).toMatchObject({ includeArchived: false, first: 1 });
   });
 });
 
@@ -239,6 +303,7 @@ describe("getProjectDetail (one round-trip, structured relations)", () => {
     expect(d.members).toEqual([{ id: "u-1", displayName: "ada", email: "ada@x.io" }]);
     expect(d.labels).toEqual([{ id: "pl-1", name: "backend" }]);
     expect(d.archivedAt).toBeNull();
+    expect(d.trashed).toBe(false);
     // Scalars keep their keys.
     expect(d).toMatchObject({
       name: "Auth",

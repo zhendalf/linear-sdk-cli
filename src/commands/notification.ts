@@ -9,9 +9,11 @@ import type { Context } from "../context.js";
 import * as svc from "../services/notification.js";
 import type { Column } from "../output/table.js";
 import { ExitCode } from "../lib/errors.js";
+import { addIncludeArchivedOption } from "../lib/options.js";
+import { lifecycleSuffix } from "../output/lifecycle.js";
 
 const ROW_COLUMNS: Column<svc.NotificationRow>[] = [
-  { key: "type", header: "Type", value: (r) => r.type, max: 24 },
+  { key: "type", header: "Type", value: (r) => `${r.type}${lifecycleSuffix(r)}`, max: 36 },
   { key: "subject", header: "Subject", value: (r) => r.subject ?? "—", max: 50 },
   { key: "read", header: "Read", value: (r) => (r.read ? "✓" : "•") },
   { key: "createdAt", header: "Created", value: (r) => r.createdAt.slice(0, 10) },
@@ -24,17 +26,17 @@ export function registerNotification(program: Command): void {
     .description("Work with your notifications");
 
   // list --------------------------------------------------------------------
-  notification
+  const list = notification
     .command("list")
     .alias("ls")
     .description("List your notifications")
-    .option("--include-archived", "include archived notifications")
     .action(
       action(async (ctx: Context, opts) => {
         const rows = await svc.listNotifications(ctx.client, ctx.limit, !!opts.includeArchived);
         ctx.output.list(rows, ROW_COLUMNS, rows);
       }),
     );
+  addIncludeArchivedOption(list);
 
   // read --------------------------------------------------------------------
   notification

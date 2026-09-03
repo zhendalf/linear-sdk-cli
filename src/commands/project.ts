@@ -4,7 +4,13 @@
 
 import { Command, Option } from "commander";
 import { action } from "../lib/action.js";
-import { parseList, parseIntOption, addAliasOption, readAlias } from "../lib/options.js";
+import {
+  parseList,
+  parseIntOption,
+  addAliasOption,
+  readAlias,
+  addIncludeArchivedOption,
+} from "../lib/options.js";
 import { usageError } from "../lib/errors.js";
 import { resolveBody } from "../lib/body.js";
 import { confirmDestructive, promptInput } from "../lib/prompt.js";
@@ -12,10 +18,16 @@ import type { Context } from "../context.js";
 import * as svc from "../services/project.js";
 import { formatMilestoneProgress } from "./milestone.js";
 import type { Column } from "../output/table.js";
+import { lifecycleSuffix } from "../output/lifecycle.js";
 
 const ROW_COLUMNS: Column<svc.ProjectRow>[] = [
   { key: "name", header: "Name", value: (r) => r.name, max: 36 },
-  { key: "state", header: "State", value: (r) => r.status?.name ?? r.state ?? "—", max: 14 },
+  {
+    key: "state",
+    header: "State",
+    value: (r) => `${r.status?.name ?? r.state ?? "—"}${lifecycleSuffix(r)}`,
+    max: 26,
+  },
   { key: "progress", header: "Progress", value: (r) => formatProgress(r.progress) },
   { key: "lead", header: "Lead", value: (r) => r.lead?.displayName ?? "—", max: 16 },
   { key: "target", header: "Target", value: (r) => r.targetDate ?? "—" },
@@ -72,6 +84,7 @@ export function registerProject(program: Command): void {
             team: opts.allTeams ? undefined : (opts.team ?? ctx.defaultTeam),
             allTeams: !!opts.allTeams,
             state: readAlias(opts, "--state", "--status"),
+            includeArchived: !!opts.includeArchived,
           },
           ctx.limit,
           ctx.defaultTeam,
@@ -79,6 +92,7 @@ export function registerProject(program: Command): void {
         ctx.output.list(rows, ROW_COLUMNS, rows);
       }),
     );
+  addIncludeArchivedOption(list);
   // `--status` is the reference CLI's spelling for the same thing; it shipped
   // earlier as a visible duplicate and now goes through the shared alias
   // mechanism, so `--help` shows one canonical spelling here like everywhere else.
@@ -94,7 +108,11 @@ export function registerProject(program: Command): void {
         const detail = await svc.getProjectDetail(ctx.client, idArg);
         ctx.output.detail(detail, [
           ["Project", detail.name],
-          ["Archived", detail.archivedAt ? `YES (${detail.archivedAt})` : null],
+          [
+            "Trashed",
+            detail.trashed ? `YES (deleted ${detail.archivedAt ?? "at an unknown time"})` : null,
+          ],
+          ["Archived", !detail.trashed && detail.archivedAt ? `YES (${detail.archivedAt})` : null],
           ["State", detail.status?.name ?? detail.state],
           ["Health", detail.health],
           ["Progress", detail.progress !== null ? formatProgress(detail.progress) : null],
