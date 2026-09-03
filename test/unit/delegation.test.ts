@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { delegateOperands } from "../../src/commands/issue.js";
 import { resolveDelegate } from "../../src/lib/delegation.js";
 import {
   executeIssueCreate,
@@ -11,6 +12,17 @@ import { connection, payload } from "./_fakes.js";
 
 const TEAM_ID = "aaaaaaaa-0000-0000-0000-000000000001";
 const AGENT_ID = "bbbbbbbb-0000-0000-0000-000000000001";
+
+describe("delegateOperands", () => {
+  it("treats a lone agent UUID as the branch-inferred value", () => {
+    expect(delegateOperands(AGENT_ID, undefined)).toEqual({ value: AGENT_ID });
+  });
+
+  it("keeps explicit issue plus agent operands and rejects a lone issue identifier", () => {
+    expect(delegateOperands("TES-42", "Codex")).toEqual({ idArg: "TES-42", value: "Codex" });
+    expect(() => delegateOperands("TES-42", undefined)).toThrow(/Missing agent/);
+  });
+});
 
 function candidate(overrides: Record<string, unknown> = {}) {
   return {

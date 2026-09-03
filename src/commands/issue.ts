@@ -41,7 +41,7 @@ import { openUrl } from "../lib/open.js";
 import type { Context } from "../context.js";
 import * as svc from "../services/issue.js";
 import * as commentSvc from "../services/comment.js";
-import { isSelf, normalizeIssueReference, resolveIssue } from "../lib/resolve.js";
+import { isSelf, isUuid, normalizeIssueReference, resolveIssue } from "../lib/resolve.js";
 import type { Column } from "../output/table.js";
 
 /** Resolve the target issue id from an argument/current branch, expanding `42` via the default team. */
@@ -642,6 +642,7 @@ export function registerIssue(program: Command): void {
         "Examples:",
         "  linear issue delegate TES-42 Codex",
         "  linear issue delegate Codex              # issue from branch",
+        "  linear issue delegate <agent-user-uuid>  # issue from branch",
         "  linear issue delegate TES-42 --clear",
         "  linear issue delegate --clear             # issue from branch",
         "",
@@ -661,7 +662,7 @@ export function registerIssue(program: Command): void {
           idArg = a;
           change = { clearDelegate: true };
         } else {
-          const parsed = oneOrTwo(a, b, "agent");
+          const parsed = delegateOperands(a, b);
           idArg = parsed.idArg;
           change = { delegate: parsed.value };
         }
@@ -1412,6 +1413,19 @@ function oneOrTwo(
     );
   }
   return { value: a };
+}
+
+/**
+ * A lone UUID on `issue delegate` is the agent UUID, because a target issue
+ * without an agent is never a complete mutation. The issue therefore comes
+ * from the branch; two operands remain the explicit issue + agent form.
+ */
+export function delegateOperands(
+  a: string | undefined,
+  b: string | undefined,
+): { idArg?: string; value: string } {
+  if (a !== undefined && b === undefined && isUuid(a)) return { value: a };
+  return oneOrTwo(a, b, "agent");
 }
 
 /**
