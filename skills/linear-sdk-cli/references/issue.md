@@ -545,22 +545,54 @@ id: string
 
 ### `linear issue label`
 
-Add/remove labels on an issue
+Add, remove, or replace one member of a label group on an issue
 
 ```
 linear issue label [options] [id]
 ```
 
-| Option            | Description                 |
-| ----------------- | --------------------------- |
-| `--add <name>`    | add a label (repeatable)    |
-| `--remove <name>` | remove a label (repeatable) |
+| Option                      | Description                                                        |
+| --------------------------- | ------------------------------------------------------------------ |
+| `--add <name>`              | add a label (repeatable)                                           |
+| `--remove <name>`           | remove a label (repeatable)                                        |
+| `--set-group <group=label>` | replace a group's direct member (repeatable; exact name or UUID)   |
+| `--dry-run`                 | resolve and show the exact relative-label mutation without writing |
+| `--full-result`             | read back and verify the resulting group labels                    |
 
 **Output (`--json`)**: a receipt object
 
 ```text
 id: string
 identifier: string
+```
+
+With `--set-group`: the same, plus:
+
+```text
+changed: boolean
+mutationSent: boolean
+groups: Array<{group: {id: string, name: string}, label: {id: string, name: string}}>
+```
+
+With `--dry-run`: a receipt object
+
+```text
+operation: string
+dryRun: boolean
+target: {id: string, identifier: string} | null
+input: object
+changed: boolean
+mutationSent: boolean
+groups: Array<{group: {id: string, name: string}, label: {id: string, name: string}}>
+```
+
+With `--full-result`: a receipt object
+
+```text
+receipt: {id: string, identifier: string, changed: boolean, mutationSent: boolean, groups: Array<{group: {id: string, name: string}, label: {id: string, name: string}}>}
+resource: {id: string, identifier: string, title: string, description: string | null, priority: number, priorityLabel: string, estimate: number | null, url: string, branchName: string, dueDate: string | null, createdAt: string, updatedAt: string, archivedAt: string | null, trashed: boolean, startedAt: string | null, completedAt: string | null, canceledAt: string | null, state: {id: string, name: string, type: string} | null, assignee: {id: string, displayName: string, email: string} | null, delegate: {id: string, displayName: string, name: string} | null, team: {id: string, key: string, name: string} | null, project: {id: string, name: string} | null, milestone: {id: string, name: string} | null, cycle: {id: string, number: number, name: string | null} | null, parent: {id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null} | null, children: Array<{id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}>, labels: Array<{id: string, name: string}>, subscribers: Array<{id: string, displayName: string}>, attachments: Array<{id: string, title: string, url: string, subtitle: string | null, sourceType: string | null, createdAt: string}>, documents: Array<{id: string, title: string, slugId: string, url: string, createdAt: string, updatedAt: string}>, relations: Array<{id: string, type: string, issue: {id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}, relatedIssue: {id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}}>, inverseRelations: Array<{id: string, type: string, issue: {id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}, relatedIssue: {id: string, identifier: string, title: string, state: {id: string, name: string, type: string} | null}}>, comments: Array<{id: string, body: string, url: string, createdAt: string, editedAt: string | null, resolvedAt: string | null, parent: {id: string} | null, user: {id: string, displayName: string} | null, externalUser: {id: string, displayName: string} | null, resolvingCommentId: string | null, resolvingUser: {id: string, displayName: string} | null}>}
+priorState: Array<{group: {id: string, name: string}, labels: Array<{id: string, name: string}>}>
+verified: boolean
 ```
 
 ### `linear issue list`

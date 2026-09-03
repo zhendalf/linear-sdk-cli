@@ -10,7 +10,7 @@ import type { ResolvedConfig } from "../config.js";
 import { withRetry } from "../client.js";
 import { shape } from "../lib/shape.js";
 import { collect, collectRawQuery } from "../lib/pagination.js";
-import { CliError, usageError, notFound } from "../lib/errors.js";
+import { CliError, usageError, notFound, ambiguous } from "../lib/errors.js";
 import { assertMutation, unwrapMutation } from "../lib/mutation.js";
 import {
   delegationFeatureError,
@@ -946,9 +946,341 @@ export interface IssueMutationTarget {
 }
 
 export interface IssueMutationPlan {
-  operation: "issue.create" | "issue.update" | "issue.delegate";
+  operation: "issue.create" | "issue.update" | "issue.delegate" | "issue.label.set-group";
   target: IssueMutationTarget | null;
   input: Record<string, any>;
+}
+
+export interface IssueLabelRef {
+  id: string;
+  name: string;
+}
+
+export interface IssueLabelGroupResolution {
+  group: IssueLabelRef;
+  label: IssueLabelRef;
+}
+
+export interface IssueLabelGroupPriorState {
+  group: IssueLabelRef;
+  labels: IssueLabelRef[];
+}
+
+export interface IssueLabelGroupReceipt {
+  id: string;
+  identifier: string;
+  changed: boolean;
+  mutationSent: boolean;
+  groups: IssueLabelGroupResolution[];
+}
+
+export interface IssueLabelGroupPlan extends IssueMutationPlan {
+  operation: "issue.label.set-group";
+  target: IssueMutationTarget;
+  changed: boolean;
+  groups: IssueLabelGroupResolution[];
+  priorState: IssueLabelGroupPriorState[];
+  currentLabelIds: string[];
+  groupMemberIds: Record<string, string[]>;
+}
+
+export interface IssueLabelMetadata extends IssueLabelRef {
+  isGroup: boolean;
+  archivedAt: string | null;
+  team: { id: string; key: string; name: string } | null;
+  parent: IssueLabelRef | null;
+  inheritedFrom: IssueLabelRef | null;
+}
+
+interface GroupAssignment {
+  group: string;
+  label: string;
+}
+
+const ISSUE_LABEL_METADATA_QUERY = `
+query CliIssueLabelGroups($first: Int!, $after: String) {
+  issueLabels(first: $first, after: $after, includeArchived: true) {
+    nodes {
+      id name isGroup archivedAt
+      team { id key name }
+      parent { id name }
+      inheritedFrom { id name }
+    }
+    pageInfo { hasNextPage endCursor }
+  }
+}`;
+
+/** Parse `GROUP=LABEL`, using only the first equals sign as the separator. */
+export function parseIssueLabelGroupAssignment(value: string): GroupAssignment {
+  const eq = value.indexOf("=");
+  const group = eq < 0 ? "" : value.slice(0, eq).trim();
+  const label = eq < 0 ? "" : value.slice(eq + 1).trim();
+  if (!group || !label) {
+    throw usageError(
+      `Expected GROUP=LABEL for --set-group, got '${value}'. Quote the whole assignment when it contains spaces.`,
+    );
+  }
+  return { group, label };
+}
+
+function labelMatches(label: IssueLabelMetadata, input: string): boolean {
+  return isUuid(input) ? label.id === input : label.name === input;
+}
+
+function isUsableLabel(label: IssueLabelMetadata, teamId: string): boolean {
+  return label.team === null || label.team.id === teamId;
+}
+
+function validationError(message: string): CliError {
+  return new CliError(message, "validation");
+}
+
+function resolveGroup(
+  labels: IssueLabelMetadata[],
+  input: string,
+  teamId: string,
+): IssueLabelMetadata {
+  const matches = labels.filter((label) => labelMatches(label, input));
+  if (matches.length === 0) throw notFound(`No issue label group exactly matching '${input}'.`);
+  const inScope = matches.filter((label) => isUsableLabel(label, teamId));
+  if (inScope.length === 0) {
+    throw validationError(`Issue label group '${input}' is not usable by this issue's team.`);
+  }
+  const groups = inScope.filter((label) => label.isGroup);
+  if (groups.length === 0) {
+    throw validationError(`Issue label '${input}' is not a group container.`);
+  }
+  if (groups.length > 1) {
+    throw ambiguous(`Multiple issue label groups are named '${input}'; pass the group id instead.`);
+  }
+  const group = groups[0]!;
+  if (group.archivedAt) throw validationError(`Issue label group '${group.name}' is archived.`);
+  return group;
+}
+
+function resolveGroupMember(
+  labels: IssueLabelMetadata[],
+  input: string,
+  group: IssueLabelMetadata,
+  teamId: string,
+): IssueLabelMetadata {
+  const direct = labels.filter(
+    (label) => label.parent?.id === group.id && labelMatches(label, input),
+  );
+  if (direct.length > 1) {
+    throw ambiguous(
+      `Multiple direct members of issue label group '${group.name}' are named '${input}'; pass the label id instead.`,
+    );
+  }
+  if (direct.length === 1) {
+    const member = direct[0]!;
+    if (!isUsableLabel(member, teamId)) {
+      throw validationError(`Issue label '${member.name}' is not usable by this issue's team.`);
+    }
+    if (member.isGroup) {
+      throw validationError(
+        `Issue label '${member.name}' is a group container, not an applicable label.`,
+      );
+    }
+    if (member.archivedAt) throw validationError(`Issue label '${member.name}' is archived.`);
+    return member;
+  }
+
+  const matches = labels.filter((label) => labelMatches(label, input));
+  if (matches.length === 0) throw notFound(`No issue label exactly matching '${input}'.`);
+  const inScope = matches.filter((label) => isUsableLabel(label, teamId));
+  if (inScope.length === 0) {
+    throw validationError(`Issue label '${input}' is not usable by this issue's team.`);
+  }
+  if (inScope.some((label) => label.isGroup)) {
+    throw validationError(`Issue label '${input}' is a group container, not an applicable label.`);
+  }
+  const parents = [
+    ...new Set(inScope.map((label) => label.parent?.name).filter((name): name is string => !!name)),
+  ];
+  const where = parents.length === 1 ? `; it belongs to '${parents[0]}'` : "";
+  throw validationError(
+    `Issue label '${input}' is not a direct member of group '${group.name}'${where}.`,
+  );
+}
+
+/**
+ * Resolve every requested group replacement and calculate one relative label mutation.
+ * Exported so the validation/planning boundary can be tested without an API.
+ */
+export function planIssueLabelGroupUpdate(
+  issue: {
+    id: string;
+    identifier: string;
+    teamId: string;
+    currentLabels: IssueLabelRef[];
+  },
+  labels: IssueLabelMetadata[],
+  assignments: string[],
+): IssueLabelGroupPlan {
+  if (assignments.length === 0) throw usageError("Pass at least one --set-group GROUP=LABEL.");
+  const parsed = assignments.map(parseIssueLabelGroupAssignment);
+  const requested = new Map<string, IssueLabelGroupResolution>();
+
+  for (const assignment of parsed) {
+    const group = resolveGroup(labels, assignment.group, issue.teamId);
+    const member = resolveGroupMember(labels, assignment.label, group, issue.teamId);
+    const previous = requested.get(group.id);
+    if (previous) {
+      if (previous.label.id === member.id) continue;
+      throw usageError(
+        `Issue label group '${group.name}' was assigned both '${previous.label.name}' and '${member.name}'; pass one target per group.`,
+      );
+    }
+    requested.set(group.id, {
+      group: { id: group.id, name: group.name },
+      label: { id: member.id, name: member.name },
+    });
+  }
+
+  const currentLabelIds = issue.currentLabels.map((label) => label.id);
+  const current = new Set(currentLabelIds);
+  const addedLabelIds: string[] = [];
+  const removedLabelIds: string[] = [];
+  const groups = [...requested.values()];
+  const priorState: IssueLabelGroupPriorState[] = [];
+  const groupMemberIds: Record<string, string[]> = {};
+
+  for (const resolution of groups) {
+    const members = labels.filter(
+      (label) => label.parent?.id === resolution.group.id && !label.isGroup,
+    );
+    groupMemberIds[resolution.group.id] = members.map((label) => label.id);
+    const applied = members.filter((label) => current.has(label.id));
+    priorState.push({
+      group: resolution.group,
+      labels: applied.map((label) => ({ id: label.id, name: label.name })),
+    });
+    if (!current.has(resolution.label.id)) addedLabelIds.push(resolution.label.id);
+    for (const label of applied) {
+      if (label.id !== resolution.label.id) removedLabelIds.push(label.id);
+    }
+  }
+
+  const input = {
+    addedLabelIds: [...new Set(addedLabelIds)],
+    removedLabelIds: [...new Set(removedLabelIds)],
+  };
+  return {
+    operation: "issue.label.set-group",
+    target: { id: issue.id, identifier: issue.identifier },
+    input,
+    changed: input.addedLabelIds.length > 0 || input.removedLabelIds.length > 0,
+    groups,
+    priorState,
+    currentLabelIds,
+    groupMemberIds,
+  };
+}
+
+/** Resolve an issue, its current labels, and every visible label before writing. */
+export async function prepareIssueLabelGroupUpdate(
+  client: LinearClient,
+  idArg: string,
+  assignments: string[],
+): Promise<IssueLabelGroupPlan> {
+  // Malformed syntax fails before even resolving the issue.
+  assignments.map(parseIssueLabelGroupAssignment);
+  const issue = await resolveIssue(client, idArg);
+  const team = await issue.team;
+  if (!team) throw usageError("Cannot resolve label groups without an issue team.");
+  const currentLabels = await collectIssueLabelRefs(issue);
+  const labels = await collectRawQuery<IssueLabelMetadata>(
+    client as any,
+    ISSUE_LABEL_METADATA_QUERY,
+    {},
+    "issueLabels",
+    Infinity,
+    (label) => ({
+      id: label.id,
+      name: label.name,
+      isGroup: !!label.isGroup,
+      archivedAt: label.archivedAt ?? null,
+      team: label.team ?? null,
+      parent: label.parent ?? null,
+      inheritedFrom: label.inheritedFrom ?? null,
+    }),
+  );
+  return planIssueLabelGroupUpdate(
+    {
+      id: issue.id,
+      identifier: issue.identifier,
+      teamId: team.id,
+      currentLabels,
+    },
+    labels,
+    assignments,
+  );
+}
+
+async function collectIssueLabelRefs(issue: Issue): Promise<IssueLabelRef[]> {
+  const labels = await collect(
+    (await withRetry(() => issue.labels({ first: 250, includeArchived: true }))) as any,
+    Infinity,
+  );
+  return labels.map((label: any) => ({ id: label.id, name: label.name }));
+}
+
+/** Read every current label for post-mutation verification, without a fixed row cap. */
+export async function getIssueLabelRefs(
+  client: LinearClient,
+  idArg: string,
+): Promise<IssueLabelRef[]> {
+  return collectIssueLabelRefs(await resolveIssue(client, idArg));
+}
+
+/** Execute the prepared relative-label mutation, or make an explicit no-op. */
+export async function executeIssueLabelGroupUpdate(
+  client: LinearClient,
+  plan: IssueLabelGroupPlan,
+): Promise<boolean> {
+  if (!plan.changed) return false;
+  await executeIssueUpdate(client, plan);
+  return true;
+}
+
+export function issueLabelGroupReceipt(
+  plan: IssueLabelGroupPlan,
+  mutationSent: boolean,
+): IssueLabelGroupReceipt {
+  return {
+    id: plan.target.id,
+    identifier: plan.target.identifier,
+    changed: plan.changed,
+    mutationSent,
+    groups: plan.groups,
+  };
+}
+
+/** Verify every requested member is present and every sibling is absent. */
+export function verifyIssueLabelGroups(
+  plan: IssueLabelGroupPlan,
+  actualLabelIds: string[],
+  mutationSent = plan.changed,
+): void {
+  const actual = new Set(actualLabelIds);
+  for (const resolution of plan.groups) {
+    const siblings = plan.groupMemberIds[resolution.group.id] ?? [];
+    const unexpected = siblings.filter((id) => id !== resolution.label.id && actual.has(id));
+    if (actual.has(resolution.label.id) && unexpected.length === 0) continue;
+    throw new CliError(
+      `Issue label-group read-back did not match for '${resolution.group.name}'.${
+        mutationSent ? " The write may have committed." : " No mutation was sent."
+      }`,
+      "api",
+      {
+        expectedLabelId: resolution.label.id,
+        unexpectedLabelIds: unexpected,
+        actualLabelIds,
+      },
+      "Re-read the issue before retrying the mutation.",
+    );
+  }
 }
 
 /** Build the exact IssueCreateInput without sending a mutation. */

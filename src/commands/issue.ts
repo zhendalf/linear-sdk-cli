@@ -694,14 +694,111 @@ export function registerIssue(program: Command): void {
     );
 
   // label -------------------------------------------------------------------
-  issue
+  const labelCommand = issue
     .command("label [id]")
-    .description("Add/remove labels on an issue")
+    .description("Add, remove, or replace one member of a label group on an issue")
     .option("--add <name>", "add a label (repeatable)", parseList)
     .option("--remove <name>", "remove a label (repeatable)", parseList)
+    .option(
+      "--set-group <group=label>",
+      "replace a group's direct member (repeatable; exact name or UUID)",
+      collectArray,
+    )
+    .option("--dry-run", "resolve and show the exact relative-label mutation without writing")
+    .option("--full-result", "read back and verify the resulting group labels")
+    .addHelpText(
+      "after",
+      [
+        "",
+        "Examples:",
+        "  linear issue label TES-42 --add regression",
+        "  linear issue label TES-42 --set-group 'Team=QA'",
+        "  linear issue label TES-42 --set-group 'Team=QA' --set-group 'Issue Type=Bug' --json",
+        "",
+        "--set-group splits on the first '='. Quote the whole value when either name has spaces",
+        "or shell metacharacters. '=' needs no escaping in the label name; use the group UUID",
+        "when the group name itself contains '='. Group and label names match exactly.",
+        "",
+        "Concurrency: the command reads current labels, then sends one addedLabelIds/removedLabelIds",
+        "update. Unrelated concurrent label changes are preserved, but another change to the same",
+        "group can race between that read and update; --full-result verifies the state afterward.",
+      ].join("\n"),
+    )
     .action(
       action(async (ctx: Context, opts, idArg?: string) => {
-        if (!opts.add && !opts.remove) throw usageError("Pass --add and/or --remove.");
+        const setGroup: string[] | undefined = opts.setGroup;
+        const dryRun = opts.dryRun === true;
+        const fullResult = readAlias<boolean>(opts, "--full-result", "--read-back") === true;
+        if (dryRun && fullResult) {
+          throw usageError("Pass either --dry-run or --full-result, not both.");
+        }
+        if (setGroup?.length) {
+          if (opts.add || opts.remove) {
+            throw usageError("Pass either --set-group or --add/--remove, not both.");
+          }
+          const plan = await svc.prepareIssueLabelGroupUpdate(
+            ctx.client,
+            requireId(idArg, ctx.defaultTeam),
+            setGroup,
+          );
+          if (dryRun) {
+            emitIssueLabelGroupPreview(ctx, plan);
+            return;
+          }
+          const mutationSent = await svc.executeIssueLabelGroupUpdate(ctx.client, plan);
+          const receipt = svc.issueLabelGroupReceipt(plan, mutationSent);
+          if (fullResult) {
+            let detail: svc.IssueDetail;
+            let actualLabels: svc.IssueLabelRef[];
+            try {
+              detail = await svc.getIssueDetail(ctx.client, plan.target.id, {
+                includeComments: false,
+              });
+              actualLabels = await svc.getIssueLabelRefs(ctx.client, plan.target.id);
+            } catch (err) {
+              const normalized = normalizeError(err);
+              throw new CliError(
+                mutationSent
+                  ? `Issue mutation succeeded, but label-group read-back failed: ${normalized.message}. The write may have committed.`
+                  : `Label-group read-back failed after the no-op: ${normalized.message}. No mutation was sent.`,
+                normalized.code,
+                normalized.detail,
+                "Re-read the issue before retrying the mutation.",
+              );
+            }
+            svc.verifyIssueLabelGroups(
+              plan,
+              actualLabels.map((label) => label.id),
+              mutationSent,
+            );
+            ctx.output.emit(
+              { receipt, resource: detail, priorState: plan.priorState, verified: true },
+              () => {
+                ctx.output.success(
+                  mutationSent
+                    ? `Updated label groups on ${plan.target.identifier}`
+                    : `Label groups already satisfied on ${plan.target.identifier}; no mutation sent`,
+                );
+                ctx.output.success("Verified label groups by authoritative read-back");
+              },
+            );
+            return;
+          }
+          ctx.output.emit(receipt, () => {
+            ctx.output.success(
+              mutationSent
+                ? `Updated label groups on ${plan.target.identifier}`
+                : `Label groups already satisfied on ${plan.target.identifier}; no mutation sent`,
+            );
+          });
+          return;
+        }
+        if (dryRun || fullResult) {
+          throw usageError("--dry-run/--full-result currently require --set-group.");
+        }
+        if (!opts.add && !opts.remove) {
+          throw usageError("Pass --add, --remove, or --set-group GROUP=LABEL.");
+        }
         const updated = await svc.updateIssue(ctx.client, requireId(idArg, ctx.defaultTeam), {
           addLabel: opts.add,
           removeLabel: opts.remove,
@@ -711,6 +808,7 @@ export function registerIssue(program: Command): void {
         );
       }),
     );
+  addAliasOption(labelCommand, "--read-back", "--full-result");
 
   // comment / comments ------------------------------------------------------
   const comment = issue
@@ -1196,6 +1294,25 @@ function emitMutationPreview(ctx: Context, plan: svc.IssueMutationPlan): void {
     ["Operation", plan.operation],
     ["Dry run", "yes (no mutation sent)"],
     ["Target", plan.target?.identifier ?? null],
+    ["Input", `\n${JSON.stringify(plan.input, null, 2)}`],
+  ]);
+}
+
+function emitIssueLabelGroupPreview(ctx: Context, plan: svc.IssueLabelGroupPlan): void {
+  const value = {
+    operation: plan.operation,
+    dryRun: true,
+    target: plan.target,
+    input: plan.input,
+    changed: plan.changed,
+    mutationSent: false,
+    groups: plan.groups,
+  };
+  ctx.output.detail(value, [
+    ["Operation", plan.operation],
+    ["Dry run", "yes (no mutation sent)"],
+    ["Target", plan.target.identifier],
+    ["Changed", plan.changed ? "yes" : "no"],
     ["Input", `\n${JSON.stringify(plan.input, null, 2)}`],
   ]);
 }

@@ -248,6 +248,35 @@ function build(selections: SelectionSetNode): Record<string, unknown> {
 
 /** `rawRequest(query, vars)` → `{ data }` shaped by the query's own selection set. */
 export async function fakeRawRequest(query: string): Promise<{ data: Record<string, unknown> }> {
+  if (query.includes("CliIssueLabelGroups")) {
+    return {
+      data: {
+        issueLabels: {
+          nodes: [
+            {
+              id: OTHER_UUID,
+              name: "Group",
+              isGroup: true,
+              archivedAt: null,
+              team: null,
+              parent: null,
+              inheritedFrom: null,
+            },
+            {
+              id: UUID,
+              name: "Name",
+              isGroup: false,
+              archivedAt: null,
+              team: null,
+              parent: { id: OTHER_UUID, name: "Group" },
+              inheritedFrom: null,
+            },
+          ],
+          pageInfo: { hasNextPage: false, endCursor: null },
+        },
+      },
+    };
+  }
   const doc = parse(query);
   const op = doc.definitions.find((d) => d.kind === Kind.OPERATION_DEFINITION);
   if (!op || op.kind !== Kind.OPERATION_DEFINITION) throw new Error("fakeRawRequest: no operation");
