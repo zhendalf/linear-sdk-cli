@@ -271,6 +271,7 @@ A few ideas run through every command:
 linear issue create --title "Fix login redirect" --team TES -P 2 --assignee me
 linear issue list --assignee me --state started
 linear issue update TES-42 --state "In Review" --add-label backend
+linear issue label TES-42 --set-group 'Team=QA'
 linear issue delegate TES-42 Codex
 linear issue comment TES-42 "ready for another look"
 linear issue archive TES-42 --yes
@@ -304,6 +305,41 @@ an unsupported workspace/schema returns `feature_not_accessible`, while ordinary
 falls back safely and reports `delegate: null` if the preview field itself is unavailable.
 See Linear's current [agent integration guide](https://linear.app/developers/agents) and
 [issue-assignment guide](https://linear.app/docs/assigning-issues) for the platform semantics.
+
+**Label-group replacement** — replace only the selected group's direct member while preserving
+every unrelated issue label. Repeat `--set-group` to plan several groups into one relative-label
+mutation:
+
+```sh
+linear issue label TES-42 --set-group 'Team=QA'
+linear issue label TES-42 \
+  --set-group 'Team=QA' \
+  --set-group 'Issue Type=Bug' \
+  --json
+linear issue label TES-42 --set-group 'Team=QA' --dry-run --json
+linear issue label TES-42 --set-group 'Team=QA' --full-result --json
+```
+
+Both sides accept a UUID or an exact, case-sensitive name. The value is split on the first `=`:
+shell-quote the whole assignment when either name contains spaces or shell metacharacters; a label
+name may contain additional `=` characters without escaping. If the group name itself contains
+`=`, use its UUID on the left. Group containers, archived labels, labels outside the issue team's
+workspace/team/inherited scope, and labels that are not direct members of the named group are
+rejected before writing. Repeating an identical assignment normalizes to one operation; conflicting
+targets for the same resolved group are a usage error. `--set-group` cannot be mixed with the
+existing `--add`/`--remove` mode.
+
+The JSON receipt includes the resolved group/member IDs plus `changed` and `mutationSent`. An
+already-satisfied request succeeds with both fields `false` and sends no mutation. `--dry-run`
+returns the shared mutation-plan envelope and the exact `addedLabelIds`/`removedLabelIds` input;
+`--full-result` adds the canonical issue read-back, verification, and each requested group's prior
+members (including all members repaired from an inconsistent pre-existing state).
+
+This is a read/modify/write operation: the CLI reads the current labels, then sends one update with
+relative added/removed IDs, so unrelated concurrent label changes are not overwritten. Linear does
+not expose a compare-and-swap precondition here, so another writer changing the same group between
+the read and update can race; use `--full-result` when post-write verification matters. See Linear's
+current [label documentation](https://linear.app/docs/labels) for group and inheritance semantics.
 
 **Git + GitHub PR** — turn an issue into commits and a pull request. The id is inferred from the
 branch everywhere below.
@@ -764,6 +800,11 @@ bun run janitor          # sweep leaked `clitest-` fixtures from the test worksp
 The live delegation suite is additionally gated by `LINEAR_CLI_LIVE_AGENT_ID`, the UUID of an
 explicit disposable-test agent. It can trigger that integration's Agent Session/webhook and is
 never enabled by the general live-test flag alone.
+
+The live label-group suite is additionally gated by `LINEAR_CLI_TEST_LABEL_GROUP` and
+`LINEAR_CLI_TEST_LABEL_GROUP_MEMBER`, naming (or identifying by UUID) a pre-existing group and one
+direct member usable by `LINEAR_CLI_TEST_TEAM`. It creates only a disposable issue; it does not
+create, rename, move, or delete the shared label-group fixture.
 
 Architecture is three layers — **commands** (commander wiring) → **services** (one module per
 resource, the only place that touches the SDK) → **`@linear/sdk`**. The machine JSON envelope is

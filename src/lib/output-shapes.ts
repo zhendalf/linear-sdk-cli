@@ -232,6 +232,26 @@ const ISSUE_DELEGATION_FULL_RESULT: ObjectFields = {
   resource: ISSUE_DETAIL_SHAPE,
   verified: "boolean",
 };
+const ISSUE_LABEL_REF: ObjectFields = { id: "string", name: "string" };
+const ISSUE_LABEL_GROUPS: FieldShape = [{ group: ISSUE_LABEL_REF, label: ISSUE_LABEL_REF }];
+const ISSUE_LABEL_GROUP_RECEIPT: ObjectFields = {
+  ...ISSUE_REF,
+  changed: "boolean",
+  mutationSent: "boolean",
+  groups: ISSUE_LABEL_GROUPS,
+};
+const ISSUE_LABEL_GROUP_PREVIEW: ObjectFields = {
+  ...ISSUE_MUTATION_PREVIEW,
+  changed: "boolean",
+  mutationSent: "boolean",
+  groups: ISSUE_LABEL_GROUPS,
+};
+const ISSUE_LABEL_GROUP_FULL_RESULT: ObjectFields = {
+  receipt: ISSUE_LABEL_GROUP_RECEIPT,
+  resource: ISSUE_DETAIL_SHAPE,
+  priorState: [{ group: ISSUE_LABEL_REF, labels: [ISSUE_LABEL_REF] }],
+  verified: "boolean",
+};
 const NAMED_URL_RECEIPT: ObjectFields = { id: "string", name: "string", url: "string" };
 const NAMED_DELETED: ObjectFields = { id: "string", name: "string", deleted: "boolean" };
 const NAMED_ARCHIVED: ObjectFields = { id: "string", name: "string", archived: "boolean" };
@@ -510,7 +530,13 @@ export const OUTPUT_SHAPES: Record<string, OutputShape | null> = {
     },
   ),
   "issue id": receipt({ id: "string" }, { note: "`id` is the identifier (TES-123), not the UUID" }),
-  "issue label": receipt(ISSUE_REF),
+  "issue label": receipt(ISSUE_REF, {
+    variants: {
+      "--set-group": receipt(ISSUE_LABEL_GROUP_RECEIPT),
+      "--dry-run": receipt(ISSUE_LABEL_GROUP_PREVIEW),
+      "--full-result": receipt(ISSUE_LABEL_GROUP_FULL_RESULT),
+    },
+  }),
   "issue list": ISSUE_LIST,
   "issue mine": ISSUE_LIST,
   "issue pull-request": receipt(

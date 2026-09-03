@@ -169,7 +169,14 @@ const DRIVES: Record<string, Drive> = {
   },
   "issue describe": { args: [T] },
   "issue id": { args: [T] },
-  "issue label": { args: [T, "--add", "Name"] },
+  "issue label": {
+    args: [T, "--add", "Name"],
+    variants: {
+      "--set-group": [T, "--set-group", "Group=Name"],
+      "--dry-run": [T, "--set-group", "Group=Name", "--dry-run"],
+      "--full-result": [T, "--set-group", "Group=Name", "--full-result"],
+    },
+  },
   "issue list": { args: [] },
   "issue mine": { args: [] },
   "issue pull-request": {
