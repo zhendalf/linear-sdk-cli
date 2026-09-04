@@ -372,6 +372,7 @@
   "teamMemberships": "raw-only",
   "teams": "curated",
   "template": "excluded",
+  "templateSearch": "excluded",
   "templates": "excluded",
   "templatesForIntegration": "excluded",
   "timeSchedule": "excluded",

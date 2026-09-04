@@ -6,7 +6,7 @@
       "name": "linear-sdk-cli",
       "dependencies": {
         "@inquirer/prompts": "^8.7.1",
-        "@linear/sdk": "^92.0.0",
+        "@linear/sdk": "^93.0.1",
         "commander": "^15.0.0",
         "graphql": "^17.0.2",
         "picocolors": "^1.1.1",
@@ -56,7 +56,7 @@
 
     "@inquirer/type": ["@inquirer/type@4.1.1", "", { "peerDependencies": { "@types/node": ">=18" }, "optionalPeers": ["@types/node"] }, "sha512-yJoHYrMnxIsJZCY+0Vb66Dy3he3kL3e2wOBKhoSwWWAzZAY82emlxwgprCtp6yRixvNRNq9ztfRWQYPNr3Go7A=="],
 
-    "@linear/sdk": ["@linear/sdk@92.0.0", "", { "dependencies": { "@graphql-typed-document-node/core": "^3.2.0" } }, "sha512-MDqvUcgkvVNg//ivlJx2a4d9bjELrMo2h5qK0xc6hYABTV98oAOsZkepd9RV8n5j1rqfA5vJsQNeIC5en40TkQ=="],
+    "@linear/sdk": ["@linear/sdk@93.0.1", "", { "dependencies": { "@graphql-typed-document-node/core": "^3.2.0" } }, "sha512-xKs6KcuU/48Lta8dNedBIHBmBsKj1KcAwK+0Ovuajo/NztfOmy9/dXjiVA32ukrFmeKi1GxqAZ/KM/0SngX5EA=="],
 
     "@oxfmt/binding-android-arm-eabi": ["@oxfmt/binding-android-arm-eabi@0.66.0", "", { "os": "android", "cpu": "arm" }, "sha512-2Me9eoptv6ERdEuI2P8AOlYdHHraXebJaM6SC0kc2Dfb+mLrep2db+fedBPKaYn673h/vBgvP4tkOdAbaudX6w=="],
 
