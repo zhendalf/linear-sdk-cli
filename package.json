@@ -70,7 +70,7 @@
   },
   "dependencies": {
     "@inquirer/prompts": "^8.7.1",
-    "@linear/sdk": "^92.0.0",
+    "@linear/sdk": "^93.0.1",
     "commander": "^15.0.0",
     "graphql": "^17.0.2",
     "picocolors": "^1.1.1",
