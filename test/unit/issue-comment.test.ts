@@ -155,9 +155,17 @@ describe("issue comment on a matching branch (tes-123-x)", () => {
     expect(created).toHaveLength(0);
   });
 
-  it("the reference layout `issue comment add <issue> <body>` still dispatches to the subcommand", async () => {
+  it("the canonical `issue comment add <issue> <body>` dispatches to the subcommand", async () => {
     await runJson(["issue", "comment", "add", "TES-5", "via add"]);
     expect(issueQueries[0].filter.number).toEqual({ eq: 5 });
     expect(created[0].body).toBe("via add");
+  });
+
+  it("accepts `issue comment create <issue> --body-file <path>` as the add alias", async () => {
+    const file = join(root, "create-alias.md");
+    writeFileSync(file, "via create alias\n");
+    await runJson(["issue", "comment", "create", "TES-5", "--body-file", file]);
+    expect(issueQueries[0].filter.number).toEqual({ eq: 5 });
+    expect(created[0].body).toBe("via create alias\n");
   });
 });

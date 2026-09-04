@@ -22,6 +22,8 @@ linear comment [options]
 
 Add a comment to an issue (images uploaded with --attach render inline)
 
+Aliases: `create`
+
 ```
 linear comment add [options] <issue> [body]
 ```

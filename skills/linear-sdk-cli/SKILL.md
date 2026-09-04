@@ -215,6 +215,14 @@ perfectly with a heredoc:
 - `comment add` / `comment update` / `comment reply` → `--body-file <path>`
 - `document create` / `document update` → `--content-file <path>`
 
+Comments canonically use `add`, while resources such as attachments use `create`.
+`create` is also accepted as a compatibility alias for comment `add`. For a file-backed
+issue comment, copy this form:
+
+```bash
+linear issue comment add LUMI-9340 --body-file comment.md --json
+```
+
 ```bash
 linear issue create --title "Onboarding bug" --team TES --no-input --json \
   --description-file - <<'EOF'
