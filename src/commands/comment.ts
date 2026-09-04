@@ -32,12 +32,12 @@ const ROW_COLUMNS: Column<svc.CommentRow>[] = [
 /** Options for a mounted copy of the shared verbs. */
 interface MountOptions {
   /** Register the short aliases (`ls`, `edit`, `rm`). Off under `issue comment`. */
-  aliases?: boolean;
+  shortAliases?: boolean;
 }
 
 function buildList(o: MountOptions): Command {
   const cmd = new Command("list").argument("<issue>").description("List comments on an issue");
-  if (o.aliases !== false) cmd.alias("ls");
+  if (o.shortAliases !== false) cmd.alias("ls");
   return cmd.action(
     action(async (ctx: Context, _opts, issueArg: string) => {
       const rows = await svc.listComments(ctx.client, issueArg, ctx.limit);
@@ -48,6 +48,7 @@ function buildList(o: MountOptions): Command {
 
 function buildAdd(_o: MountOptions): Command {
   return new Command("add")
+    .alias("create")
     .argument("<issue>")
     .argument("[body]")
     .description("Add a comment to an issue (images uploaded with --attach render inline)")
@@ -129,7 +130,7 @@ function buildUpdate(o: MountOptions): Command {
       "prepend a real Linear mention (name, email, me, or id; repeatable)",
       collectArray,
     );
-  if (o.aliases !== false) cmd.alias("edit");
+  if (o.shortAliases !== false) cmd.alias("edit");
   return cmd.action(
     action(async (ctx: Context, opts, commentId: string, bodyArg?: string) => {
       // Fetch the comment first: the editor opens ON the current body (so
@@ -161,7 +162,7 @@ function buildUpdate(o: MountOptions): Command {
 
 function buildDelete(o: MountOptions): Command {
   const cmd = new Command("delete").argument("<commentId>").description("Delete a comment");
-  if (o.aliases !== false) cmd.alias("rm");
+  if (o.shortAliases !== false) cmd.alias("rm");
   return cmd.action(
     action(async (ctx: Context, _opts, commentId: string) => {
       if (!(await confirmDestructive(ctx, `Delete comment ${commentId}?`))) return;
@@ -250,11 +251,12 @@ export function registerComment(program: Command): void {
  * command, which keeps its own `[id] [body]` "add a comment" behavior for every
  * other operand. The short aliases (`ls`, `edit`, `rm`) are deliberately NOT
  * registered here: each subcommand name shadows a one-word comment body under
- * the parent, so the collision surface stays at the four names the reference
- * actually ships.
+ * the parent. `create` is the sole additional collision because agents commonly
+ * infer it from other resource mutations; accepting that spelling is safer than
+ * rejecting an intended comment mutation.
  */
 export function registerIssueCommentGroup(issueComment: Command): void {
   for (const build of Object.values(SHARED_COMMENT_VERBS)) {
-    issueComment.addCommand(build({ aliases: false }));
+    issueComment.addCommand(build({ shortAliases: false }));
   }
 }

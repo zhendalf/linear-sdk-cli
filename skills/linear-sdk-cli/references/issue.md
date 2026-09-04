@@ -255,6 +255,8 @@ issue: string
 
 Add a comment to an issue (images uploaded with --attach render inline)
 
+Aliases: `create`
+
 ```
 linear issue comment add [options] <issue> [body]
 ```

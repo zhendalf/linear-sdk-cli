@@ -303,9 +303,21 @@ describe("linear-cli aliases", () => {
       }
     });
 
-    it("keeps the short aliases off `issue comment` so they cannot shadow a body", () => {
+    it("accepts `create` as the additive alias for both comment add mounts", () => {
+      const top = find(["comment", "add"])!;
+      const nested = find(["issue", "comment", "add"])!;
+      expect(top.aliases()).toContain("create");
+      expect(nested.aliases()).toContain("create");
+      expect(find(["comment", "create"])).toBe(top);
+      expect(find(["issue", "comment", "create"])).toBe(nested);
+    });
+
+    it("keeps short aliases off `issue comment` so they cannot shadow a body", () => {
       const issueComment = find(["issue", "comment"])!;
-      for (const c of issueComment.commands) expect(c.aliases()).toEqual([]);
+      expect(issueComment.commands.find((c) => c.name() === "add")!.aliases()).toEqual(["create"]);
+      for (const c of issueComment.commands.filter((c) => c.name() !== "add")) {
+        expect(c.aliases()).toEqual([]);
+      }
       // …while the top-level group keeps them.
       expect(find(["comment", "list"])!.aliases()).toContain("ls");
     });
