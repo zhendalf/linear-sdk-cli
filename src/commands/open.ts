@@ -46,11 +46,12 @@ async function resolveOpenTarget(
   ctx: Context,
   target: string | undefined,
 ): Promise<{ target: OpenTarget; url: string; label: string }> {
+  if (target && URL.test(target)) return { target: "url", url: target, label: target };
+  await ctx.selectWorkspace();
   if (!target) {
     const org = await getOrganizationDetail(ctx.client);
     return { target: "workspace", url: `https://linear.app/${org.urlKey}`, label: org.name };
   }
-  if (URL.test(target)) return { target: "url", url: target, label: target };
   if (target.startsWith("team:")) {
     const team = await resolveTeam(ctx.client, target.slice("team:".length), ctx.defaultTeam);
     const org = await getOrganizationDetail(ctx.client);

@@ -28,6 +28,7 @@ import {
 import { memoryKeyring, setKeyringBackend } from "../../src/lib/keyring.js";
 import { setAuthValidationClientFactoryForTests } from "../../src/commands/meta.js";
 import { Context } from "../../src/context.js";
+import * as opener from "../../src/lib/open.js";
 import * as prompts from "../../src/lib/prompt.js";
 import type { OAuthUserCredential } from "../../src/oauth.js";
 
@@ -259,6 +260,20 @@ describe("workspace selection", () => {
       }
     });
   }
+
+  it("opens explicit URLs without selecting credentials", async () => {
+    const select = vi
+      .spyOn(Context.prototype, "selectWorkspace")
+      .mockRejectedValue(new Error("unexpected selection"));
+    const open = vi.spyOn(opener, "openUrl").mockResolvedValue(undefined);
+    expect(await runJson(["open", "https://example.com"])).toMatchObject({
+      target: "url",
+      url: "https://example.com",
+      opened: true,
+    });
+    expect(select).not.toHaveBeenCalled();
+    expect(open).toHaveBeenCalledWith("https://example.com", { app: false });
+  });
 
   it("keeps auth repair commands available but rejects ambiguous status", async () => {
     expect(await runJson(["auth", "list"])).toHaveLength(2);

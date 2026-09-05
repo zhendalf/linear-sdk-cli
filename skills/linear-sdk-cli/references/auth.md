@@ -98,6 +98,7 @@ storage: string
 scopes?: string[]
 expiresAt?: string
 path: string
+projectConfigPath: string | null
 ```
 
 ### `linear auth logout`

@@ -328,6 +328,7 @@ export const OUTPUT_SHAPES: Record<string, OutputShape | null> = {
     "scopes?": ["string"],
     "expiresAt?": "string",
     path: "string",
+    projectConfigPath: "string|null",
   }),
   "auth logout": receipt({
     success: "boolean",

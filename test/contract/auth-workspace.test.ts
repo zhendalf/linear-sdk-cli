@@ -94,6 +94,11 @@ describe("auth workspace output contract", () => {
     expect(JSON.parse(skipped.stdout).projectConfigPath).toBeNull();
   });
 
+  it("advertises the nullable association path in command introspection", async () => {
+    const result = await run(["commands", "auth", "login", "--json"]);
+    expect(JSON.parse(result.stdout).output.fields.projectConfigPath).toBe("string|null");
+  });
+
   for (const command of [["whoami"], ["auth", "token"], ["auth", "status"]]) {
     it(`${command.join(" ")} fails with a parseable JSON error when selection is ambiguous`, () => {
       writeFileSync(
