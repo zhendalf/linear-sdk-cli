@@ -685,6 +685,7 @@ export function registerMeta(program: Command): void {
           if (!ctx.isTTY) {
             throw usageError("Pass --team <key>; there is no terminal to choose one from.");
           }
+          await ctx.selectWorkspace();
           const teams = await listTeams(ctx.client, Infinity);
           if (teams.length === 0) throw usageError("This workspace has no teams to choose from.");
           team = await promptSelect(

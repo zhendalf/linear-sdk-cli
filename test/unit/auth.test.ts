@@ -16,6 +16,8 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
+import { buildSchema, introspectionFromSchema } from "graphql";
+import { connection } from "./_fakes.js";
 import { createProgram } from "../../src/cli.js";
 import {
   userConfigPath,
@@ -211,6 +213,52 @@ describe("workspace selection", () => {
     }
     expect(select).not.toHaveBeenCalled();
   });
+
+  for (const command of [["config", "init"], ["schema"]]) {
+    it(`${command.join(" ")} selects a workspace before its credentialed path`, async () => {
+      const descriptors = [process.stdin, process.stdout].map((stream) =>
+        Object.getOwnPropertyDescriptor(stream, "isTTY"),
+      );
+      const clientDescriptor = Object.getOwnPropertyDescriptor(Context.prototype, "client")!;
+      const selected: string[] = [];
+      const select = vi
+        .spyOn(prompts, "promptSelect")
+        .mockResolvedValueOnce("b")
+        .mockResolvedValue("BBB");
+      const out = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+      const err = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+      Object.defineProperty(Context.prototype, "client", {
+        configurable: true,
+        get(this: Context) {
+          selected.push(this.config.credentialWorkspace!);
+          return {
+            teams: async () => connection([{ id: "t", name: "Beta", key: "BBB" }]),
+            client: {
+              rawRequest: async () => ({
+                data: introspectionFromSchema(buildSchema("type Query { hello: String }")),
+              }),
+            },
+          };
+        },
+      });
+      try {
+        for (const stream of [process.stdin, process.stdout])
+          Object.defineProperty(stream, "isTTY", { configurable: true, value: true });
+        await createProgram().parseAsync(["node", "linear", ...command]);
+        expect(selected).toEqual(["b"]);
+        expect(select.mock.calls[0]?.[1]).toBe("Select a workspace for this invocation");
+        expect(readFileSync(userConfigPath(), "utf8")).not.toContain("default_workspace");
+      } finally {
+        [process.stdin, process.stdout].forEach((stream, index) => {
+          if (descriptors[index]) Object.defineProperty(stream, "isTTY", descriptors[index]!);
+          else delete (stream as { isTTY?: boolean }).isTTY;
+        });
+        Object.defineProperty(Context.prototype, "client", clientDescriptor);
+        out.mockRestore();
+        err.mockRestore();
+      }
+    });
+  }
 
   it("keeps auth repair commands available but rejects ambiguous status", async () => {
     expect(await runJson(["auth", "list"])).toHaveLength(2);
