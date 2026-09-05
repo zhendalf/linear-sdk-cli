@@ -7,6 +7,7 @@
 import type { LinearClient } from "@linear/sdk";
 import { resolveConfig, type ResolvedConfig } from "./config.js";
 import { createClient, setRetryReporter } from "./client.js";
+import { promptSelect } from "./lib/prompt.js";
 import { Output } from "./output/format.js";
 import { isDebugEnabled, shouldUseColor } from "./output/color.js";
 
@@ -46,7 +47,7 @@ export function firstTeam(team: string | string[] | undefined): string | undefin
 }
 
 export class Context {
-  readonly config: ResolvedConfig;
+  config: ResolvedConfig;
   readonly output: Output;
   readonly options: GlobalOptions;
   readonly isTTY: boolean;
@@ -94,6 +95,25 @@ export class Context {
     // Rate-limit waits are status, so they go through the same sink as every
     // other status line: stderr, silenced by --quiet, never on JSON stdout.
     setRetryReporter((line) => this.output.info(line));
+  }
+
+  /** Choose only for this invocation; never persist an interactive fallback. */
+  async selectWorkspace(): Promise<void> {
+    const choices = this.config.workspaceChoices;
+    if (!choices || !this.isTTY) return;
+    const workspace = await promptSelect(
+      this,
+      "Select a workspace for this invocation",
+      choices.map((slug) => ({ name: slug, value: slug })),
+    );
+    this.config = resolveConfig({
+      flags: {
+        apiKey: this.options.apiKey,
+        accessToken: this.options.accessToken,
+        team: firstTeam(this.options.team),
+        workspace,
+      },
+    });
   }
 
   /** Lazily construct the Linear client (so `--help` never needs a key). */

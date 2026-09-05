@@ -113,6 +113,8 @@ export interface ResolvedConfig {
    * needed (see createClient / `auth token`).
    */
   apiKeyError?: CliError;
+  /** Stored choices when selection is ambiguous; never an implicit default. */
+  workspaceChoices?: string[];
   /** Workspace slug whose stored credential was used, if any. */
   credentialWorkspace?: string;
   /** Selected stored profile whose non-secret metadata may participate. */
@@ -467,6 +469,7 @@ export function resolveConfig(inputs: ConfigInputs = {}): ResolvedConfig {
   let oauthCredential: OAuthUserCredential | undefined;
   let credentialWorkspace: string | undefined;
   let workspaceProfile: string | undefined;
+  let workspaceChoices: string[] | undefined;
   let apiKeyError: CliError | undefined;
 
   if (flags.apiKey && flags.accessToken) {
@@ -539,8 +542,9 @@ export function resolveConfig(inputs: ConfigInputs = {}): ResolvedConfig {
         take(slugs[0]!);
       } else if (slugs.length > 1) {
         // Multiple workspaces but no default → ambiguous (deferred).
+        workspaceChoices = slugs;
         apiKeyError = new CliError(
-          `Multiple workspaces are configured (${slugs.join(", ")}) but none is selected. Pass --workspace <slug> or run \`linear auth default <slug>\`.`,
+          `Multiple workspaces are configured (${slugs.join(", ")}) but none is selected. Pass --workspace <slug>, run \`linear config set workspace <slug>\` for this project, or explicitly choose \`linear auth default <slug>\`.`,
           "usage",
         );
       }
@@ -621,6 +625,7 @@ export function resolveConfig(inputs: ConfigInputs = {}): ResolvedConfig {
     apiKeyError,
     credentialWorkspace,
     workspaceProfile,
+    workspaceChoices,
     team: teamTiers.find(([, settings]) => settings.team !== undefined)?.[1].team,
     // The display setting walks every tier. Credential selection above uses
     // the flag, env, and project tiers, then the auth-specific user default.
@@ -1001,10 +1006,6 @@ export function writeOAuthCredential(credential: OAuthUserCredential): WriteOAut
       table.keyring = true;
       table.oauth = true;
       ws[slug] = table;
-      if (!asString(obj.default_workspace)) {
-        const reference = readReferenceCredentials(referenceCredentialsPath());
-        if (!reference.defaultWorkspace) obj.default_workspace = slug;
-      }
       writeUserObject(path, obj);
     } catch (err) {
       try {
@@ -1130,10 +1131,6 @@ export function adoptKeyringCredential(
     delete table.api_key;
     table.keyring = true;
     ws[slug] = table;
-    if (!asString(obj.default_workspace)) {
-      const reference = readReferenceCredentials(referenceCredentialsPath());
-      if (!reference.defaultWorkspace) obj.default_workspace = slug;
-    }
     writeUserObject(path, obj);
     return { path, storage: "keychain", keyringLabel: found.keyringLabel };
   });
@@ -1146,8 +1143,8 @@ export function adoptKeyringCredential(
  * no keyring, it is written as `api_key` in the 0600 file — the latter without
  * complaint, since a platform is not an error. Either way the OTHER form for
  * the same slug is dropped from the file, so a re-login moves the key rather
- * than leaving a plaintext copy behind that would keep winning. If no default
- * workspace exists anywhere (ours or the reference CLI's), this slug becomes it.
+ * than leaving a plaintext copy behind that would keep winning. Global defaults
+ * are only written by setDefaultWorkspace; existing legacy defaults are preserved.
  */
 export function writeCredential(
   slug: string,
@@ -1177,12 +1174,6 @@ export function writeCredential(
     }
     systemBackend?.delete(oauthAccount(slug));
     ws[slug] = table;
-    if (!asString(obj.default_workspace)) {
-      // Leave the reference CLI's default in charge if it has one; writing ours
-      // over it would silently switch a migrating user's workspace.
-      const reference = readReferenceCredentials(referenceCredentialsPath());
-      if (!reference.defaultWorkspace) obj.default_workspace = slug;
-    }
     writeUserObject(path, obj);
     return { path, storage, keyringLabel: backend?.label };
   });
@@ -1242,7 +1233,7 @@ function removeFromReferenceCredentials(slug: string): boolean {
   const reference = readReferenceCredentials(path);
   if (!reference.workspaces.includes(slug)) return false;
   const workspaces = reference.workspaces.filter((s) => s !== slug).sort();
-  const def = reference.defaultWorkspace === slug ? workspaces[0] : reference.defaultWorkspace;
+  const def = reference.defaultWorkspace === slug ? undefined : reference.defaultWorkspace;
   const obj: Record<string, unknown> = {};
   if (def) obj.default = def;
   obj.workspaces = workspaces;
@@ -1253,8 +1244,8 @@ function removeFromReferenceCredentials(slug: string): boolean {
 /**
  * Forget a workspace: remove its `[workspaces."<slug>"]` table, its keyring
  * entry, and its line in the reference CLI's list — whichever exist. If the
- * removed slug was the default, the default is repointed to a remaining
- * workspace (or cleared). Returns true if anything was removed.
+ * removed slug was the default, that default is cleared without choosing another
+ * workspace. Returns true if anything was removed.
  */
 export interface RemoveCredentialResult {
   removed: boolean;
@@ -1287,9 +1278,7 @@ export function removeCredentialWithMetadata(slug: string): RemoveCredentialResu
     if (Object.keys(ws).length === 0) delete obj.workspaces;
 
     if (asString(obj.default_workspace) === slug) {
-      const remaining = obj.workspaces ? Object.keys(obj.workspaces as object) : [];
-      if (remaining.length > 0) obj.default_workspace = remaining[0]!;
-      else delete obj.default_workspace;
+      delete obj.default_workspace;
       writeUserObject(path, obj);
     } else if (listed) {
       writeUserObject(path, obj);
@@ -1344,7 +1333,6 @@ export function removeOAuthCredential(slug: string): RemoveOAuthCredentialResult
       const table = ws[slug];
       const hadOAuthMarker = table?.oauth === true;
       if (hadOAuthMarker) removed = true;
-      const reference = readReferenceCredentials(referenceCredentialsPath());
       const apiKeyFallback = Boolean(asString(table?.api_key)) || keyringApiKey;
 
       if (apiKeyFallback) {
@@ -1360,11 +1348,7 @@ export function removeOAuthCredential(slug: string): RemoveOAuthCredentialResult
       if (Object.keys(ws).length === 0) delete obj.workspaces;
 
       if (!apiKeyFallback && asString(obj.default_workspace) === slug) {
-        const remaining = obj.workspaces ? Object.keys(obj.workspaces as object) : [];
-        const referenceFallback = reference.workspaces.find((candidate) => candidate !== slug);
-        if (remaining.length > 0) obj.default_workspace = remaining[0]!;
-        else if (referenceFallback) obj.default_workspace = referenceFallback;
-        else delete obj.default_workspace;
+        delete obj.default_workspace;
       }
       if (hadOAuthMarker || apiKeyFallback) writeUserObject(path, obj);
       return {

@@ -36,6 +36,7 @@ suite("multi-workspace auth (live, isolated config)", () => {
       // `--no-env-file` stops Bun from auto-loading a stray .env that could
       // re-inject the real key and bypass the temp config we're testing.
       const stdout = execFileSync("bun", ["--no-env-file", BIN, ...args], {
+        cwd: configHome,
         encoding: "utf8",
         env,
         stdio: ["ignore", "pipe", "pipe"],
