@@ -118,11 +118,12 @@ stderr), so it is always safe to pipe into `jq`. The envelope is a stable contra
   `--debug` the extra detail rides _inside_ that object as `error.detail`, so `--json --debug`
   stays parseable.
 
-Relations are **objects with ids**, on list rows and on `view` alike — `state: {id,name,type}`,
-`team: {id,key,name}`, `assignee: {id,displayName,email}`, `project`/`milestone: {id,name}`,
-`cycle: {id,number,name}`, `parent: {id,identifier}`, `labels: [{id,name}]` — so `.state.name`
-reads the same everywhere and the id you need to act on is already in hand. Issues also carry
-`archivedAt` and `trashed`; a deleted issue still views, and says so.
+Issue list rows use compact relations: `state: {name,type}`, `assignee: {displayName}`,
+`project: {name}`, and `labels: string[]`. They do not include `team` or `parent`.
+`issue view` returns richer relations with IDs, including `team`, `parent`, and label
+objects. Use `issue view <identifier> --json` when you need those relation IDs;
+inspect `linear commands issue list --json` or `linear commands issue view --json`
+for the exact shape. Both include `archivedAt` and `trashed`.
 
 ```bash
 linear issue list --json | jq -r '.[].identifier'
@@ -581,7 +582,7 @@ GRAPHQL
 linear api --query-file q.graphql --vars-file vars.json --paginate
 
 # Pipe data straight to jq (status notes go to stderr)
-linear api '{ issues(first: 5) { nodes { identifier title } } }' | jq '.data.issues.nodes[].title'
+linear api '{ issues(first: 5) { nodes { identifier title } } }' | jq '.issues.nodes[].title'
 ```
 
 `api` flags: `--query-file <path>` (`-` = stdin), `--var <k=v>` (repeatable string
