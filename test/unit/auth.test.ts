@@ -262,9 +262,9 @@ describe("workspace selection", () => {
   }
 
   it("opens explicit URLs without selecting credentials", async () => {
-    const select = vi
-      .spyOn(Context.prototype, "selectWorkspace")
-      .mockRejectedValue(new Error("unexpected selection"));
+    const select = vi.spyOn(Context.prototype, "selectWorkspace").mockImplementation(async () => {
+      throw new Error("unexpected selection");
+    });
     const open = vi.spyOn(opener, "openUrl").mockResolvedValue(undefined);
     expect(await runJson(["open", "https://example.com"])).toMatchObject({
       target: "url",
