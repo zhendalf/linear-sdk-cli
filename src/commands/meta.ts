@@ -31,7 +31,7 @@ import {
 } from "../config.js";
 import { keyring } from "../lib/keyring.js";
 import { readStdinSync } from "../lib/body.js";
-import { authError, normalizeError, usageError } from "../lib/errors.js";
+import { CliError, authError, normalizeError, usageError } from "../lib/errors.js";
 import { confirmDestructive, promptSelect } from "../lib/prompt.js";
 import { listTeams } from "../services/team.js";
 import { resolveTeam } from "../lib/resolve.js";
@@ -177,6 +177,21 @@ export async function validateAuthCredential(
   };
 }
 
+/** Bind a completed login using the same project location rules as `config set`. */
+function saveLoginProject(ctx: Context, workspace: string, project: boolean): string | null {
+  if (!project) return null;
+  const path = ctx.config.projectConfigPath ?? defaultProjectConfigPath();
+  try {
+    setConfigKey(path, "workspace", workspace);
+  } catch {
+    throw new CliError(
+      `Credentials saved for workspace '${workspace}', but its project association could not be saved to ${path}. Fix the project file and run \`linear config set workspace ${workspace}\`; login does not need to be repeated.`,
+      "runtime",
+    );
+  }
+  return path;
+}
+
 function explicitWorkspaceSlug(input: string): string {
   const slug = input.trim();
   if (!/^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$/.test(slug)) {
@@ -202,7 +217,8 @@ export function registerMeta(program: Command): void {
   // login -------------------------------------------------------------------
   auth
     .command("login")
-    .description("Authenticate in the browser with OAuth, or store a personal API key")
+    .description("Authenticate and select the workspace for this project")
+    .option("--no-project", "save credentials without changing the project workspace")
     .option("--key <key>", "use a personal API key ('-' reads it from stdin)")
     .option("--plaintext", "Store the key in the config file (0600) instead of the system keyring")
     .option("--no-browser", "print the authorization URL instead of opening it")
@@ -241,6 +257,7 @@ export function registerMeta(program: Command): void {
           const { path, storage, keyringLabel } = writeCredential(org.urlKey, key, {
             plaintext: opts.plaintext === true,
           });
+          const projectConfigPath = saveLoginProject(ctx, org.urlKey, opts.project !== false);
           const where =
             storage === "keychain"
               ? `Credential saved to the ${keyringLabel}; ${path} records the workspace.`
@@ -253,10 +270,11 @@ export function registerMeta(program: Command): void {
               user: me,
               storage,
               path,
+              projectConfigPath,
             },
             () =>
               ctx.output.success(
-                `Authenticated as ${me.name} <${me.email}> for workspace '${org.urlKey}'. ${where}`,
+                `Authenticated as ${me.name} <${me.email}> for workspace '${org.urlKey}'. ${where}${projectConfigPath ? ` Project workspace saved to ${projectConfigPath}.` : ""}`,
               ),
           );
           return;
@@ -327,6 +345,11 @@ export function registerMeta(program: Command): void {
             user: identity.user,
           };
           const saved = writeOAuthCredential(credential);
+          const projectConfigPath = saveLoginProject(
+            ctx,
+            credential.workspace.urlKey,
+            opts.project !== false,
+          );
           ctx.output.emit(
             {
               success: true,
@@ -337,10 +360,11 @@ export function registerMeta(program: Command): void {
               scopes: credential.scopes,
               expiresAt: new Date(credential.expiresAt).toISOString(),
               path: saved.path,
+              projectConfigPath,
             },
             () =>
               ctx.output.success(
-                `Authenticated as ${credential.user.name} <${credential.user.email}> for workspace '${credential.workspace.urlKey}'. OAuth credentials saved to the ${saved.keyringLabel}.`,
+                `Authenticated as ${credential.user.name} <${credential.user.email}> for workspace '${credential.workspace.urlKey}'. OAuth credentials saved to the ${saved.keyringLabel}.${projectConfigPath ? ` Project workspace saved to ${projectConfigPath}.` : ""}`,
               ),
           );
         } finally {
@@ -455,6 +479,7 @@ export function registerMeta(program: Command): void {
     .action(
       action(async (ctx) => {
         const c = ctx.config;
+        if (c.workspaceChoices) throw c.apiKeyError;
         const credential = c.accessToken ?? c.apiKey;
         const credentialType = c.oauthCredential
           ? "oauth-user"

@@ -1,10 +1,18 @@
 /**
  * The `auth` commands against an isolated config directory and a fake keyring.
- * `auth login` is exercised live (test/integration/auth.test.ts) because it
- * validates the key against the API; everything else needs no network.
+ * Login uses a fake identity validator; browser OAuth exercises a local callback.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "bun:test";
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  realpathSync,
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
@@ -13,9 +21,12 @@ import {
   userConfigPath,
   referenceCredentialsPath,
   writeOAuthCredential,
+  resolveConfig,
 } from "../../src/config.js";
 import { memoryKeyring, setKeyringBackend } from "../../src/lib/keyring.js";
 import { setAuthValidationClientFactoryForTests } from "../../src/commands/meta.js";
+import { Context } from "../../src/context.js";
+import * as prompts from "../../src/lib/prompt.js";
 import type { OAuthUserCredential } from "../../src/oauth.js";
 
 const nativeFetch = globalThis.fetch;
@@ -31,7 +42,7 @@ let savedAccessToken: string | undefined;
 let savedWorkspace: string | undefined;
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "linauth-"));
+  root = realpathSync(mkdtempSync(join(tmpdir(), "linauth-")));
   mkdirSync(join(root, "xdg", "linear"), { recursive: true });
   savedXdg = process.env.XDG_CONFIG_HOME;
   savedHome = process.env.HOME;
@@ -170,6 +181,125 @@ describe("OAuth credentials stay invocation-scoped", () => {
   });
 });
 
+describe("workspace selection", () => {
+  beforeEach(() => {
+    writeFileSync(
+      userConfigPath(),
+      '[workspaces.a]\napi_key = "lin_api_a"\n[workspaces.b]\napi_key = "lin_api_b"\nteam = "BBB"\n',
+    );
+  });
+
+  it("prompts for an invocation choice without persisting it", async () => {
+    const before = readFileSync(userConfigPath(), "utf8");
+    const select = vi.spyOn(prompts, "promptSelect").mockResolvedValue("b");
+    const ctx = new Context({});
+    Object.defineProperty(ctx, "isTTY", { value: true });
+    await ctx.selectWorkspace();
+    expect(select).toHaveBeenCalledTimes(1);
+    expect(ctx.config).toMatchObject({ credentialWorkspace: "b", team: "BBB" });
+    expect(readFileSync(userConfigPath(), "utf8")).toBe(before);
+    expect(existsSync(join(root, ".linear.toml"))).toBe(false);
+  });
+
+  it("does not prompt for JSON, no-input, or redirected output", async () => {
+    const select = vi.spyOn(prompts, "promptSelect").mockResolvedValue("b");
+    for (const options of [{ json: true }, { noInput: true }, {}]) {
+      const ctx = new Context(options);
+      if (Object.keys(options).length === 0) Object.defineProperty(ctx, "isTTY", { value: false });
+      await ctx.selectWorkspace();
+      expect(ctx.config.apiKeyError?.message).toContain("none is selected");
+    }
+    expect(select).not.toHaveBeenCalled();
+  });
+
+  it("keeps auth repair commands available but rejects ambiguous status", async () => {
+    expect(await runJson(["auth", "list"])).toHaveLength(2);
+    await expect(runJson(["auth", "status"])).rejects.toThrow("none is selected");
+    await runJson(["auth", "default", "b"]);
+    expect(await runJson(["auth", "status"])).toMatchObject({ workspace: "b" });
+  });
+});
+
+describe("login project association", () => {
+  beforeEach(() => {
+    writeFileSync(
+      userConfigPath(),
+      'default_workspace = "other"\n[workspaces.other]\nkeyring = true\n',
+    );
+    kr.store.set("other", "lin_api_other");
+    setAuthValidationClientFactoryForTests(() => ({
+      viewer: Promise.resolve({ id: "user-1", name: "Ada", email: "ada@example.com" }),
+      organization: Promise.resolve({ id: "org-1", name: "Acme", urlKey: "acme" }),
+    }));
+  });
+
+  it("selects the new workspace on the next invocation while preserving the global default", async () => {
+    const receipt = await runJson(["auth", "login", "--key", "lin_api_acme"]);
+    expect(receipt.projectConfigPath).toBe(join(root, ".linear.toml"));
+    expect(readFileSync(receipt.projectConfigPath, "utf8")).toBe('workspace = "acme"\n');
+    expect(resolveConfig()).toMatchObject({ credentialWorkspace: "acme", apiKey: "lin_api_acme" });
+    expect(await runJson(["auth", "status"])).toMatchObject({ workspace: "acme" });
+    expect(await runJson(["auth", "list"])).toContainEqual({
+      slug: "other",
+      isDefault: true,
+      storage: "keychain",
+      credentialType: "api-key",
+    });
+  });
+
+  it("updates the discovered config and preserves its other settings and comments", async () => {
+    const path = join(root, "linear.toml");
+    writeFileSync(path, '# Project\nworkspace = "other" # selected\nteam = "ENG"\n');
+    mkdirSync(join(root, "child"));
+    process.chdir(join(root, "child"));
+    const receipt = await runJson(["auth", "login", "--key", "lin_api_acme"]);
+    expect(receipt.projectConfigPath).toBe(path);
+    expect(readFileSync(path, "utf8")).toBe(
+      '# Project\nworkspace = "acme" # selected\nteam = "ENG"\n',
+    );
+  });
+
+  it("creates the association at the git root when login runs in a subdirectory", async () => {
+    execFileSync("git", ["init", "--quiet", root]);
+    mkdirSync(join(root, "child"));
+    process.chdir(join(root, "child"));
+    const receipt = await runJson(["auth", "login", "--key", "lin_api_acme"]);
+    expect(receipt.projectConfigPath).toBe(join(root, ".linear.toml"));
+    expect(resolveConfig().credentialWorkspace).toBe("acme");
+  });
+
+  it("allows credential-only login without changing an existing association", async () => {
+    const path = join(root, ".linear.toml");
+    writeFileSync(path, 'workspace = "other"\n');
+    const receipt = await runJson(["auth", "login", "--key", "lin_api_acme", "--no-project"]);
+    expect(receipt.projectConfigPath).toBeNull();
+    expect(readFileSync(path, "utf8")).toBe('workspace = "other"\n');
+    expect(kr.store.get("acme")).toBe("lin_api_acme");
+  });
+
+  it("does not associate a workspace when identity validation fails", async () => {
+    await expect(
+      runJson(["auth", "login", "--key", "lin_api_acme", "--workspace", "wrong"]),
+    ).rejects.toThrow("does not match");
+    expect(existsSync(join(root, ".linear.toml"))).toBe(false);
+    expect(kr.store.has("acme")).toBe(false);
+  });
+
+  it("reports saved credentials when the project write fails", async () => {
+    setAuthValidationClientFactoryForTests(() => {
+      mkdirSync(join(root, ".linear.toml"));
+      return {
+        viewer: Promise.resolve({ id: "user-1", name: "Ada", email: "ada@example.com" }),
+        organization: Promise.resolve({ id: "org-1", name: "Acme", urlKey: "acme" }),
+      };
+    });
+    await expect(runJson(["auth", "login", "--key", "lin_api_acme"])).rejects.toThrow(
+      "login does not need to be repeated",
+    );
+    expect(kr.store.get("acme")).toBe("lin_api_acme");
+  });
+});
+
 describe("browser OAuth login", () => {
   it("completes PKCE through the loopback, emits secret-safe JSON, and stores only in keyring", async () => {
     const port = await freePort();
@@ -240,6 +370,9 @@ describe("browser OAuth login", () => {
     expect(err).not.toContain("access-secret");
     expect(readFileSync(userConfigPath(), "utf8")).not.toContain("secret");
     expect(kr.store.get("oauth:acme")).toContain("refresh-secret");
+    expect(receipt.projectConfigPath).toBe(join(root, ".linear.toml"));
+    expect(readFileSync(receipt.projectConfigPath, "utf8")).toBe('workspace = "acme"\n');
+    expect(resolveConfig().credentialWorkspace).toBe("acme");
   });
 });
 

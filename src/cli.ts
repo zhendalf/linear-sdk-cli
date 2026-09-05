@@ -111,6 +111,7 @@ export function createProgram(): Command {
       command.help();
       return;
     }
+    await ctx.selectWorkspace();
     const detail = await getIssueDetail(ctx.client, id);
     await renderIssueDetail(ctx, detail, true);
   });

@@ -236,6 +236,10 @@ linear --workspace other-org issue list    # use a specific workspace for one co
 linear auth logout --workspace acme        # revoke OAuth, then remove one credential
 ```
 
+Successful browser and API-key login also save `workspace = "<authenticated slug>"` in the discovered project config, preserving other settings and comments. If no config exists, login creates `.linear.toml` at the Git root (or cwd outside Git). Use `auth login --no-project` for credential-only login. Human output reports the association path; JSON includes `projectConfigPath` (null with `--no-project`). Credentials remain in the global credential store. Environment overrides still take precedence over this association.
+
+Global defaults are optional: login, credential adoption, and logout never choose a new one. Use `linear auth default <slug>` to explicitly select a global fallback. Removing that workspace clears its default without promoting another workspace. Existing defaults, including defaults imported from the reference CLI, are preserved on upgrade because older files cannot distinguish a user choice from an automatically assigned default. To opt out of a legacy default, remove the top-level `default_workspace` from the user config and, if present, `default` from the reference CLI's `credentials.toml`; retain the workspace entries.
+
 If revocation is intentionally unavailable, `auth logout --local-only` removes only local state.
 If browser login temporarily superseded an existing personal API-key profile for that workspace,
 OAuth logout preserves and reactivates the API key instead of deleting it.
@@ -244,8 +248,9 @@ OAuth logout preserves and reactivates the API key instead of deleting it.
 environment and stored-credential lookup. Otherwise `LINEAR_API_KEY` or `LINEAR_ACCESS_TOKEN` is
 absolute. With no invocation-scoped credential, the workspace is chosen by `--workspace` →
 `LINEAR_WORKSPACE` env → project config `workspace` → `default_workspace` in the user config. With
-one configured workspace it's used automatically; with several and no selection, the CLI asks you
-to pick (via `--workspace`, project config, or `auth default`). An invocation credential does not
+one configured workspace it's used automatically; with several and no selection, interactive
+commands prompt for an invocation-only choice. Noninteractive and JSON commands fail clearly
+and explain how to select a workspace. Auth repair and discovery commands remain available. An invocation credential does not
 silently inherit the default or project profile's team; pair it with `--workspace` (or
 `LINEAR_WORKSPACE`) naming a configured profile when that profile metadata should apply.
 

@@ -21,6 +21,13 @@ export function action(handler: ActionHandler) {
     const localOpts = (args[args.length - 2] ?? {}) as Record<string, any>;
     const positionals = args.slice(0, -2);
     const ctx = new Context(command.optsWithGlobals() as GlobalOptions);
+    // Repair and discovery commands must remain usable without selecting credentials.
+    let group = command;
+    while (group.parent?.parent) group = group.parent;
+    const offline =
+      ["config", "commands", "schema", "completion"].includes(group.name()) ||
+      (group.name() === "auth" && !["whoami", "status", "token"].includes(command.name()));
+    if (!offline) await ctx.selectWorkspace();
     await handler(ctx, localOpts, ...positionals);
   };
 }

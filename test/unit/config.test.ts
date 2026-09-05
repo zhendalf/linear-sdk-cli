@@ -620,10 +620,10 @@ describe("structured credential writers", () => {
     return parseToml(readFileSync(userConfigPath(baseEnv()), "utf8")) as Record<string, any>;
   }
 
-  it("writeCredential upserts and sets default when none exists", () => {
+  it("writeCredential upserts without selecting a global default", () => {
     writeCredential("my-org", "lin_api_first00000", { plaintext: true });
     const obj = readBack();
-    expect(obj.default_workspace).toBe("my-org");
+    expect(obj.default_workspace).toBeUndefined();
     expect(obj.workspaces["my-org"].api_key).toBe("lin_api_first00000");
   });
 
@@ -675,11 +675,12 @@ describe("structured credential writers", () => {
     expect(obj.workspaces["org-b"].api_key).toBe("lin_api_b000000000");
   });
 
-  it("removeCredential repoints the default when removing the default", () => {
-    writeCredential("org-a", "lin_api_a000000000", { plaintext: true }); // becomes default
+  it("removeCredential clears the default without selecting a remaining workspace", () => {
+    writeCredential("org-a", "lin_api_a000000000", { plaintext: true });
+    setDefaultWorkspace("org-a");
     writeCredential("org-b", "lin_api_b000000000", { plaintext: true });
     removeCredential("org-a");
-    expect(readBack().default_workspace).toBe("org-b");
+    expect(readBack().default_workspace).toBeUndefined();
   });
 
   it("removeCredential clears default_workspace when removing the last workspace", () => {
@@ -1061,7 +1062,7 @@ describe("keyring-backed credentials", () => {
       expect(obj.workspaces.acme.keyring).toBe(true);
       expect(obj.workspaces.acme.api_key).toBeUndefined();
       expect(readFileSync(userConfigPath(baseEnv()), "utf8")).not.toContain("lin_api_secret");
-      expect(obj.default_workspace).toBe("acme");
+      expect(obj.default_workspace).toBeUndefined();
     });
 
     it("a re-login moves a plaintext key into the keyring rather than leaving a copy", () => {
@@ -1116,6 +1117,12 @@ describe("keyring-backed credentials", () => {
   });
 
   describe("adoptKeyringCredential", () => {
+    it("does not create a default when adopting a credential", () => {
+      kr.store.set("new-org", "lin_api_new");
+      adoptKeyringCredential("new-org", "lin_api_new");
+      expect(readBack().default_workspace).toBeUndefined();
+    });
+
     it("preserves existing profile team metadata while adopting the keyring marker", () => {
       writeUserConfig(`[workspaces.acme]\nteam = "ENG"\nnote = "keep"\n`);
       kr.store.set("acme", "lin_api_adopt000000");
@@ -1217,6 +1224,17 @@ describe("keyring-backed credentials", () => {
       expect(resolved.oauthCredential?.workspace.id).toBe("org-1");
     });
 
+    it("OAuth login and logout never promote a different workspace to default", () => {
+      writeOAuthCredential(oauthCredential());
+      expect(readBack().default_workspace).toBeUndefined();
+      writeCredential("other", "lin_api_other", { plaintext: true });
+      writeCredential("third", "lin_api_third", { plaintext: true });
+      setDefaultWorkspace("acme");
+      removeOAuthCredential("acme");
+      expect(readBack().default_workspace).toBeUndefined();
+      expect(resolveConfig({ env: baseEnv() }).workspaceChoices).toEqual(["other", "third"]);
+    });
+
     it("refuses OAuth persistence without a system keyring", () => {
       setKeyringBackend(null);
       expect(() => writeOAuthCredential(oauthCredential())).toThrow(/keyring/);
@@ -1290,7 +1308,7 @@ describe("keyring-backed credentials", () => {
       expect(removeCredential("lumiere")).toBe(true);
       expect(kr.store.has("lumiere")).toBe(false);
       const ref = parseToml(readFileSync(referenceCredentialsPath(baseEnv()), "utf8")) as any;
-      expect(ref).toEqual({ default: "other", workspaces: ["other"] });
+      expect(ref).toEqual({ workspaces: ["other"] });
       expect(listCredentials(baseEnv()).map((e) => e.slug)).toEqual(["other"]);
     });
 

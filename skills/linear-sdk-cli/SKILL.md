@@ -94,6 +94,8 @@ The CLI supports distinct human, hosted-app, and personal-key lifecycles:
    linear issue list --workspace acme --json
    ```
 
+Login associates the authenticated workspace with the discovered project config, or creates `.linear.toml` at the Git root (cwd outside Git). Use `--no-project` for credential-only login; JSON reports `projectConfigPath` or null. Credentials stay global. Workspace selection is `--workspace` → `LINEAR_WORKSPACE` → project config → optional global default. A sole stored workspace is automatic; multiple unselected workspaces prompt only interactively and fail in JSON/noninteractive mode. Login/adoption/logout never assign a new default. Existing legacy defaults remain valid because their original intent is unknown; `auth default` is an explicit convenience.
+
 An explicit credential flag overrides environment credentials. If both credential kinds occur at
 the same precedence level, the CLI fails rather than silently choosing an actor. Inspect resolution
 with `linear auth status`. `linear auth token` exports stored API keys only and never OAuth tokens.

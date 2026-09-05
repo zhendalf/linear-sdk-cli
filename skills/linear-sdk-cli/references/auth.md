@@ -69,7 +69,7 @@ storage: string
 
 ### `linear auth login`
 
-Authenticate in the browser with OAuth, or store a personal API key
+Authenticate and select the workspace for this project
 
 ```
 linear auth login [options]
@@ -77,6 +77,7 @@ linear auth login [options]
 
 | Option                 | Description                                                           |
 | ---------------------- | --------------------------------------------------------------------- |
+| `--no-project`         | save credentials without changing the project workspace               |
 | `--key <key>`          | use a personal API key ('-' reads it from stdin)                      |
 | `--plaintext`          | Store the key in the config file (0600) instead of the system keyring |
 | `--no-browser`         | print the authorization URL instead of opening it                     |
