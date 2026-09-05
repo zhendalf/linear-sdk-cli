@@ -57,6 +57,27 @@ describe("JSON envelope contract", () => {
     );
   });
 
+  it("invalid fields on a truncated list leave stderr as one JSON error", () => {
+    const rows = setPaginationMetadata([{ id: "A" }], true);
+    const output = new Output({
+      json: true,
+      color: false,
+      quiet: false,
+      debug: false,
+      fields: ["missing"],
+    });
+    const { out, err } = capture(() => {
+      try {
+        output.list(rows, [{ key: "id", value: (r) => r.id }]);
+      } catch (error) {
+        output.error(error as CliError);
+      }
+    });
+    expect(out).toBe("");
+    expect(JSON.parse(err).error.code).toBe("usage");
+    expect(err).not.toContain("Showing");
+  });
+
   it("detail → a bare JSON object on stdout", () => {
     const { out } = capture(() => jsonOutput().detail({ id: "X", name: "n" }, [["Name", "n"]]));
     expect(JSON.parse(out)).toEqual({ id: "X", name: "n" });
@@ -302,6 +323,26 @@ describe("error boundary (spawned bin)", () => {
     expect(typeof parsed.error.code).toBe("string");
     return parsed.error as { message: string; code: string };
   };
+
+  for (const flag of ["--json", "-j", "-jq"]) {
+    it(`honors trailing ${flag} after value validation fails`, () => {
+      const r = run(["issue", "list", "--priority", "9", flag]);
+      expect(r.code).toBe(2);
+      expect(r.stdout).toBe("");
+      expect(envelope(r.stderr).code).toBe("usage");
+    });
+  }
+
+  for (const args of [
+    ["issue", "create", "--priority", "9", "--title=--json"],
+    ["issue", "list", "--priority", "9", "--", "--json"],
+  ]) {
+    it(`does not interpret literal JSON-looking text as a flag: ${args.join(" ")}`, () => {
+      const r = run(args);
+      expect(r.code).toBe(2);
+      expect(r.stderr).toMatch(/^error: /);
+    });
+  }
 
   it("an action failure under --json → the envelope, exit code from the error", () => {
     const r = run(["issue", "view", "TES-1", "--json"]);

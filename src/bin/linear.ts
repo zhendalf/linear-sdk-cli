@@ -6,7 +6,7 @@
  */
 
 import { CommanderError } from "commander";
-import { createProgram, parsedGlobalOptions, usageHint, suppressedHelp } from "../cli.js";
+import { createProgram, errorGlobalOptions, usageHint, suppressedHelp } from "../cli.js";
 import { Output } from "../output/format.js";
 import { CliError, ExitCode, normalizeError } from "../lib/errors.js";
 import { commandPath } from "../lib/options.js";
@@ -31,6 +31,8 @@ program.parseAsync(process.argv).catch((err) => {
     if (err.exitCode === 0) process.exit(0);
   }
 
+  const globals = errorGlobalOptions(program, process.argv.slice(2));
+
   // A group invoked bare (`linear notification`) is commander asking to show
   // that group's help and exit non-zero. It wrote the help to the stderr we
   // route through here, so print exactly that for a human — an envelope
@@ -38,7 +40,7 @@ program.parseAsync(process.argv).catch((err) => {
   // usage error under --json.
   if (err instanceof CommanderError && err.code === "commander.help") {
     const help = suppressedHelp(program);
-    if (help && parsedGlobalOptions(program).json !== true) {
+    if (help && globals.json !== true) {
       process.stderr.write(help.text);
       process.exit(ExitCode.Usage);
     }
@@ -46,11 +48,8 @@ program.parseAsync(process.argv).catch((err) => {
 
   const cliError = err instanceof CommanderError ? fromCommander(err) : normalizeError(err);
 
-  // Format the error the way the user asked for the output — from the globals
-  // commander parsed, so every spelling it accepts (`-j`, `-jq`, `--json`)
-  // reaches the envelope. Errors go to stderr, so that stream's TTY-ness decides
-  // colour, not stdout's.
-  const globals = parsedGlobalOptions(program);
+  // Recovered flags include trailing options after a value-validation failure.
+  // Errors go to stderr, so that stream determines color.
   const json = globals.json === true;
   const out = new Output({
     json,

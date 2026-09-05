@@ -3,7 +3,7 @@
  * Kept free of side effects so it can be imported by tests and the bin entry.
  */
 
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import { addGlobalOptions, globalOptionKeys, unknownCommand, commandPath } from "./lib/options.js";
 import { registerMeta } from "./commands/meta.js";
 import { registerApi } from "./commands/api.js";
@@ -53,6 +53,21 @@ export function createProgram(): Command {
     // so (with a guess). Left to commander it was "too many arguments. Expected
     // 0 arguments but got 2: issues, list." — true, and no help at all.
     .allowExcessArguments();
+
+  program.addHelpText(
+    "after",
+    [
+      "",
+      "Start here:",
+      "  linear auth status                    # check your connection",
+      "  linear auth login                     # connect if needed",
+      "  linear team list                      # find your team key",
+      "  linear issue list --assignee me        # find your work",
+      "  linear issue view TES-42               # read an issue",
+      "  linear issue list --help               # discover filters and examples",
+      "  linear commands issue list --json     # inspect options and JSON fields",
+    ].join("\n"),
+  );
 
   addGlobalOptions(program);
 
@@ -133,17 +148,9 @@ export function createProgram(): Command {
  * The global options as commander actually parsed them, read back off the
  * command tree after `parseAsync` has thrown.
  *
- * The error boundary has no Context to ask — the failure may have happened
- * before any action ran — so it used to re-parse `process.argv` by hand with
- * `argv.includes("--json")`. That check did not know the `-j` alias, bundled
- * short flags (`-jq`) or any other spelling commander accepts, so `linear issue
- * view NOPE-1 -j` printed a plaintext error while `--json` printed the
- * envelope: an unparseable error stream for exactly the callers the envelope
- * exists for. Commander has already parsed whatever it got to before failing
- * (a bad option is reported only after the whole argument list is scanned), so
- * the boundary reads that instead of parsing again. Every global is registered
- * on every command and stored under the same key, so the flag is found
- * wherever on the command path it was given.
+ * The error boundary has no Context to ask because an option parser may fail
+ * before an action runs. Read explicitly supplied globals across the tree;
+ * errorGlobalOptions supplements these when trailing flags were not reached.
  */
 export function parsedGlobalOptions(program: Command): GlobalOptions {
   const keys = globalOptionKeys();
@@ -156,6 +163,36 @@ export function parsedGlobalOptions(program: Command): GlobalOptions {
   };
   visit(program);
   return merged as GlobalOptions;
+}
+
+/** Recover output flags after a value parser stops before reaching trailing flags.
+ * Parse a side-effect-free copy of the grammar: no actions, hooks, validation,
+ * credentials, or API calls. Commander still handles option values, clusters,
+ * aliases and `--`, so literal body text cannot turn on JSON mode.
+ */
+export function errorGlobalOptions(program: Command, args: string[]): GlobalOptions {
+  const copy = (source: Command): Command => {
+    const cmd = new Command(source.name())
+      .aliases(source.aliases())
+      .allowExcessArguments()
+      .allowUnknownOption()
+      .helpOption(false)
+      .exitOverride()
+      .configureOutput({ writeOut: () => {}, writeErr: () => {} })
+      .action(() => {});
+    for (const option of source.options) {
+      cmd.addOption(new Option(option.flags, option.description));
+    }
+    for (const child of source.commands) cmd.addCommand(copy(child));
+    return cmd;
+  };
+  const grammar = copy(program).enablePositionalOptions();
+  try {
+    grammar.parse(args, { from: "user" });
+  } catch {
+    // Missing option values may still stop parsing; retain whatever was read.
+  }
+  return { ...parsedGlobalOptions(grammar), ...parsedGlobalOptions(program) };
 }
 
 function applyGlobalOptionsToAll(cmd: Command): void {
