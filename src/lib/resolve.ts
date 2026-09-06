@@ -209,46 +209,60 @@ export async function resolveLabelIds(
   names: string[],
   teamId?: string,
 ): Promise<string[]> {
-  const ids: string[] = [];
-  for (const name of names) {
-    if (isUuid(name)) {
-      ids.push(name);
-      continue;
+  // Share in-flight searches only within this call. Later calls must observe
+  // renamed/deleted labels, and exact spelling matters for case preference.
+  const lookups = new Map<string, Promise<any[]>>();
+  const lookup = (name: string): Promise<any[]> => {
+    let pending = lookups.get(name);
+    if (!pending) {
+      pending = (async () => {
+        const conn = await withRetry(() =>
+          client.issueLabels({
+            filter: { name: { eqIgnoreCase: name } } as any,
+            first: RESOLVE_PAGE,
+          }),
+        );
+        // Share the complete scan too: concurrent consumers must not advance
+        // the same mutable SDK connection independently.
+        return scanAll<any>(conn as any, "labels", "linear label list");
+      })();
+      lookups.set(name, pending);
     }
-    const conn = await withRetry(() =>
-      client.issueLabels({ filter: { name: { eqIgnoreCase: name } } as any, first: RESOLVE_PAGE }),
-    );
-    // Scanned rather than capped: the team narrowing below can discard every
-    // label on the first page, so a fixed page cap could turn a label that
-    // exists into a not-found.
-    const nodes = await scanAll<any>(conn as any, "labels", "linear label list");
-    if (nodes.length === 0)
-      throw notFound(`No label matching '${name}'. Run 'linear label list' to see the options.`);
+    return pending;
+  };
+  return Promise.all(
+    names.map(async (name) => {
+      if (isUuid(name)) return name;
+      const nodes = await lookup(name);
+      if (nodes.length === 0)
+        throw notFound(`No label matching '${name}'. Run 'linear label list' to see the options.`);
 
-    // Narrow to this team's labels + workspace-level labels when a team is known.
-    // If a team is known and nothing is in scope, that's not-found (do NOT fall
-    // back to an out-of-scope label from another team).
-    // Label groups are containers, not labels that can be applied to an issue.
-    let candidates: any[] = nodes.filter((label: any) => !label.isGroup);
-    if (teamId) {
-      const scoped = await Promise.all(
-        nodes.map(async (l: any) => ({ label: l, team: await l.team })),
-      );
-      candidates = scoped.filter((s) => !s.team || s.team.id === teamId).map((s) => s.label);
-      if (candidates.length === 0) throw notFound(`No label '${name}' in this team or workspace.`);
-    }
+      // Narrow to this team's labels + workspace-level labels when a team is known.
+      // If a team is known and nothing is in scope, that's not-found (do NOT fall
+      // back to an out-of-scope label from another team).
+      // Label groups are containers, not labels that can be applied to an issue.
+      let candidates: any[] = nodes.filter((label: any) => !label.isGroup);
+      if (teamId) {
+        // The SDK includes teamId in the label response; accessing team fetches it again.
+        candidates = candidates.filter((label) => !label.teamId || label.teamId === teamId);
+        if (candidates.length === 0)
+          throw notFound(`No label '${name}' in this team or workspace.`);
+      }
 
-    // Prefer an exact (case-sensitive) match.
-    const exact = candidates.filter((l: any) => l.name === name);
-    const finalists = exact.length ? exact : candidates;
-    if (finalists.length > 1) {
-      throw ambiguous(
-        `Multiple labels named '${name}'${teamId ? " in scope" : ""}; pass the label id instead.`,
-      );
-    }
-    ids.push(finalists[0]!.id);
-  }
-  return ids;
+      if (candidates.length === 0)
+        throw notFound(`No label matching '${name}'. Run 'linear label list' to see the options.`);
+
+      // Prefer an exact (case-sensitive) match.
+      const exact = candidates.filter((l: any) => l.name === name);
+      const finalists = exact.length ? exact : candidates;
+      if (finalists.length > 1) {
+        throw ambiguous(
+          `Multiple labels named '${name}'${teamId ? " in scope" : ""}; pass the label id instead.`,
+        );
+      }
+      return finalists[0]!.id;
+    }),
+  );
 }
 
 /**

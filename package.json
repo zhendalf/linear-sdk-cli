@@ -57,6 +57,7 @@
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
     "test": "bun test test/unit test/contract",
+    "test:performance": "bun test --timeout 15000 test/performance",
     "test:unit": "bun test test/unit",
     "test:contract": "bun test test/contract",
     "test:live": "LINEAR_CLI_LIVE=1 bun test --timeout 60000 test/integration",

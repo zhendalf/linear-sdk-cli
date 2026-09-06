@@ -522,8 +522,8 @@ describe("updateIssue --team (a real team move)", () => {
       }),
       issueLabels: async () =>
         connection([
-          { id: "label-eng", name: "bug", team: Promise.resolve({ id: "team-eng" }) },
-          { id: "label-tes", name: "bug", team: Promise.resolve({ id: "team-tes" }) },
+          { id: "label-eng", name: "bug", teamId: "team-eng" },
+          { id: "label-tes", name: "bug", teamId: "team-tes" },
         ]),
       updateIssue: async (_id: string, input: any) => {
         capture(input);
