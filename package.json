@@ -70,19 +70,19 @@
     "janitor": "bun run test/janitor.ts"
   },
   "dependencies": {
-    "@inquirer/prompts": "^8.7.1",
-    "@linear/sdk": "^93.0.1",
+    "@inquirer/prompts": "^8.7.2",
+    "@linear/sdk": "^95.0.0",
     "commander": "^15.0.0",
     "graphql": "^17.0.2",
     "picocolors": "^1.1.1",
     "smol-toml": "^1.8.0"
   },
-  "packageManager": "bun@1.4.0",
+  "packageManager": "bun@1.4.2",
   "devDependencies": {
-    "@types/bun": "^1.4.1",
-    "@types/node": "^26.4.1",
-    "oxfmt": "^0.66.0",
-    "oxlint": "^1.81.0",
+    "@types/bun": "^1.4.2",
+    "@types/node": "^26.5.1",
+    "oxfmt": "^0.67.0",
+    "oxlint": "^1.82.0",
     "typescript": "^7.0.2"
   }
 }
