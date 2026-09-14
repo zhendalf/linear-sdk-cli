@@ -4,6 +4,12 @@ Release Please generates this file from Conventional Commits. Feature and fix pu
 not edit it directly; their squash-commit titles are the release-note source of truth. This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3](https://github.com/zhendalf/linear-sdk-cli/compare/v0.5.2...v0.5.3) (2026-09-14)
+
+### Bug Fixes
+
+- **deps:** bump oxfmt to 0.68.0 and oxlint to 1.83.0 ([13f8807](https://github.com/zhendalf/linear-sdk-cli/commit/13f88076b1e8d276c32e64a68ae53bb6efaf6a32))
+
 ## [0.5.2](https://github.com/zhendalf/linear-sdk-cli/compare/v0.5.1...v0.5.2) (2026-09-13)
 
 ### Bug Fixes
