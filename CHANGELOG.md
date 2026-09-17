@@ -4,6 +4,17 @@ Release Please generates this file from Conventional Commits. Feature and fix pu
 not edit it directly; their squash-commit titles are the release-note source of truth. This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0](https://github.com/zhendalf/linear-sdk-cli/compare/v0.5.3...v0.6.0) (2026-09-17)
+
+### Features
+
+- add project label resource commands ([#73](https://github.com/zhendalf/linear-sdk-cli/issues/73)) ([198ee7a](https://github.com/zhendalf/linear-sdk-cli/commit/198ee7af00b29b45653d6ca07195d1433c4af844))
+- add project status resource commands ([#71](https://github.com/zhendalf/linear-sdk-cli/issues/71)) ([2120a43](https://github.com/zhendalf/linear-sdk-cli/commit/2120a43496132955932a6af3af3a70364ae8493d))
+
+### Bug Fixes
+
+- expose credential scope capabilities ([#74](https://github.com/zhendalf/linear-sdk-cli/issues/74)) ([9efa3c1](https://github.com/zhendalf/linear-sdk-cli/commit/9efa3c1a2405be6dba79cf808b1c14737b280015)), closes [#70](https://github.com/zhendalf/linear-sdk-cli/issues/70)
+
 ## [0.5.3](https://github.com/zhendalf/linear-sdk-cli/compare/v0.5.2...v0.5.3) (2026-09-14)
 
 ### Bug Fixes
