@@ -51,6 +51,10 @@ import {
   PROJECT_MILESTONE_ROW_SHAPE,
   PROJECT_ROW_SHAPE,
 } from "../services/project.js";
+import {
+  PROJECT_STATUS_DETAIL_SHAPE,
+  PROJECT_STATUS_ROW_SHAPE,
+} from "../services/project-status.js";
 import { ROADMAP_DETAIL_SHAPE, ROADMAP_ROW_SHAPE } from "../services/roadmap.js";
 import { STATE_DETAIL_SHAPE, STATE_ROW_SHAPE } from "../services/state.js";
 import {
@@ -619,6 +623,22 @@ export const OUTPUT_SHAPES: Record<string, OutputShape | null> = {
   "project milestones": list(PROJECT_MILESTONE_ROW_SHAPE),
   "project update": receipt(NAMED_URL_RECEIPT),
   "project view": object(PROJECT_DETAIL_SHAPE),
+
+  "project-status": null,
+  "project-status archive": receipt({ id: "string", name: "string", archived: "boolean" }),
+  "project-status create": receipt({
+    id: "string",
+    name: "string",
+    type: "string",
+  }),
+  "project-status list": list(PROJECT_STATUS_ROW_SHAPE),
+  "project-status unarchive": receipt({ id: "string", name: "string", archived: "boolean" }),
+  "project-status update": receipt({
+    id: "string",
+    name: "string",
+    type: "string",
+  }),
+  "project-status view": object(PROJECT_STATUS_DETAIL_SHAPE),
 
   "project-update": null,
   "project-update create": receipt(UPDATE_RECEIPT_SHAPE),

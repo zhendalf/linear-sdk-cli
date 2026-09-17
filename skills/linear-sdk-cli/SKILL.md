@@ -441,6 +441,14 @@ linear project milestones
 linear project update
 linear project view
 
+linear project-status
+linear project-status archive
+linear project-status create
+linear project-status list
+linear project-status unarchive
+linear project-status update
+linear project-status view
+
 linear project-update
 linear project-update create
 linear project-update list
@@ -513,6 +521,7 @@ prints the same). These are supplementary — `--help` on any command is authori
 - [open](references/open.md) — Open the workspace, an issue, team, project, or URL
 - [organization](references/organization.md) — Inspect the current workspace
 - [project](references/project.md) — Work with projects
+- [project-status](references/project-status.md) — Manage workspace project-status definitions
 - [project-update](references/project-update.md) — Post and list project status updates
 - [roadmap](references/roadmap.md) — Work with roadmaps
 - [schema](references/schema.md) — Print the Linear GraphQL schema as SDL
