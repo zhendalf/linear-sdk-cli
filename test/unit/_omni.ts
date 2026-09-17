@@ -89,6 +89,7 @@ export const SCALARS: Record<string, unknown> = {
   endedAt: null,
   editedAt: null,
   resolvedAt: null,
+  retiredAt: null,
   readAt: null,
   snoozedUntilAt: null,
   dismissedAt: null,

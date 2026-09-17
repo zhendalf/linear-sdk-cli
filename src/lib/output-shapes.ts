@@ -55,6 +55,7 @@ import {
   PROJECT_STATUS_DETAIL_SHAPE,
   PROJECT_STATUS_ROW_SHAPE,
 } from "../services/project-status.js";
+import { PROJECT_LABEL_DETAIL_SHAPE, PROJECT_LABEL_ROW_SHAPE } from "../services/project-label.js";
 import { ROADMAP_DETAIL_SHAPE, ROADMAP_ROW_SHAPE } from "../services/roadmap.js";
 import { STATE_DETAIL_SHAPE, STATE_ROW_SHAPE } from "../services/state.js";
 import {
@@ -639,6 +640,15 @@ export const OUTPUT_SHAPES: Record<string, OutputShape | null> = {
     type: "string",
   }),
   "project-status view": object(PROJECT_STATUS_DETAIL_SHAPE),
+
+  "project-label": null,
+  "project-label create": receipt({ id: "string", name: "string", color: "string" }),
+  "project-label delete": receipt(NAMED_DELETED),
+  "project-label list": list(PROJECT_LABEL_ROW_SHAPE),
+  "project-label restore": receipt({ id: "string", name: "string", restored: "boolean" }),
+  "project-label retire": receipt({ id: "string", name: "string", retired: "boolean" }),
+  "project-label update": receipt({ id: "string", name: "string", color: "string" }),
+  "project-label view": object(PROJECT_LABEL_DETAIL_SHAPE),
 
   "project-update": null,
   "project-update create": receipt(UPDATE_RECEIPT_SHAPE),

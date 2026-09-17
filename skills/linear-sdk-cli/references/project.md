@@ -71,24 +71,24 @@ Aliases: `new`
 linear project create [options]
 ```
 
-| Option                      | Description                                    |
-| --------------------------- | ---------------------------------------------- |
-| `--name <name>`             | project name                                   |
-| `-d, --description <text>`  | project description (one-line summary)         |
-| `--description-file <path>` | read description from a file ('-' = stdin)     |
-| `--content <text>`          | project content (markdown body)                |
-| `--content-file <path>`     | read content from a file ('-' = stdin)         |
-| `--teams <key>`             | team (repeatable / comma-separated)            |
-| `-t, --team <key>`          | same as --teams (repeatable / comma-separated) |
-| `--lead <who>`              | project lead (me\|email\|name\|id)             |
-| `--member <who>`            | project member (repeatable / comma-separated)  |
-| `--state <name>`            | initial status (name, type, or id)             |
-| `--start <date>`            | planned start date (YYYY-MM-DD)                |
-| `--target <date>`           | planned target date (YYYY-MM-DD)               |
-| `-P, --priority <0-4>`      | priority (0 none, 1 urgent … 4 low)            |
-| `-l, --label <name>`        | project label (repeatable / comma-separated)   |
-| `--icon <name>`             | Linear icon name, capitalized (e.g. Rocket)    |
-| `--color <hex>`             | project color (e.g. #EB5757)                   |
+| Option                      | Description                                                            |
+| --------------------------- | ---------------------------------------------------------------------- |
+| `--name <name>`             | project name                                                           |
+| `-d, --description <text>`  | project description (one-line summary)                                 |
+| `--description-file <path>` | read description from a file ('-' = stdin)                             |
+| `--content <text>`          | project content (markdown body)                                        |
+| `--content-file <path>`     | read content from a file ('-' = stdin)                                 |
+| `--teams <key>`             | team (repeatable / comma-separated)                                    |
+| `-t, --team <key>`          | same as --teams (repeatable / comma-separated)                         |
+| `--lead <who>`              | project lead (me\|email\|name\|id)                                     |
+| `--member <who>`            | project member (repeatable / comma-separated)                          |
+| `--state <name>`            | initial status (name, type, or id)                                     |
+| `--start <date>`            | planned start date (YYYY-MM-DD)                                        |
+| `--target <date>`           | planned target date (YYYY-MM-DD)                                       |
+| `-P, --priority <0-4>`      | priority (0 none, 1 urgent … 4 low)                                    |
+| `-l, --label <name>`        | project label from `project-label list` (repeatable / comma-separated) |
+| `--icon <name>`             | Linear icon name, capitalized (e.g. Rocket)                            |
+| `--color <hex>`             | project color (e.g. #EB5757)                                           |
 
 **Output (`--json`)**: a receipt object
 
@@ -175,23 +175,23 @@ Aliases: `edit`
 linear project update [options] <id>
 ```
 
-| Option                      | Description                                        |
-| --------------------------- | -------------------------------------------------- |
-| `--name <name>`             | new name                                           |
-| `-d, --description <text>`  | new description (one-line summary)                 |
-| `--description-file <path>` | read description from a file ('-' = stdin)         |
-| `--content <text>`          | new content (markdown body)                        |
-| `--content-file <path>`     | read content from a file ('-' = stdin)             |
-| `--teams <key>`             | set teams (repeatable / comma-separated)           |
-| `--lead <who>`              | project lead (me\|email\|name\|id)                 |
-| `--member <who>`            | replace the members (repeatable / comma-separated) |
-| `--state <name>`            | status (name, type, or id)                         |
-| `--start <date>`            | planned start date (YYYY-MM-DD)                    |
-| `--target <date>`           | planned target date (YYYY-MM-DD)                   |
-| `-P, --priority <0-4>`      | priority (0 none, 1 urgent … 4 low)                |
-| `-l, --label <name>`        | replace the labels (repeatable / comma-separated)  |
-| `--icon <name>`             | Linear icon name, capitalized (e.g. Rocket)        |
-| `--color <hex>`             | project color (e.g. #EB5757)                       |
+| Option                      | Description                                                                     |
+| --------------------------- | ------------------------------------------------------------------------------- |
+| `--name <name>`             | new name                                                                        |
+| `-d, --description <text>`  | new description (one-line summary)                                              |
+| `--description-file <path>` | read description from a file ('-' = stdin)                                      |
+| `--content <text>`          | new content (markdown body)                                                     |
+| `--content-file <path>`     | read content from a file ('-' = stdin)                                          |
+| `--teams <key>`             | set teams (repeatable / comma-separated)                                        |
+| `--lead <who>`              | project lead (me\|email\|name\|id)                                              |
+| `--member <who>`            | replace the members (repeatable / comma-separated)                              |
+| `--state <name>`            | status (name, type, or id)                                                      |
+| `--start <date>`            | planned start date (YYYY-MM-DD)                                                 |
+| `--target <date>`           | planned target date (YYYY-MM-DD)                                                |
+| `-P, --priority <0-4>`      | priority (0 none, 1 urgent … 4 low)                                             |
+| `-l, --label <name>`        | replace project labels from `project-label list` (repeatable / comma-separated) |
+| `--icon <name>`             | Linear icon name, capitalized (e.g. Rocket)                                     |
+| `--color <hex>`             | project color (e.g. #EB5757)                                                    |
 
 **Output (`--json`)**: a receipt object
 

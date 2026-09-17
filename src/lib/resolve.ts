@@ -315,10 +315,15 @@ export async function resolveProjectLabelIds(
   client: LinearClient,
   names: string[],
 ): Promise<string[]> {
-  const ids: string[] = [];
+  const labels: any[] = [];
   for (const name of names) {
     if (isUuid(name)) {
-      ids.push(name);
+      const label: any = await withRetry(() => (client as any).projectLabel(name));
+      if (label.isGroup)
+        throw usageError(`Project label '${label.name}' is a group and cannot be assigned.`);
+      if (label.retiredAt || label.retiredById)
+        throw usageError(`Project label '${label.name}' is retired and cannot be assigned.`);
+      labels.push(label);
       continue;
     }
     const conn: any = await withRetry(() =>
@@ -327,21 +332,33 @@ export async function resolveProjectLabelIds(
         first: RESOLVE_PAGE,
       }),
     );
-    const nodes = await scanAll<any>(conn, "project labels", "linear project label list");
-    const candidates = nodes.filter((l) => !l.isGroup);
+    const nodes = await scanAll<any>(conn, "project labels", "linear project-label list");
+    const candidates = nodes.filter((l) => !l.isGroup && !l.retiredAt && !l.retiredById);
     if (candidates.length === 0)
       throw notFound(
-        `No project label matching '${name}'. Run 'linear project label list' to see the options.`,
+        `No project label matching '${name}'. Run 'linear project-label list' to see the options.`,
       );
 
     const exact = candidates.filter((l) => l.name === name);
     const finalists = exact.length ? exact : candidates;
     if (finalists.length > 1)
       throw ambiguous(`Multiple project labels named '${name}'; pass the label id instead.`);
-    ids.push(finalists[0]!.id);
+    labels.push(finalists[0]!);
+  }
+  const byParent = new Map<string, any>();
+  for (const label of labels) {
+    const parentId = label.parentId;
+    if (!parentId) continue;
+    const other = byParent.get(parentId);
+    if (other && other.id !== label.id) {
+      throw usageError(
+        `Project labels '${other.name}' and '${label.name}' belong to the same mutually exclusive group; choose one.`,
+      );
+    }
+    byParent.set(parentId, label);
   }
   // The same label named twice (or by name and id) must not be sent twice.
-  return [...new Set(ids)];
+  return [...new Set(labels.map((label) => label.id))];
 }
 
 /** First workflow state of a given type (lowest position) within a team. */

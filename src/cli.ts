@@ -14,6 +14,7 @@ import { registerAttach } from "./commands/attach.js";
 import { registerTeam } from "./commands/team.js";
 import { registerProject } from "./commands/project.js";
 import { registerProjectStatus } from "./commands/project-status.js";
+import { registerProjectLabel } from "./commands/project-label.js";
 import { registerProjectUpdate } from "./commands/project-update.js";
 import { registerMilestone } from "./commands/milestone.js";
 import { registerCycle } from "./commands/cycle.js";
@@ -72,6 +73,7 @@ export function createProgram(): Command {
   registerTeam(program);
   registerProject(program);
   registerProjectStatus(program);
+  registerProjectLabel(program);
   registerProjectUpdate(program);
   registerMilestone(program);
   registerCycle(program);

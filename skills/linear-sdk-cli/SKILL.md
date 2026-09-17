@@ -441,6 +441,15 @@ linear project milestones
 linear project update
 linear project view
 
+linear project-label
+linear project-label create
+linear project-label delete
+linear project-label list
+linear project-label restore
+linear project-label retire
+linear project-label update
+linear project-label view
+
 linear project-status
 linear project-status archive
 linear project-status create
@@ -521,6 +530,7 @@ prints the same). These are supplementary — `--help` on any command is authori
 - [open](references/open.md) — Open the workspace, an issue, team, project, or URL
 - [organization](references/organization.md) — Inspect the current workspace
 - [project](references/project.md) — Work with projects
+- [project-label](references/project-label.md) — Manage project labels (distinct from issue labels)
 - [project-status](references/project-status.md) — Manage workspace project-status definitions
 - [project-update](references/project-update.md) — Post and list project status updates
 - [roadmap](references/roadmap.md) — Work with roadmaps
