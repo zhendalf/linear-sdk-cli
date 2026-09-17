@@ -215,6 +215,35 @@ describe("createProject / updateProject (input building)", () => {
     ).rejects.toMatchObject({ code: "usage" });
   });
 
+  it("rejects two project labels from the same mutually exclusive group", async () => {
+    const client = stub(() => {}, "create");
+    client.projectLabels = async (vars: any) =>
+      connection([
+        {
+          id: vars.filter.name.eqIgnoreCase,
+          name: vars.filter.name.eqIgnoreCase,
+          isGroup: false,
+          parentId: "risk-group",
+        },
+      ]);
+    await expect(
+      createProject(client, { name: "P", label: ["High", "Low"] }, "TES"),
+    ).rejects.toMatchObject({ code: "usage" });
+  });
+
+  it("rejects a retired project label passed by UUID before project mutation", async () => {
+    const client = stub(() => {}, "create");
+    client.projectLabel = async () => ({
+      id: "retired-label",
+      name: "Retired",
+      isGroup: false,
+      retiredById: "user-1",
+    });
+    await expect(
+      createProject(client, { name: "P", label: ["11111111-1111-1111-1111-111111111111"] }, "TES"),
+    ).rejects.toMatchObject({ code: "usage" });
+  });
+
   it("leaves untouched fields out of the update input", async () => {
     let captured: any;
     await updateProject(

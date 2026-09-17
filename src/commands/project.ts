@@ -165,7 +165,11 @@ export function registerProject(program: Command): void {
     .option("--start <date>", "planned start date (YYYY-MM-DD)")
     .option("--target <date>", "planned target date (YYYY-MM-DD)")
     .option("-P, --priority <0-4>", "priority (0 none, 1 urgent … 4 low)", parseIntOption)
-    .option("-l, --label <name>", "project label (repeatable / comma-separated)", parseList)
+    .option(
+      "-l, --label <name>",
+      "project label from `project-label list` (repeatable / comma-separated)",
+      parseList,
+    )
     .option("--icon <name>", "Linear icon name, capitalized (e.g. Rocket)")
     .option("--color <hex>", "project color (e.g. #EB5757)")
     .addHelpText(
@@ -243,7 +247,11 @@ export function registerProject(program: Command): void {
     .option("--start <date>", "planned start date (YYYY-MM-DD)")
     .option("--target <date>", "planned target date (YYYY-MM-DD)")
     .option("-P, --priority <0-4>", "priority (0 none, 1 urgent … 4 low)", parseIntOption)
-    .option("-l, --label <name>", "replace the labels (repeatable / comma-separated)", parseList)
+    .option(
+      "-l, --label <name>",
+      "replace project labels from `project-label list` (repeatable / comma-separated)",
+      parseList,
+    )
     .option("--icon <name>", "Linear icon name, capitalized (e.g. Rocket)")
     .option("--color <hex>", "project color (e.g. #EB5757)")
     // `-t/--team` is a global on every other command, so it is the flag a user
