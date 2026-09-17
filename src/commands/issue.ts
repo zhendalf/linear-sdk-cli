@@ -290,7 +290,13 @@ export function registerIssue(program: Command): void {
           ctx.limit,
           ctx.defaultTeam,
         );
-        ctx.output.list(rows, listColumns(ctx), rows);
+        ctx.output.list(rows, listColumns(ctx), {
+          jsonRows: rows,
+          empty:
+            !opts.allStates && !opts.state?.length
+              ? "No unstarted issues assigned to you match these filters. Use --all-states to include in-progress and other states."
+              : undefined,
+        });
       }),
     );
   addFilterOptions(mine, { assignee: false }).addOption(
