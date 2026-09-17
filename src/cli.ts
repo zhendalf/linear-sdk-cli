@@ -13,6 +13,7 @@ import { registerAgentSession } from "./commands/agent-session.js";
 import { registerAttach } from "./commands/attach.js";
 import { registerTeam } from "./commands/team.js";
 import { registerProject } from "./commands/project.js";
+import { registerProjectStatus } from "./commands/project-status.js";
 import { registerProjectUpdate } from "./commands/project-update.js";
 import { registerMilestone } from "./commands/milestone.js";
 import { registerCycle } from "./commands/cycle.js";
@@ -70,6 +71,7 @@ export function createProgram(): Command {
   // Phase 2: teams, projects, milestones, cycles.
   registerTeam(program);
   registerProject(program);
+  registerProjectStatus(program);
   registerProjectUpdate(program);
   registerMilestone(program);
   registerCycle(program);

@@ -23,6 +23,7 @@ import {
   resolveProjectLabelIds,
   isUuid,
 } from "../lib/resolve.js";
+import { resolveProjectStatusId } from "./project-status.js";
 
 export interface ProjectRow {
   id: string;
@@ -291,7 +292,8 @@ export async function createProject(
   const input: Record<string, any> = { name: opts.name, teamIds };
   if (opts.description !== undefined) input.description = opts.description;
   if (opts.content !== undefined) input.content = opts.content;
-  if (opts.state) input.statusId = await resolveStatusId(client, opts.state);
+  if (opts.state)
+    input.statusId = await resolveProjectStatusId(client, opts.state, { allowType: true });
   if (opts.lead) input.leadId = await resolveUserId(client, opts.lead);
   if (opts.startDate) input.startDate = opts.startDate;
   if (opts.targetDate) input.targetDate = opts.targetDate;
@@ -335,7 +337,8 @@ export async function updateProject(client: LinearClient, idArg: string, opts: U
   if (opts.content !== undefined) input.content = opts.content;
   if (opts.team?.length) input.teamIds = await resolveTeamIds(client, opts.team, undefined);
   if (opts.lead) input.leadId = await resolveUserId(client, opts.lead);
-  if (opts.state) input.statusId = await resolveStatusId(client, opts.state);
+  if (opts.state)
+    input.statusId = await resolveProjectStatusId(client, opts.state, { allowType: true });
   if (opts.startDate) input.startDate = opts.startDate;
   if (opts.targetDate) input.targetDate = opts.targetDate;
   if (opts.priority !== undefined) input.priority = resolvePriority(opts.priority);
@@ -479,27 +482,4 @@ async function resolveTeamIds(
     ids.push((await resolveTeam(client, t, undefined)).id);
   }
   return ids;
-}
-
-/** Resolve a project status (by name or type) to a status id. */
-async function resolveStatusId(client: LinearClient, input: string): Promise<string> {
-  if (isUuid(input)) return input;
-  const conn = await withRetry(() => client.projectStatuses({ first: 250 }));
-  const statuses = (await collect(conn as any, Infinity)) as Array<{
-    id: string;
-    name: string;
-    type: string;
-  }>;
-  const lower = input.toLowerCase();
-  const byName = statuses.filter((s) => s.name.toLowerCase() === lower);
-  const matches = byName.length ? byName : statuses.filter((s) => s.type.toLowerCase() === lower);
-  if (matches.length === 0)
-    throw notFound(
-      `No project status '${input}'. Available: ${statuses.map((s) => s.name).join(", ")}`,
-    );
-  if (matches.length > 1)
-    throw ambiguous(
-      `Multiple project statuses match '${input}': ${matches.map((s) => s.name).join(", ")}`,
-    );
-  return matches[0]!.id;
 }
