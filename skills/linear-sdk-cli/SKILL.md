@@ -100,6 +100,13 @@ An explicit credential flag overrides environment credentials. If both credentia
 the same precedence level, the CLI fails rather than silently choosing an actor. Inspect resolution
 with `linear auth status`. `linear auth token` exports stored API keys only and never OAuth tokens.
 
+Treat workspace role and credential authorization as separate facts. `whoami.admin` is the Linear
+member role; it does not prove the active credential has the `admin` scope. Check
+`auth status --json`: stored browser OAuth grants report known `scopes` and `adminScope`, while
+personal API keys and injected access tokens honestly report `scopeVisibility: "unknown"` and
+`adminScope: null` because Linear exposes no safe read-only introspection for them. Scope-related
+forbidden errors include stable `error.details` with the required scope and remediation.
+
 ## Agent best practices
 
 This CLI is built for non-interactive use. Follow these and it will never hang and

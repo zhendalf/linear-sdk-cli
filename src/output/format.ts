@@ -217,6 +217,7 @@ export class Output {
       // absent entirely without --debug.
       const error: Record<string, unknown> = { message: err.message, code: err.code };
       if (err.suggestion !== undefined) error.suggestion = err.suggestion;
+      if (err.details !== undefined) error.details = err.details;
       if (showDetail) error.detail = err.detail;
       process.stderr.write(JSON.stringify({ error }) + "\n");
       return;

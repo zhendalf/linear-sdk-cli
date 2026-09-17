@@ -179,4 +179,12 @@ describe("CliError", () => {
     const error = usageError("Bad input", "Pass --team TES.");
     expect(error.suggestion).toBe("Pass --team TES.");
   });
+
+  it("carries stable public details separately from debug detail", () => {
+    const error = new CliError("Denied", "forbidden", [{ secret: "debug" }], "Fix auth.", {
+      requiredScope: "admin",
+    });
+    expect(error.details).toEqual({ requiredScope: "admin" });
+    expect(error.detail).toEqual([{ secret: "debug" }]);
+  });
 });

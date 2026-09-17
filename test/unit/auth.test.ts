@@ -129,6 +129,8 @@ describe("auth status", () => {
       source: "env",
       workspace: null,
       key: "oaut••••1234",
+      scopeVisibility: "unknown",
+      adminScope: null,
     });
   });
 
@@ -142,6 +144,8 @@ describe("auth status", () => {
       workspace: "acme",
       key: "lin_api_••••0000",
       keyring: "keychain",
+      scopeVisibility: "unknown",
+      adminScope: null,
     });
   });
 

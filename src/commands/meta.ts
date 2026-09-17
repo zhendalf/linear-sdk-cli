@@ -39,6 +39,10 @@ import { ISSUE_SORTS } from "../services/issue.js";
 import { firstTeam, type Context } from "../context.js";
 import { openUrl } from "../lib/open.js";
 import {
+  authorizationCapabilities,
+  credentialType as resolvedCredentialType,
+} from "../lib/authorization.js";
+import {
   DEFAULT_OAUTH_SCOPES,
   buildAuthorizationUrl,
   createPkceRequest,
@@ -59,6 +63,7 @@ export const DEFAULT_OAUTH_CLIENT_ID = "eda60862e4bb8b8af82cfb3193b65c2f";
 const whoamiAction = action(async (ctx: Context) => {
   const me = await withRetry(() => ctx.client.viewer);
   const org = await withRetry(() => ctx.client.organization);
+  const authorization = authorizationCapabilities(ctx.config);
   ctx.output.detail(
     {
       id: me.id,
@@ -66,13 +71,17 @@ const whoamiAction = action(async (ctx: Context) => {
       displayName: me.displayName,
       email: me.email,
       admin: me.admin,
+      authorization,
       organization: { id: org.id, name: org.name, urlKey: org.urlKey },
     },
     [
       ["Name", me.name],
       ["Display name", me.displayName],
       ["Email", me.email],
-      ["Admin", me.admin],
+      ["Workspace admin", me.admin],
+      ["Credential type", authorization.credentialType ?? "(none)"],
+      ["Credential scopes", authorization.scopes?.join(", ") ?? "unknown"],
+      ["Credential admin scope", authorization.adminScope ?? "unknown"],
       ["User ID", me.id],
       ["Organization", `${org.name} (${org.urlKey})`],
     ],
@@ -481,13 +490,8 @@ export function registerMeta(program: Command): void {
         const c = ctx.config;
         if (c.workspaceChoices) throw c.apiKeyError;
         const credential = c.accessToken ?? c.apiKey;
-        const credentialType = c.oauthCredential
-          ? "oauth-user"
-          : c.accessToken
-            ? "oauth-access-token"
-            : c.apiKey
-              ? "api-key"
-              : null;
+        const credentialType = resolvedCredentialType(c);
+        const authorization = authorizationCapabilities(c);
         const source = c.accessToken ? c.accessTokenSource : c.apiKeySource;
         const backend = keyring();
         ctx.output.detail(
@@ -502,6 +506,9 @@ export function registerMeta(program: Command): void {
             expiresAt: c.oauthCredential
               ? new Date(c.oauthCredential.expiresAt).toISOString()
               : null,
+            scopeVisibility: authorization.scopeVisibility,
+            adminScope: authorization.adminScope,
+            scopeNote: authorization.note,
           },
           [
             ["Authenticated", !!credential],
@@ -511,6 +518,9 @@ export function registerMeta(program: Command): void {
             ["Credential", redactKey(credential)],
             ["Keyring", backend ? backend.label : "(none on this platform)"],
             ["Scopes", c.oauthCredential?.scopes.join(", ")],
+            ["Scope visibility", authorization.scopeVisibility],
+            ["Admin scope", authorization.adminScope ?? "unknown"],
+            ["Scope note", authorization.note],
             [
               "Expires",
               c.oauthCredential ? new Date(c.oauthCredential.expiresAt).toISOString() : undefined,
