@@ -8,6 +8,7 @@
 
 import type { Command } from "commander";
 import { Context, type GlobalOptions } from "../context.js";
+import { enrichAuthorizationError } from "./authorization.js";
 
 export type ActionHandler = (
   ctx: Context,
@@ -29,6 +30,10 @@ export function action(handler: ActionHandler) {
       ["config", "open", "commands", "completion"].includes(group.name()) ||
       (group.name() === "auth" && !["whoami", "status", "token"].includes(command.name()));
     if (!offline) await ctx.selectWorkspace();
-    await handler(ctx, localOpts, ...positionals);
+    try {
+      await handler(ctx, localOpts, ...positionals);
+    } catch (error) {
+      throw enrichAuthorizationError(error, ctx.config);
+    }
   };
 }

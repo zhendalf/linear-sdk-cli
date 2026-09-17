@@ -69,7 +69,7 @@ const DRIVES: Record<string, Drive> = {
   "auth migrate": { args: [], skip: "requires an available OS keyring" },
   "auth status": { args: [], nullOk: ["scopes"] },
   "auth token": { args: [] },
-  "auth whoami": { args: [] },
+  "auth whoami": { args: [], nullOk: ["authorization.scopes"] },
   commands: { args: [], variants: { "[path]": ["issue", "list"] } },
   "comment add": { args: [T, "hello"] },
   "comment delete": { args: [UUID, "--yes"] },
@@ -289,7 +289,7 @@ const DRIVES: Record<string, Drive> = {
   "webhook list": { args: [] },
   "webhook update": { args: [UUID, "--label", "l"] },
   "webhook view": { args: [UUID] },
-  whoami: { args: [] },
+  whoami: { args: [], nullOk: ["authorization.scopes"] },
 };
 
 // ---------------------------------------------------------------------------

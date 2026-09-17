@@ -159,6 +159,9 @@ key: string
 keyring: string | null
 scopes: string[] | null
 expiresAt: string | null
+scopeVisibility: string
+adminScope: boolean | null
+scopeNote: string
 ```
 
 ### `linear auth token`
@@ -192,5 +195,6 @@ name: string
 displayName: string
 email: string
 admin: boolean
+authorization: {credentialType: string | null, scopeVisibility: string, scopes: string[] | null, adminScope: boolean | null, note: string}
 organization: {id: string, name: string, urlKey: string}
 ```

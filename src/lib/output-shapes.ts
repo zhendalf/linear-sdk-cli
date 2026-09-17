@@ -145,6 +145,14 @@ const UPDATE_RECEIPT_SHAPE = shape<UpdateRow & { url: string }>({
   url: "string",
 });
 
+const AUTHORIZATION_CAPABILITIES: ObjectFields = {
+  credentialType: "string|null",
+  scopeVisibility: "string",
+  scopes: { nullable: ["string"] },
+  adminScope: "boolean|null",
+  note: "string",
+};
+
 /** `whoami` / `auth whoami`. */
 const WHOAMI_SHAPE: ObjectFields = {
   id: "string",
@@ -152,6 +160,7 @@ const WHOAMI_SHAPE: ObjectFields = {
   displayName: "string",
   email: "string",
   admin: "boolean",
+  authorization: AUTHORIZATION_CAPABILITIES,
   organization: { id: "string", name: "string", urlKey: "string" },
 };
 
@@ -353,6 +362,9 @@ export const OUTPUT_SHAPES: Record<string, OutputShape | null> = {
     keyring: "string|null",
     scopes: { nullable: ["string"] },
     expiresAt: "string|null",
+    scopeVisibility: "string",
+    adminScope: "boolean|null",
+    scopeNote: "string",
   }),
   "auth token": object({ apiKey: "string", workspace: "string|null" }),
   "auth whoami": WHOAMI,

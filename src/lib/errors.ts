@@ -52,14 +52,23 @@ export class CliError extends Error {
   readonly detail?: unknown;
   /** A separately actionable hint; machine callers never have to parse prose. */
   readonly suggestion?: string;
+  /** Stable, safe machine-readable context; unlike `detail`, this needs no --debug. */
+  readonly details?: Record<string, unknown>;
 
-  constructor(message: string, code: ErrorCode = "runtime", detail?: unknown, suggestion?: string) {
+  constructor(
+    message: string,
+    code: ErrorCode = "runtime",
+    detail?: unknown,
+    suggestion?: string,
+    details?: Record<string, unknown>,
+  ) {
     super(message);
     this.name = "CliError";
     this.code = code;
     this.exitCode = EXIT_BY_CODE[code];
     this.detail = detail;
     this.suggestion = suggestion;
+    this.details = details;
   }
 }
 

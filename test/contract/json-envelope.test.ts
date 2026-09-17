@@ -87,6 +87,22 @@ describe("JSON envelope contract", () => {
     });
   });
 
+  it("error details are stable without exposing debug detail", () => {
+    const error = new CliError("denied", "forbidden", { raw: "hidden" }, "Fix auth.", {
+      requiredScope: "admin",
+      credentialType: "api-key",
+    });
+    const { err } = capture(() => jsonOutput().error(error));
+    expect(JSON.parse(err)).toEqual({
+      error: {
+        message: "denied",
+        code: "forbidden",
+        suggestion: "Fix auth.",
+        details: { requiredScope: "admin", credentialType: "api-key" },
+      },
+    });
+  });
+
   /**
    * `--json --debug` is the combination a caller reaches for when a scripted
    * call misbehaves, and it was the one that produced unparseable output: the

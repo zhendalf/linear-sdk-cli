@@ -140,6 +140,13 @@ linear auth status                         # credential kind and source (value r
 linear auth logout --workspace acme        # revoke OAuth (if used) and remove the profile
 ```
 
+`auth status --json` also reports `scopeVisibility`, `scopes`, and `adminScope`. Stored browser
+OAuth grants are inspectable because the CLI records their granted scopes. Personal API keys and
+injected OAuth access tokens are reported as `scopeVisibility: "unknown"` and `adminScope: null`:
+Linear provides no safe read-only scope introspection for them. `whoami --json` keeps the Linear
+member's workspace role in `admin` and reports credential authorization separately under
+`authorization`; an admin member can still hold a credential that lacks the `admin` scope.
+
 Browser login generates a cryptographically random verifier and CSRF state, requires PKCE S256,
 opens Linear, and listens temporarily on the registered `127.0.0.1` callback. It validates the
 viewer and workspace before saving the access token, rotating refresh token, expiry, granted
@@ -542,7 +549,9 @@ value per command:
 - **mutations** (`create`/`update`/`delete`/`archive`/…) emit the affected object — typically a
   small shape like `{ "id", "identifier", "url" }`, or `{ "id", "success": true }` when the API
   returns no body. Destructive commands add a flag such as `{ "deleted": true }` / `{ "archived": true }`.
-- **errors** go to **stderr** as `{"error":{"message":"…","code":"…"}}` and never to stdout. With
+- **errors** go to **stderr** as `{"error":{"message":"…","code":"…"}}` and never to stdout.
+  Scope-related forbidden errors add stable `error.details` such as `requiredScope`,
+  `credentialType`, `scopeVisibility`, and remediation; callers never need to parse prose. With
   `--debug`, the extra detail is carried _inside_ that object as `error.detail` rather than appended
   after it, so `--json --debug` output stays parseable.
 
