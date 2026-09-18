@@ -422,8 +422,9 @@ export const FIELDS_COMMANDS: ReadonlySet<string> = new Set([
   "webhook view",
 ]);
 
-/** Commands that page through a query: `--limit <n>` caps them, `--all` (or `--limit 0`) exhausts them. */
+/** Commands with bounded lists: `--limit <n>` caps them, `--all` (or `--limit 0`) exhausts them. */
 export const LIMIT_COMMANDS: ReadonlySet<string> = new Set([
+  "changelog",
   "attachment list",
   "comment list",
   "cycle list",

@@ -313,6 +313,13 @@ const RAW_API: OutputShape = {
 export const OUTPUT_SHAPES: Record<string, OutputShape | null> = {
   api: RAW_API,
 
+  changelog: list({
+    version: "string",
+    date: "string",
+    url: "string",
+    sections: [{ title: "string", items: ["string"] }],
+  }),
+
   attachment: null,
   "attachment create": receipt({ id: "string", title: "string", url: "string" }),
   "attachment delete": receipt({ id: "string", title: "string", deleted: "boolean" }),
