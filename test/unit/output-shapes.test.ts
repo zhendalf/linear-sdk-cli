@@ -58,6 +58,7 @@ interface Drive {
 const T = "TES-1";
 const DRIVES: Record<string, Drive> = {
   api: { args: [], skip: "raw" },
+  changelog: { args: [] },
   "attachment create": { args: [T, "--url", "https://x.example", "--title", "t"] },
   "attachment delete": { args: [UUID, "--yes"] },
   "attachment list": { args: [T] },

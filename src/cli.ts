@@ -8,6 +8,7 @@ import { addGlobalOptions, globalOptionKeys, unknownCommand, commandPath } from 
 import { registerMeta } from "./commands/meta.js";
 import { registerApi } from "./commands/api.js";
 import { registerCompletion } from "./commands/completion.js";
+import { registerChangelog } from "./commands/changelog.js";
 import { registerIssue, renderIssueDetail } from "./commands/issue.js";
 import { registerAgentSession } from "./commands/agent-session.js";
 import { registerAttach } from "./commands/attach.js";
@@ -62,6 +63,7 @@ export function createProgram(): Command {
   registerMeta(program);
   registerApi(program);
   registerCompletion(program);
+  registerChangelog(program);
   registerOpen(program);
   // Phase 1: issues. Agent sessions live on issues, so their group is mounted
   // under `issue` (`linear issue agent-session …`); so is file upload

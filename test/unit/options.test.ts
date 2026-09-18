@@ -467,9 +467,11 @@ describe("--fields / --limit / --all are refused where nothing reads them (TES-6
     const paths = new Set(walkCommands(createProgram()).map((n) => n.path));
     for (const p of FIELDS_COMMANDS) expect(paths.has(p), `FIELDS_COMMANDS: '${p}'`).toBe(true);
     for (const p of LIMIT_COMMANDS) expect(paths.has(p), `LIMIT_COMMANDS: '${p}'`).toBe(true);
-    // Paging without rendering makes no sense: every paged query renders.
-    for (const p of LIMIT_COMMANDS)
-      expect(FIELDS_COMMANDS.has(p), `'${p}' pages but does not render`).toBe(true);
+    // The tables are intentionally independent: a bounded long-form result
+    // such as `changelog` honors --limit/--all without becoming a selectable
+    // table/detail block for --fields.
+    expect(LIMIT_COMMANDS.has("changelog")).toBe(true);
+    expect(FIELDS_COMMANDS.has("changelog")).toBe(false);
   });
 
   it("subcommandPath spells the path the way `linear commands --json` does, and is empty for the root", () => {

@@ -27,7 +27,7 @@ export function action(handler: ActionHandler) {
     let group = command;
     while (group.parent?.parent) group = group.parent;
     const offline =
-      ["config", "open", "commands", "completion"].includes(group.name()) ||
+      ["config", "open", "commands", "completion", "changelog"].includes(group.name()) ||
       (group.name() === "auth" && !["whoami", "status", "token"].includes(command.name()));
     if (!offline) await ctx.selectWorkspace();
     try {

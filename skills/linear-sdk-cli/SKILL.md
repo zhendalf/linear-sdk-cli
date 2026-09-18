@@ -316,6 +316,8 @@ linear auth status
 linear auth token
 linear auth whoami
 
+linear changelog
+
 linear commands
 
 linear comment
@@ -520,6 +522,7 @@ prints the same). These are supplementary — `--help` on any command is authori
 - [api](references/api.md) — Run a raw GraphQL query or mutation against the Linear API
 - [attachment](references/attachment.md) — Work with issue attachments
 - [auth](references/auth.md) — Manage authentication
+- [changelog](references/changelog.md) — Show recent CLI release notes
 - [commands](references/commands.md) — Machine-readable command tree (for scripts/agents)
 - [comment](references/comment.md) — Manage comments
 - [completion](references/completion.md) — Output a shell completion script
