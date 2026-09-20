@@ -94,16 +94,21 @@ export class Output {
     const options: ListOutputOptions = Array.isArray(jsonRowsOrOptions)
       ? { jsonRows: jsonRowsOrOptions, ...legacyOptions }
       : (jsonRowsOrOptions ?? {});
+    // Validate projection before emitting any status text: failures must leave
+    // stderr available for a single machine-readable error envelope.
+    const projected = this.opts.json
+      ? projectFields(options.jsonRows ?? rows, this.opts.fields)
+      : undefined;
+    const cols = this.opts.json ? columns : selectColumns(columns, this.opts.fields, rows[0]);
     if (hasMoreResults(rows)) {
       this.info(
         `Showing ${rows.length} results; more exist. Use --all or increase --limit to see them.`,
       );
     }
     if (this.opts.json) {
-      this.writeJson(projectFields(options.jsonRows ?? rows, this.opts.fields));
+      this.writeJson(projected);
       return;
     }
-    const cols = selectColumns(columns, this.opts.fields, rows[0]);
     process.stdout.write(
       renderTable(rows, cols, { color: this.opts.color, empty: options.empty }) + "\n",
     );
