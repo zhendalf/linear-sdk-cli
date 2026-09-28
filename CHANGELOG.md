@@ -4,6 +4,14 @@ Release Please generates this file from Conventional Commits. Feature and fix pu
 not edit it directly; their squash-commit titles are the release-note source of truth. This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2](https://github.com/zhendalf/linear-sdk-cli/compare/v0.7.1...v0.7.2) (2026-09-28)
+
+
+### Bug Fixes
+
+* **deps:** complete SDK and formatter upgrades ([#82](https://github.com/zhendalf/linear-sdk-cli/issues/82)) ([9ba7d6f](https://github.com/zhendalf/linear-sdk-cli/commit/9ba7d6ff77a1d7e9d63bc1d4e4957aed5d6a1ed4))
+* **deps:** update compatible dependency versions ([6e3e462](https://github.com/zhendalf/linear-sdk-cli/commit/6e3e46245088eb923886f6c29c3f8ec7d463ffa6))
+
 ## [0.7.1](https://github.com/zhendalf/linear-sdk-cli/compare/v0.7.0...v0.7.1) (2026-09-20)
 
 ### Bug Fixes
