@@ -71,18 +71,18 @@
   },
   "dependencies": {
     "@inquirer/prompts": "^8.7.2",
-    "@linear/sdk": "^95.1.0",
+    "@linear/sdk": "^95.2.0",
     "commander": "^15.0.0",
     "graphql": "^17.0.2",
     "picocolors": "^1.1.1",
-    "smol-toml": "^1.8.0"
+    "smol-toml": "^1.9.0"
   },
   "packageManager": "bun@1.4.2",
   "devDependencies": {
     "@types/bun": "^1.4.2",
-    "@types/node": "^26.6.2",
+    "@types/node": "^26.6.3",
     "oxfmt": "^0.68.0",
-    "oxlint": "^1.83.0",
+    "oxlint": "^1.86.0",
     "typescript": "^7.0.2"
   }
 }
