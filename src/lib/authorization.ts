@@ -1,7 +1,7 @@
 import type { ResolvedConfig } from "../config.js";
 import { CliError, normalizeError } from "./errors.js";
 
-export type CredentialType = "api-key" | "oauth-access-token" | "oauth-user" | null;
+export type CredentialType = "api-key" | "oauth-access-token" | "oauth-user" | "oauth-app" | null;
 export type ScopeVisibility = "known" | "unknown" | "unavailable";
 
 export interface AuthorizationCapabilities {
@@ -13,6 +13,7 @@ export interface AuthorizationCapabilities {
 }
 
 export function credentialType(config: ResolvedConfig): CredentialType {
+  if (config.appCredential) return "oauth-app";
   if (config.oauthCredential) return "oauth-user";
   if (config.accessToken) return "oauth-access-token";
   if (config.apiKey) return "api-key";
@@ -26,14 +27,16 @@ export function credentialType(config: ResolvedConfig): CredentialType {
  */
 export function authorizationCapabilities(config: ResolvedConfig): AuthorizationCapabilities {
   const type = credentialType(config);
-  if (config.oauthCredential) {
-    const scopes = [...config.oauthCredential.scopes];
+  if (config.oauthCredential || config.appCredential) {
+    const scopes = [...(config.oauthCredential ?? config.appCredential)!.scopes];
     return {
       credentialType: type,
       scopeVisibility: "known",
       scopes,
       adminScope: scopes.includes("admin"),
-      note: "Stored OAuth grant scopes are known; workspace role is a separate authorization check.",
+      note: config.appCredential
+        ? "Configured app scopes are known; the token exchange and workspace permissions determine granted access."
+        : "Stored OAuth grant scopes are known; workspace role is a separate authorization check.",
     };
   }
   if (type) {

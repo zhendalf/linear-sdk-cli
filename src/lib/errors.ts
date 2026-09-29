@@ -93,6 +93,8 @@ export function normalizeError(err: unknown): CliError {
   if (err instanceof Error) {
     const name = err.constructor?.name ?? err.name ?? "";
     const anyErr = err as Record<string, any>;
+    // The SDK wraps errors from our token boundary. Preserve their safe message and exit code.
+    if (anyErr.raw instanceof CliError) return anyErr.raw;
     const gqlErrors: any[] =
       [anyErr.errors, anyErr.response?.errors, anyErr.raw?.response?.errors].find(
         (errors) => Array.isArray(errors) && errors.length > 0,

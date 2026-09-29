@@ -4,10 +4,15 @@
 
 import { LinearClient } from "@linear/sdk";
 import { rotateOAuthCredential, type ResolvedConfig } from "./config.js";
-import { OAuthUserTokenProvider } from "./oauth.js";
+import {
+  ClientCredentialsTokenProvider,
+  OAuthUserTokenProvider,
+  type GetAccessTokenOptions,
+} from "./oauth.js";
 import { authError, normalizeError, CliError } from "./lib/errors.js";
 
 export function createClient(config: ResolvedConfig): LinearClient {
+  if (config.appCredential) return createRefreshingAppClient(config);
   if (config.oauthCredential) {
     return createRefreshingOAuthClient(config);
   }
@@ -27,21 +32,56 @@ export function createClient(config: ResolvedConfig): LinearClient {
   return new LinearClient({ apiKey: config.apiKey });
 }
 
+/** App credentials obtain a new token each invocation and renew before expiry or once on 401. */
+function createRefreshingAppClient(config: ResolvedConfig): LinearClient {
+  const provider = new ClientCredentialsTokenProvider(config.appCredential!);
+  return installTokenRenewal(
+    new LinearClient({ accessToken: "pending-app-token" }),
+    async (options) => (await provider.getAccessToken(options)).accessToken,
+  );
+}
+
+/** Both generated SDK requests and raw queries must cross the same token boundary. */
+function installTokenRenewal(
+  client: LinearClient,
+  getAccessToken: (options?: GetAccessTokenOptions) => Promise<string>,
+): LinearClient {
+  const run = async <T>(request: () => Promise<T>): Promise<T> => {
+    client.client.setHeader("Authorization", `Bearer ${await getAccessToken()}`);
+    try {
+      return await request();
+    } catch (err) {
+      if (!isAuthenticationFailure(err)) throw err;
+      client.client.setHeader(
+        "Authorization",
+        `Bearer ${await getAccessToken({ forceRefresh: true })}`,
+      );
+      return request();
+    }
+  };
+  const request = client.client.request.bind(client.client);
+  const rawRequest = client.client.rawRequest.bind(client.client);
+  client.client.request = (...args) => run(() => request(...args));
+  client.client.rawRequest = (...args) => run(() => rawRequest(...args));
+  return client;
+}
+
 function isAuthenticationFailure(err: unknown): boolean {
   const value = err as Record<string, any> | undefined;
   const status = value?.status ?? value?.response?.status ?? value?.raw?.response?.status;
   if (status === 401) return true;
+  if (/^authentication(?:error)?$/i.test(String(value?.type ?? ""))) return true;
   const errors = value?.response?.errors ?? value?.errors ?? value?.raw?.response?.errors;
   return (
     Array.isArray(errors) &&
     errors.some((item) => {
-      const type = `${item?.extensions?.type ?? ""} ${item?.extensions?.code ?? ""}`;
+      const type = `${item?.type ?? item?.extensions?.type ?? ""} ${item?.extensions?.code ?? ""}`;
       const message = `${item?.message ?? ""}`;
       return (
         /^(?:authentication(?:error)?|unauthorized|invalidtoken|invalid_token)$/i.test(
           type.trim(),
         ) ||
-        /authentication (?:failed|required)|unauthori[sz]ed|invalid (?:access )?token|token (?:expired|invalid)/i.test(
+        /unauthenticated|authentication (?:failed|required)|unauthori[sz]ed|invalid (?:access )?token|token (?:expired|invalid)/i.test(
           message,
         )
       );
@@ -56,21 +96,9 @@ function createRefreshingOAuthClient(config: ResolvedConfig): LinearClient {
     credential,
     persist: (previous, next) => rotateOAuthCredential(credential.workspace.urlKey, previous, next),
   });
-  const client = new LinearClient({ accessToken: credential.accessToken });
-  const original = client.client.request.bind(client.client);
-  client.client.request = async (document, variables, requestHeaders) => {
-    const accessToken = await provider.getAccessToken();
-    client.client.setHeader("Authorization", `Bearer ${accessToken}`);
-    try {
-      return await original(document, variables, requestHeaders);
-    } catch (err) {
-      if (!isAuthenticationFailure(err)) throw err;
-      const replacement = await provider.getAccessToken({ forceRefresh: true });
-      client.client.setHeader("Authorization", `Bearer ${replacement}`);
-      return original(document, variables, requestHeaders);
-    }
-  };
-  return client;
+  return installTokenRenewal(new LinearClient({ accessToken: credential.accessToken }), (options) =>
+    provider.getAccessToken(options),
+  );
 }
 
 /**

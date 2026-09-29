@@ -10,6 +10,7 @@ import { withRetry } from "../client.js";
 import { resolve } from "node:path";
 import {
   writeCredential,
+  writeAppCredential,
   probeKeyringCredential,
   adoptKeyringCredential,
   removeCredentialWithMetadata,
@@ -43,6 +44,8 @@ import {
   credentialType as resolvedCredentialType,
 } from "../lib/authorization.js";
 import {
+  ClientCredentialsTokenProvider,
+  clientCredentialsScopes,
   DEFAULT_OAUTH_SCOPES,
   buildAuthorizationUrl,
   createPkceRequest,
@@ -229,12 +232,25 @@ export function registerMeta(program: Command): void {
     .description("Authenticate and select the workspace for this project")
     .option("--no-project", "save credentials without changing the project workspace")
     .option("--key <key>", "use a personal API key ('-' reads it from stdin)")
-    .option("--plaintext", "Store the key in the config file (0600) instead of the system keyring")
+    .option(
+      "--plaintext",
+      "Store API-key or app credentials in the private user config file (0600)",
+    )
     .option("--no-browser", "print the authorization URL instead of opening it")
     .option("--read-only", "request read-only OAuth access")
     .option("--admin", "explicitly add the OAuth admin scope")
     .option("--timeout <seconds>", "seconds to wait for the loopback callback", "120")
-    .option("--client-id <id>", "OAuth client ID (defaults to the packaged CLI app)")
+    .option("--app", "sign in as an app using client credentials")
+    .option("--client-credentials", "alias for --app")
+    .option("--scope <scopes>", "comma-separated app scopes (default: read,write)")
+    .option(
+      "--client-secret <secret>",
+      "app client secret ('-' reads stdin; defaults to LINEAR_CLIENT_SECRET)",
+    )
+    .option(
+      "--client-id <id>",
+      "OAuth client ID (app: LINEAR_CLIENT_ID; browser: packaged CLI app)",
+    )
     .option("--redirect-uri <uri>", "registered HTTP loopback callback URI")
     .action(
       action(async (ctx: Context, opts) => {
@@ -243,6 +259,84 @@ export function registerMeta(program: Command): void {
             "`auth login` cannot persist an injected access token. Remove --access-token and use browser OAuth, or use --key - for a personal API key.",
           );
         }
+        if (opts.app || opts.clientCredentials) {
+          if (
+            opts.key !== undefined ||
+            ctx.options.apiKey !== undefined ||
+            opts.redirectUri ||
+            opts.browser === false
+          ) {
+            throw usageError(
+              "--app cannot be combined with personal API-key or browser callback options.",
+            );
+          }
+          if (opts.admin) throw usageError("App actors cannot request the admin scope.");
+          if (!opts.plaintext && !keyring())
+            throw new CliError(
+              "App authentication requires a system keyring; use --plaintext for explicit private-file storage.",
+              "runtime",
+            );
+          const clientId = String(
+            opts.clientId ??
+              process.env.LINEAR_CLIENT_ID ??
+              process.env.LINEAR_OAUTH_CLIENT_ID ??
+              "",
+          ).trim();
+          let clientSecret = String(opts.clientSecret ?? process.env.LINEAR_CLIENT_SECRET ?? "");
+          if (clientSecret === "-") clientSecret = readStdinSync().trim();
+          else if (clientSecret && opts.clientSecret !== undefined)
+            ctx.output.warn(
+              "A client secret on the command line is visible in shell history; prefer --client-secret - (stdin).",
+            );
+          if (!clientId || !clientSecret)
+            throw usageError("--app requires --client-id and --client-secret ('-' reads stdin).");
+          if (opts.readOnly && opts.scope !== undefined)
+            throw usageError("--read-only cannot be combined with --scope.");
+          const scopes = clientCredentialsScopes(
+            opts.readOnly ? "read" : (opts.scope ?? process.env.LINEAR_CLIENT_SCOPES),
+          );
+          const provider = new ClientCredentialsTokenProvider({ clientId, clientSecret, scopes });
+          const token = await provider.getAccessToken();
+          const identity = await validateAuthCredential(
+            token.accessToken,
+            ctx.options.workspace,
+            "oauth-access-token",
+          );
+          const saved = writeAppCredential(
+            {
+              version: 1,
+              kind: "oauth-app",
+              clientId,
+              clientSecret,
+              scopes: token.scope.split(/[ ,]+/).filter(Boolean),
+              workspace: identity.organization,
+            },
+            { plaintext: opts.plaintext === true },
+          );
+          const projectConfigPath = saveLoginProject(
+            ctx,
+            identity.organization.urlKey,
+            opts.project !== false,
+          );
+          ctx.output.emit(
+            {
+              success: true,
+              credentialType: "oauth-app",
+              workspace: identity.organization.urlKey,
+              user: identity.user,
+              storage: saved.storage,
+              path: saved.path,
+              projectConfigPath,
+            },
+            () =>
+              ctx.output.success(
+                `Authenticated as an app for workspace '${identity.organization.urlKey}'. ${saved.storage === "file" ? `Client credentials saved to ${saved.path} (plaintext, 0600).` : `Client credentials saved to the ${saved.keyringLabel}.`}`,
+              ),
+          );
+          return;
+        }
+        if (opts.clientSecret !== undefined || opts.scope !== undefined)
+          throw usageError("--client-secret and --scope require --app or --client-credentials.");
         let key: string | undefined = selectLoginKey(opts.key, ctx.options.apiKey);
         if (key !== undefined) {
           if (
@@ -291,7 +385,7 @@ export function registerMeta(program: Command): void {
 
         if (opts.plaintext) {
           throw usageError(
-            "OAuth credentials are keyring-only; --plaintext requires --key or --api-key.",
+            "Browser OAuth is keyring-only; --plaintext requires --key, --api-key, or --client-credentials.",
           );
         }
         if (opts.readOnly && opts.admin) {
@@ -462,7 +556,7 @@ export function registerMeta(program: Command): void {
     .action(
       action(async (ctx: Context) => {
         const c = ctx.config;
-        if (c.accessToken) {
+        if (c.accessToken || c.appCredential) {
           throw usageError(
             "`auth token` exports stored API keys only. OAuth access tokens are never exported; use the authenticated command directly.",
           );
@@ -490,19 +584,21 @@ export function registerMeta(program: Command): void {
         const c = ctx.config;
         if (c.workspaceChoices) throw c.apiKeyError;
         const credential = c.accessToken ?? c.apiKey;
+        const authenticated = Boolean(credential || c.appCredential);
+        const redacted = c.appCredential ? "(client credentials redacted)" : redactKey(credential);
         const credentialType = resolvedCredentialType(c);
         const authorization = authorizationCapabilities(c);
-        const source = c.accessToken ? c.accessTokenSource : c.apiKeySource;
+        const source = c.accessToken || c.appCredential ? c.accessTokenSource : c.apiKeySource;
         const backend = keyring();
         ctx.output.detail(
           {
-            authenticated: !!credential,
+            authenticated,
             credentialType,
             source,
             workspace: c.credentialWorkspace ?? null,
-            key: redactKey(credential),
+            key: redacted,
             keyring: backend?.name ?? null,
-            scopes: c.oauthCredential?.scopes ?? null,
+            scopes: (c.oauthCredential ?? c.appCredential)?.scopes ?? null,
             expiresAt: c.oauthCredential
               ? new Date(c.oauthCredential.expiresAt).toISOString()
               : null,
@@ -511,13 +607,13 @@ export function registerMeta(program: Command): void {
             scopeNote: authorization.note,
           },
           [
-            ["Authenticated", !!credential],
+            ["Authenticated", authenticated],
             ["Credential type", credentialType ?? "(none)"],
             ["Source", source],
             ["Workspace", c.credentialWorkspace ?? "(none)"],
-            ["Credential", redactKey(credential)],
+            ["Credential", redacted],
             ["Keyring", backend ? backend.label : "(none on this platform)"],
-            ["Scopes", c.oauthCredential?.scopes.join(", ")],
+            ["Scopes", (c.oauthCredential ?? c.appCredential)?.scopes.join(", ")],
             ["Scope visibility", authorization.scopeVisibility],
             ["Admin scope", authorization.adminScope ?? "unknown"],
             ["Scope note", authorization.note],
@@ -589,9 +685,11 @@ export function registerMeta(program: Command): void {
           }
         }
         const local =
-          entry?.credentialType === "oauth-user"
-            ? removeOAuthCredential(slug)
-            : { ...removeCredentialWithMetadata(slug), fallbackCredentialType: null };
+          entry?.credentialType === "oauth-app"
+            ? removeOAuthCredential(slug, "app")
+            : entry?.credentialType === "oauth-user"
+              ? removeOAuthCredential(slug)
+              : { ...removeCredentialWithMetadata(slug), fallbackCredentialType: null };
         ctx.output.emit(
           {
             success: true,
@@ -745,7 +843,7 @@ export function registerMeta(program: Command): void {
         const profileWorkspace = opts.user && key === "team" ? ctx.options.workspace : undefined;
         if (profileWorkspace) {
           let team = clean;
-          if (ctx.config.apiKey || ctx.config.accessToken) {
+          if (ctx.config.apiKey || ctx.config.accessToken || ctx.config.appCredential) {
             team = await workspaceTeamValidator(ctx, profileWorkspace, clean);
           }
           path = setWorkspaceTeam(profileWorkspace, team);

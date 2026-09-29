@@ -75,17 +75,21 @@ Authenticate and select the workspace for this project
 linear auth login [options]
 ```
 
-| Option                 | Description                                                           |
-| ---------------------- | --------------------------------------------------------------------- |
-| `--no-project`         | save credentials without changing the project workspace               |
-| `--key <key>`          | use a personal API key ('-' reads it from stdin)                      |
-| `--plaintext`          | Store the key in the config file (0600) instead of the system keyring |
-| `--no-browser`         | print the authorization URL instead of opening it                     |
-| `--read-only`          | request read-only OAuth access                                        |
-| `--admin`              | explicitly add the OAuth admin scope                                  |
-| `--timeout <seconds>`  | seconds to wait for the loopback callback                             |
-| `--client-id <id>`     | OAuth client ID (defaults to the packaged CLI app)                    |
-| `--redirect-uri <uri>` | registered HTTP loopback callback URI                                 |
+| Option                     | Description                                                             |
+| -------------------------- | ----------------------------------------------------------------------- |
+| `--no-project`             | save credentials without changing the project workspace                 |
+| `--key <key>`              | use a personal API key ('-' reads it from stdin)                        |
+| `--plaintext`              | Store API-key or app credentials in the private user config file (0600) |
+| `--no-browser`             | print the authorization URL instead of opening it                       |
+| `--read-only`              | request read-only OAuth access                                          |
+| `--admin`                  | explicitly add the OAuth admin scope                                    |
+| `--timeout <seconds>`      | seconds to wait for the loopback callback                               |
+| `--app`                    | sign in as an app using client credentials                              |
+| `--client-credentials`     | alias for --app                                                         |
+| `--scope <scopes>`         | comma-separated app scopes (default: read,write)                        |
+| `--client-secret <secret>` | app client secret ('-' reads stdin; defaults to LINEAR_CLIENT_SECRET)   |
+| `--client-id <id>`         | OAuth client ID (app: LINEAR_CLIENT_ID; browser: packaged CLI app)      |
+| `--redirect-uri <uri>`     | registered HTTP loopback callback URI                                   |
 
 **Output (`--json`)**: a receipt object
 
