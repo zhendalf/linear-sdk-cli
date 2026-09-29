@@ -6,15 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.8.0](https://github.com/zhendalf/linear-sdk-cli/compare/v0.7.2...v0.8.0) (2026-09-29)
 
-
 ### Features
 
-* **auth:** persist app identity credentials ([#84](https://github.com/zhendalf/linear-sdk-cli/issues/84)) ([7d7ec19](https://github.com/zhendalf/linear-sdk-cli/commit/7d7ec19cb94cf43fb524dc1dd807b4d7d1c67515))
-
+- **auth:** persist app identity credentials ([#84](https://github.com/zhendalf/linear-sdk-cli/issues/84)) ([7d7ec19](https://github.com/zhendalf/linear-sdk-cli/commit/7d7ec19cb94cf43fb524dc1dd807b4d7d1c67515))
 
 ### Bug Fixes
 
-* improve CLI onboarding and JSON error consistency ([#59](https://github.com/zhendalf/linear-sdk-cli/issues/59)) ([4444c38](https://github.com/zhendalf/linear-sdk-cli/commit/4444c38f05bc4f442da1e44582eafb35b8e342d1))
+- improve CLI onboarding and JSON error consistency ([#59](https://github.com/zhendalf/linear-sdk-cli/issues/59)) ([4444c38](https://github.com/zhendalf/linear-sdk-cli/commit/4444c38f05bc4f442da1e44582eafb35b8e342d1))
 
 ## [0.7.2](https://github.com/zhendalf/linear-sdk-cli/compare/v0.7.1...v0.7.2) (2026-09-28)
 
