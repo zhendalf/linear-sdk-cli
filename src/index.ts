@@ -22,6 +22,8 @@ export {
   type GetAccessTokenOptions,
   type OAuthAccessToken,
   type OAuthUserCredential,
+  type OAuthAppCredential,
+  type OAuthAppIdentity,
   type OAuthUserTokenProviderOptions,
   type PkceRequest,
 } from "./oauth.js";

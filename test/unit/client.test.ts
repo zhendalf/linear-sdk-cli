@@ -11,7 +11,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createClient } from "../../src/client.js";
-import { resolveConfig, writeOAuthCredential, readOAuthCredential } from "../../src/config.js";
+import {
+  resolveConfig,
+  writeOAuthCredential,
+  readOAuthCredential,
+  writeAppCredential,
+} from "../../src/config.js";
 import { memoryKeyring, setKeyringBackend } from "../../src/lib/keyring.js";
 import type { OAuthUserCredential } from "../../src/oauth.js";
 
@@ -363,5 +368,88 @@ describe("fetchNextWithRetry", () => {
     expect(next.nodes).toEqual([1, 2, 3]);
     expect(fetches).toBe(2);
     expect(clock.waits).toEqual([1000]);
+  });
+});
+
+describe("stored app client", () => {
+  it("obtains tokens on fresh invocations and renews once on 401 without persisting tokens", async () => {
+    const root = mkdtempSync(join(tmpdir(), "linapp-client-"));
+    const savedXdg = process.env.XDG_CONFIG_HOME;
+    const savedFetch = globalThis.fetch;
+    process.env.XDG_CONFIG_HOME = join(root, "xdg");
+    const kr = memoryKeyring();
+    setKeyringBackend(kr);
+    try {
+      writeAppCredential({
+        version: 1,
+        kind: "oauth-app",
+        clientId: "id",
+        clientSecret: "secret",
+        scopes: ["read"],
+        workspace: { id: "o", name: "Acme", urlKey: "acme" },
+      });
+      const stored = kr.get("app:acme");
+      let exchanges = 0;
+      let requests = 0;
+      let failForever = false;
+      const headers: string[] = [];
+      globalThis.fetch = (async (input, init) => {
+        if (String(input).endsWith("/oauth/token")) {
+          exchanges++;
+          return Response.json({
+            access_token: `token-${exchanges}`,
+            expires_in: 3600,
+            token_type: "Bearer",
+            scope: "read",
+          });
+        }
+        requests++;
+        headers.push(new Headers(init?.headers).get("Authorization") ?? "");
+        if (requests === 1 || requests === 5 || failForever)
+          return Response.json(
+            {
+              errors: [{ message: "Unauthenticated", extensions: { type: "AuthenticationError" } }],
+            },
+            { status: 401 },
+          );
+        return Response.json({ data: { viewer: { id: "app-user" } } });
+      }) as typeof fetch;
+      const config = () =>
+        resolveConfig({
+          cwd: root,
+          env: { XDG_CONFIG_HOME: join(root, "xdg"), LINEAR_WORKSPACE: "acme" },
+        });
+      const client = createClient(config());
+      expect(exchanges).toBe(0);
+      expect((await client.viewer).id).toBe("app-user");
+      expect((await client.viewer).id).toBe("app-user");
+      expect(exchanges).toBe(2);
+      expect((await createClient(config()).viewer).id).toBe("app-user");
+      expect(exchanges).toBe(3);
+      const raw = await client.client.rawRequest<{ viewer: { id: string } }, Record<string, never>>(
+        "query { viewer { id } }",
+      );
+      expect(raw.data?.viewer.id).toBe("app-user");
+      expect(exchanges).toBe(4);
+      expect(headers).toEqual([
+        "Bearer token-1",
+        "Bearer token-2",
+        "Bearer token-2",
+        "Bearer token-3",
+        "Bearer token-2",
+        "Bearer token-4",
+      ]);
+      failForever = true;
+      await expect(client.client.rawRequest("query { viewer { id } }")).rejects.toThrow();
+      expect(exchanges).toBe(5);
+      expect(requests).toBe(8);
+      expect(kr.get("app:acme")).toBe(stored);
+    } finally {
+      globalThis.fetch = savedFetch;
+      setKeyringBackend(undefined);
+      if (savedXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = savedXdg;
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

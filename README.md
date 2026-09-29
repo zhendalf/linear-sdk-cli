@@ -121,9 +121,10 @@ branch, so most issue commands let you omit the id entirely.
 For a person at a terminal, `linear auth login` uses browser Authorization Code + PKCE and the
 default `actor=user`. Existing personal API keys and invocation-scoped OAuth access tokens remain
 supported. Explicit `--api-key` or `--access-token` flags override environment credentials;
-without a credential flag the CLI reads `LINEAR_API_KEY` or `LINEAR_ACCESS_TOKEN`. If both kinds
-are supplied at the same precedence level, the CLI fails rather than silently choosing a Linear
-actor.
+without a credential flag the CLI reads `LINEAR_API_KEY`, `LINEAR_ACCESS_TOKEN`, or the pair
+`LINEAR_CLIENT_ID` / `LINEAR_CLIENT_SECRET`. Mixing credential types in the environment fails
+rather than silently choosing a Linear actor. Client credentials must be supplied together;
+explicit credential flags still override all environment credentials.
 
 > **Credential trust boundary.** A secret is **never** read from a project-local
 > `.linear.toml` — only non-secret settings live there — so a key can't be committed by accident.
@@ -159,7 +160,7 @@ store lock. `--admin` explicitly adds the admin scope; it is never implicit.
 `--no-browser` is useful over SSH only when the machine running the CLI is also reachable as the
 browser's loopback host; Linear does not currently document a device-code flow. Override a
 separately registered public client's identity with `LINEAR_OAUTH_CLIENT_ID` and its exact callback
-with `LINEAR_OAUTH_REDIRECT_URI`. No OAuth client secret is embedded, accepted, or stored.
+with `LINEAR_OAUTH_REDIRECT_URI`. No OAuth client secret is embedded or used for browser login.
 
 For a personal API key, `auth login --key -` reads stdin, validates the viewer/workspace, stores the
 key in the system keyring by default, and writes only a marker to the config. `--plaintext` is an
@@ -209,8 +210,7 @@ await child.exited;
 
 Call `tokens.invalidate()` (or `getAccessToken({ forceRefresh: true })`) before one bounded retry
 when Linear rejects the token with `401`. Client-credentials tokens do not have refresh tokens;
-renewal is another authenticated exchange. A short-lived/serverless process should use a secure
-shared token cache or central broker rather than minting a new 30-day token on every invocation.
+renewal is another authenticated exchange. For CI and scheduled automation, request a fresh token at the start of each run, as Linear recommends.
 
 For an app installed into multiple workspaces, use Authorization Code with `actor=app` instead and
 store each installation's rotating refresh token encrypted in the host. That hosted app lifecycle
@@ -223,13 +223,64 @@ webhooks. App actors cannot request the `admin` scope. See Linear's
 [app-actor authorization](https://linear.app/developers/oauth-actor-authorization), and
 [agent guide](https://linear.app/developers/agents).
 
-Hosted app tokens supplied through `LINEAR_ACCESS_TOKEN` remain invocation-scoped. The only OAuth
-tokens persisted by the CLI are human browser-login sessions, stored as an isolated per-workspace
-keyring record; the CLI never persists or uses an OAuth client secret.
+For persistent app identity on a local machine, enable client credentials in your Linear OAuth
+app, then sign in once:
+
+```sh
+# Supply the secret through stdin from your secret manager.
+linear auth login --app --client-id YOUR_CLIENT_ID --client-secret -
+linear auth status --json
+linear issue list --json
+```
+
+`--client-credentials` is an alias for `--app`. `--client-secret -` reads stdin until EOF;
+otherwise the client ID and secret default to `LINEAR_CLIENT_ID` and `LINEAR_CLIENT_SECRET`.
+The client ID also accepts the existing `LINEAR_OAUTH_CLIENT_ID` fallback during explicit login.
+Login validates the token and workspace before storing credentials.
+
+By default, app credentials go into an isolated `app:<workspace>` OS keyring account; config files
+contain only a marker. On headless hosts, explicitly select private-file storage:
+
+```sh
+linear auth login --client-credentials --plaintext --client-id YOUR_CLIENT_ID --client-secret -
+# In a new shell, under the same user and config directory:
+linear auth status --json
+linear issue list --json
+```
+
+`--plaintext` stores client credentials in `$XDG_CONFIG_HOME/linear/config.toml` (or
+`~/.config/linear/config.toml`) with `0600` permissions, and makes its `linear` directory private
+with `0700` permissions. There is no automatic plaintext fallback for app credentials. The directory
+must be on persistent storage to survive container replacement, and agent subprocesses must have
+access to the same user config. Switching storage removes the previous copy of the app credentials;
+replacing an existing keyring profile requires access to that keyring.
+
+Use `--read-only` to request only `read`, or `--scope read,comments:create` for custom app scopes
+(default: `read,write`). App actors cannot request `--admin` or an `admin` scope. Linear must have
+client credentials enabled for the app. Changing scopes can revoke existing app tokens, so use
+the same scopes across hosts.
+
+For environment-only authentication, supply `LINEAR_CLIENT_ID` and `LINEAR_CLIENT_SECRET` from
+your platform's secret manager, then invoke `linear` directly. Optional `LINEAR_CLIENT_SCOPES`
+configures the comma-separated scopes. This mode overrides stored profiles and never writes
+credentials or tokens to config or cache files. Only an explicit `auth login --client-credentials`
+persists these environment credentials.
+
+Each invocation obtains a fresh token on its first API request, caches it in memory, renews before
+expiry, and retries an API request once with a new token after an authentication failure. This
+covers both SDK calls and raw GraphQL queries. Concurrent processes obtain their own tokens and do
+not share a disk token cache; within one process concurrent token exchanges are coalesced. No access
+or refresh token is persisted for app identity. `auth status` reports credential availability
+without making a network request, uses credential type `oauth-app` with source `user`, `keychain`,
+or `env`, and leaves `expiresAt` null because it has no stored token. It does not prove that Linear
+still accepts the client secret. Environment scopes describe configured requests, not independently
+verified grants. `auth token` continues to export personal API keys only. `auth logout` removes
+local app credentials and restores an existing personal API-key profile if present; it does not
+disable the app in Linear. Environment-only credentials must be unset separately.
 
 ### Multiple workspaces
 
-Credentials are stored per **workspace slug**. Browser and API-key login both derive the slug from
+Credentials are stored per **workspace slug**. Browser, app, and API-key login derive the slug from
 the authenticated organization; `--workspace` validates that the result matches:
 
 ```sh
@@ -243,7 +294,7 @@ linear --workspace other-org issue list    # use a specific workspace for one co
 linear auth logout --workspace acme        # revoke OAuth, then remove one credential
 ```
 
-Successful browser and API-key login also save `workspace = "<authenticated slug>"` in the discovered project config, preserving other settings and comments. If no config exists, login creates `.linear.toml` at the Git root (or cwd outside Git). Use `auth login --no-project` for credential-only login. Human output reports the association path; JSON includes `projectConfigPath` (null with `--no-project`). Credentials remain in the global credential store. Environment overrides still take precedence over this association.
+Successful browser, app, and API-key login also save `workspace = "<authenticated slug>"` in the discovered project config, preserving other settings and comments. If no config exists, login creates `.linear.toml` at the Git root (or cwd outside Git). Use `auth login --no-project` for credential-only login. Human output reports the association path; JSON includes `projectConfigPath` (null with `--no-project`). Credentials remain in the global credential store. Environment overrides still take precedence over this association.
 
 Global defaults are optional: login, credential adoption, and logout never choose a new one. Use `linear auth default <slug>` to explicitly select a global fallback. Removing that workspace clears its default without promoting another workspace. Existing defaults, including defaults imported from the reference CLI, are preserved on upgrade because older files cannot distinguish a user choice from an automatically assigned default. To opt out of a legacy default, remove the top-level `default_workspace` from the user config and, if present, `default` from the reference CLI's `credentials.toml`; retain the workspace entries.
 

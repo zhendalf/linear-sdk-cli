@@ -7,6 +7,18 @@ describe("normalizeError", () => {
     expect(normalizeError(e)).toBe(e);
   });
 
+  it("preserves safe token-provider errors wrapped by the SDK", () => {
+    class UnknownLinearError extends Error {
+      constructor(readonly raw: unknown) {
+        super("SDK wrapper");
+      }
+    }
+    for (const code of ["auth", "network", "runtime"] as const) {
+      const cause = new CliError("Safe token-provider error", code);
+      expect(normalizeError(new UnknownLinearError(cause))).toBe(cause);
+    }
+  });
+
   it("classifies authentication errors", () => {
     class AuthenticationLinearError extends Error {}
     const e = normalizeError(new AuthenticationLinearError("nope"));

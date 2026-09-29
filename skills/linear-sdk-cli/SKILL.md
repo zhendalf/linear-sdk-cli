@@ -66,17 +66,43 @@ The CLI supports distinct human, hosted-app, and personal-key lifecycles:
    the 30-day app token in memory, renews before expiry, coalesces concurrent exchanges, and
    supports invalidation or forced renewal for one bounded retry after a `401`. Keep the client
    secret in the host's secret manager and inject only `LINEAR_ACCESS_TOKEN` into CLI children.
-   Serverless hosts need a secure shared token cache or broker so cold starts do not mint a new
-   token for every command.
+   For CI and scheduled automation, request a fresh token at the start of each run.
 
-3. **`--api-key <key>`** flag (per invocation) or **`LINEAR_API_KEY`** env var — best
+3. **Persistent app identity** with client credentials (enable this grant in the Linear app):
+
+   ```bash
+   linear auth login --app --client-id YOUR_CLIENT_ID --client-secret -
+   linear auth status --json
+   ```
+
+   `--client-credentials` is an alias for `--app`. Read the secret from stdin until EOF, or
+   explicitly log in using `LINEAR_CLIENT_ID` / `LINEAR_CLIENT_SECRET`. The default store is
+   the OS keyring; on headless hosts use explicit `--plaintext` to store client credentials in
+   the user config (`0600`, containing directory `0700`). Keep that directory on persistent
+   storage in containers and make it accessible to agent subprocesses under the same user.
+   There is no automatic plaintext fallback.
+
+   Commands obtain a fresh token per invocation and renew before expiry or once on authentication
+   failure, including raw GraphQL requests. Tokens remain in memory. Use `--read-only` for read
+   access or `--scope read,comments:create` for custom scopes (default `read,write`); app actors
+   cannot request `admin`. Keep scopes consistent across hosts to avoid revoking existing tokens.
+   Status reports `oauth-app`, the source, and configured scopes without validating credentials
+   remotely; expiry is null because there is no persisted token. Logout removes local app
+   credentials without disabling the app. `auth token` still exports personal API keys only.
+
+   Environment-only app auth also works directly: supply `LINEAR_CLIENT_ID` and
+   `LINEAR_CLIENT_SECRET` together, optionally `LINEAR_CLIENT_SCOPES`, then run `linear`.
+   It writes no config or cache files. Mixing these with environment API keys/access tokens
+   is rejected; explicit `--api-key` or `--access-token` flags override environment credentials.
+
+4. **`--api-key <key>`** flag (per invocation) or **`LINEAR_API_KEY`** env var — best
    for CI and ephemeral agent runs:
 
    ```bash
    LINEAR_API_KEY=lin_api_... linear whoami --json
    ```
 
-4. **Stored personal API-key credentials** via the explicit compatibility path:
+5. **Stored personal API-key credentials** via the explicit compatibility path:
 
    ```bash
    printf '%s\n' "$LINEAR_API_KEY" | linear auth login --key -
@@ -85,7 +111,7 @@ The CLI supports distinct human, hosted-app, and personal-key lifecycles:
    Passing `--key <value>` also works but exposes it in argv and produces a warning. API keys may
    use `--plaintext`; browser OAuth is always keyring-only.
 
-5. **Multiple workspaces** — store several OAuth or API-key credentials and select one per call with
+6. **Multiple workspaces** — store several OAuth or API-key credentials and select one per call with
    `--workspace <slug>`; set a default with `linear auth default <slug>`:
 
    ```bash

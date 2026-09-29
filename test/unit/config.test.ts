@@ -21,6 +21,8 @@ import {
   writeCredential,
   adoptKeyringCredential,
   writeOAuthCredential,
+  writeAppCredential,
+  readAppCredential,
   readOAuthCredential,
   rotateOAuthCredential,
   setDefaultWorkspace,
@@ -1195,6 +1197,228 @@ describe("keyring-backed credentials", () => {
     it("refuses to create team metadata for an unknown profile", () => {
       expect(() => setWorkspaceTeam("ghost", "ENG", baseEnv())).toThrow(/not configured/);
       expect(existsSync(userConfigPath(baseEnv()))).toBe(false);
+    });
+  });
+
+  describe("headless app credentials", () => {
+    const app = () => ({
+      version: 1 as const,
+      kind: "oauth-app" as const,
+      clientId: "app-id",
+      clientSecret: "app-secret",
+      scopes: ["read"],
+      workspace: { id: "o", name: "Acme", urlKey: "acme" },
+    });
+
+    it("explicit file storage resolves with the supplied HOME and ignores unavailable keyrings", () => {
+      setKeyringBackend({
+        ...kr,
+        get() {
+          throw new Error("unavailable session bus");
+        },
+        set() {
+          throw new Error("unavailable session bus");
+        },
+        delete() {
+          throw new Error("unavailable session bus");
+        },
+      });
+      writeAppCredential(app(), { plaintext: true });
+      expect(statSync(userConfigPath()).mode & 0o777).toBe(0o600);
+      expect(statSync(join(xdg, "linear")).mode & 0o777).toBe(0o700);
+      expect(readAppCredential("acme")).toEqual(app());
+      expect(resolveConfig({ env: baseEnv() })).toMatchObject({
+        appCredential: app(),
+        accessTokenSource: "user",
+        credentialWorkspace: "acme",
+      });
+      expect(listCredentials()).toMatchObject([{ credentialType: "oauth-app", storage: "file" }]);
+      expect(removeOAuthCredential("acme", "app").removed).toBe(true);
+      expect(resolveConfig({ env: baseEnv() }).appCredential).toBeUndefined();
+    });
+
+    it("never stores a token, preserves personal-key fallback, and removes the file secret on logout", () => {
+      setKeyringBackend(null);
+      writeCredential("acme", "lin_api_existing", { plaintext: true });
+      writeAppCredential(app(), { plaintext: true });
+      const text = readFileSync(userConfigPath(), "utf8");
+      expect(text).toContain("app-secret");
+      expect(text).not.toMatch(/accessToken|refreshToken|expiresAt/);
+      expect(removeOAuthCredential("acme", "app")).toMatchObject({
+        removed: true,
+        fallbackCredentialType: "api-key",
+      });
+      expect(readFileSync(userConfigPath(), "utf8")).not.toContain("app-secret");
+      expect(resolveConfig({ env: baseEnv() }).apiKey).toBe("lin_api_existing");
+    });
+
+    it("moves file credentials into the keyring and keyring credentials into the file", () => {
+      writeAppCredential(app(), { plaintext: true });
+      writeAppCredential(app());
+      expect(readFileSync(userConfigPath(), "utf8")).not.toContain("app-secret");
+      expect(kr.get("app:acme")).toContain("app-secret");
+      kr.set("acme", "lin_api_existing");
+      writeAppCredential(app(), { plaintext: true });
+      expect(kr.get("app:acme")).toBeNull();
+      writeAppCredential(app(), { plaintext: true });
+      expect(removeOAuthCredential("acme", "app").fallbackCredentialType).toBe("api-key");
+      expect(resolveConfig({ env: baseEnv() }).apiKey).toBe("lin_api_existing");
+    });
+
+    it("respects an explicit config environment when selecting a keyring profile", () => {
+      writeAppCredential(app(), { plaintext: true });
+      const otherXdg = join(root, "other-config");
+      mkdirSync(join(otherXdg, "linear"), { recursive: true });
+      writeFileSync(
+        join(otherXdg, "linear", "config.toml"),
+        `[workspaces.acme]\napp = true\nkeyring = true\n`,
+      );
+      kr.set("app:acme", JSON.stringify({ ...app(), clientId: "keyring-id" }));
+      expect(
+        resolveConfig({ env: baseEnv({ XDG_CONFIG_HOME: otherXdg }) }).appCredential?.clientId,
+      ).toBe("keyring-id");
+      expect(readAppCredential("acme")?.clientId).toBe("app-id");
+    });
+
+    it("keeps environment client credentials invocation-scoped with no writes", () => {
+      setKeyringBackend(null);
+      const config = resolveConfig({
+        env: baseEnv({
+          LINEAR_CLIENT_ID: "id",
+          LINEAR_CLIENT_SECRET: "env-secret",
+          LINEAR_CLIENT_SCOPES: "read,comments:create",
+        }),
+      });
+      expect(config.appCredential).toMatchObject({
+        clientId: "id",
+        clientSecret: "env-secret",
+        scopes: ["read", "comments:create"],
+      });
+      expect(config.accessTokenSource).toBe("env");
+      expect(config.credentialWorkspace).toBeUndefined();
+      expect(existsSync(userConfigPath())).toBe(false);
+    });
+
+    it("rejects partial or conflicting environment credentials without falling back to another actor", () => {
+      writeAppCredential(app(), { plaintext: true });
+      for (const extra of [
+        { LINEAR_CLIENT_ID: "id" },
+        { LINEAR_CLIENT_SECRET: "env-secret" },
+        {
+          LINEAR_CLIENT_ID: "id",
+          LINEAR_CLIENT_SECRET: "env-secret",
+          LINEAR_CLIENT_SCOPES: "read,,write",
+        },
+        {
+          LINEAR_CLIENT_ID: "id",
+          LINEAR_CLIENT_SECRET: "env-secret",
+          LINEAR_CLIENT_SCOPES: "admin",
+        },
+        {
+          LINEAR_CLIENT_ID: "id",
+          LINEAR_CLIENT_SECRET: "env-secret",
+          LINEAR_ACCESS_TOKEN: "token",
+        },
+        {
+          LINEAR_CLIENT_ID: "id",
+          LINEAR_CLIENT_SECRET: "env-secret",
+          LINEAR_API_KEY: "lin_api_env",
+        },
+      ]) {
+        const config = resolveConfig({ env: baseEnv(extra) });
+        expect(config.appCredential).toBeUndefined();
+        expect(config.apiKeyError?.code).toBe("usage");
+        expect(() => createClient(config)).toThrow();
+        expect(config.apiKeyError?.message).not.toContain("env-secret");
+      }
+      const override = resolveConfig({
+        env: baseEnv({ LINEAR_CLIENT_SECRET: "env-secret" }),
+        flags: { accessToken: "explicit" },
+      });
+      expect(override.accessToken).toBe("explicit");
+      expect(override.apiKeyError).toBeUndefined();
+    });
+
+    it("never reads client credentials from a project or the reference CLI global config", () => {
+      const content = `[workspaces.acme]\napp = true\napp_credentials = ${JSON.stringify("secret")}\nclient_id = "id"\nclient_secret = "secret"\n`;
+      writeProjectConfig(projectDir, content);
+      writeFileSync(join(xdg, "linear", "linear.toml"), content);
+      const config = resolveConfig({ cwd: projectDir, env: baseEnv() });
+      expect(config.appCredential).toBeUndefined();
+      expect(config.apiKey).toBeUndefined();
+      for (const key of ["app_credentials", "client_id", "client_secret"]) {
+        expect(() => assertSettableKey(key)).toThrow(/not a project setting/);
+      }
+    });
+  });
+
+  describe("app keyring credentials", () => {
+    const app = () => ({
+      version: 1 as const,
+      kind: "oauth-app" as const,
+      clientId: "id",
+      clientSecret: "secret",
+      scopes: ["read"],
+      workspace: { id: "o", name: "Acme", urlKey: "acme" },
+    });
+
+    it("keeps explicit invocation credentials ahead of stored app identity", () => {
+      writeAppCredential(app());
+      const resolved = resolveConfig({ env: baseEnv({ LINEAR_ACCESS_TOKEN: "injected" }) });
+      expect(resolved.appCredential).toBeUndefined();
+      expect(resolved.accessToken).toBe("injected");
+      expect(resolveConfig({ env: baseEnv({ LINEAR_API_KEY: "lin_api_override" }) }).apiKey).toBe(
+        "lin_api_override",
+      );
+    });
+
+    it("does not fall back to a personal key when an app record is malformed or missing", () => {
+      writeCredential("acme", "lin_api_fallback");
+      writeAppCredential(app());
+      for (const raw of [
+        "{",
+        JSON.stringify({ ...app(), clientSecret: "" }),
+        JSON.stringify({ ...app(), workspace: { ...app().workspace, urlKey: "other" } }),
+      ]) {
+        kr.store.set("app:acme", raw);
+        const resolved = resolveConfig({ env: baseEnv() });
+        expect(resolved.apiKey).toBeUndefined();
+        expect(() => createClient(resolved)).toThrow(/invalid/);
+      }
+      kr.store.delete("app:acme");
+      expect(() => createClient(resolveConfig({ env: baseEnv() }))).toThrow(/No stored credential/);
+    });
+
+    it("replaces browser credentials without leaving an orphaned secret, and vice versa", () => {
+      writeOAuthCredential(oauthCredential());
+      writeAppCredential(app());
+      expect(kr.store.has("oauth:acme")).toBe(false);
+      expect(readAppCredential("acme")).toEqual(app());
+      writeOAuthCredential(oauthCredential());
+      expect(kr.store.has("app:acme")).toBe(false);
+      expect(resolveConfig({ env: baseEnv() }).oauthCredential).toBeDefined();
+    });
+
+    it("rolls back keyring state if the config commit fails", () => {
+      writeOAuthCredential(oauthCredential());
+      const prior = kr.get("oauth:acme");
+      writeUserConfig("invalid = [");
+      expect(() => writeAppCredential(app())).toThrow();
+      expect(kr.get("app:acme")).toBeNull();
+      expect(kr.get("oauth:acme")).toBe(prior);
+    });
+
+    it("refuses keyring writes without creating a config or exposing credentials", () => {
+      setKeyringBackend({
+        ...kr,
+        set() {
+          throw new Error("secret");
+        },
+      });
+      expect(() => writeAppCredential(app())).toThrow(
+        "Could not store app credentials in the selected credential store.",
+      );
+      expect(existsSync(userConfigPath())).toBe(false);
     });
   });
 

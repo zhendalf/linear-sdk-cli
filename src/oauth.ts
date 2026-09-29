@@ -56,6 +56,38 @@ export interface OAuthUserCredential {
   user: OAuthUserIdentity;
 }
 
+/** Persistent app identity. Tokens are acquired per invocation and never stored. */
+export interface OAuthAppCredential {
+  version: 1;
+  kind: "oauth-app";
+  clientId: string;
+  clientSecret: string;
+  scopes: string[];
+  workspace: OAuthWorkspaceIdentity;
+}
+
+/** Environment-backed app identity has no persisted workspace binding. */
+export type OAuthAppIdentity = Omit<OAuthAppCredential, "workspace"> & {
+  workspace?: OAuthWorkspaceIdentity;
+};
+
+/** Scope parsing shared by explicit app login and environment-only authentication. */
+export function clientCredentialsScopes(value?: string): string[] {
+  const scopes =
+    value === undefined ? [...DEFAULT_OAUTH_SCOPES] : value.split(",").map((scope) => scope.trim());
+  if (!scopes.length || scopes.some((scope) => !scope)) {
+    throw new OAuthTokenError(
+      "Client credentials scopes must be a non-empty comma-separated list.",
+      undefined,
+      "usage",
+    );
+  }
+  if (scopes.includes("admin")) {
+    throw new OAuthTokenError("App actors cannot request the admin scope.", undefined, "usage");
+  }
+  return [...new Set(scopes)];
+}
+
 export interface GetAccessTokenOptions {
   forceRefresh?: boolean;
 }
