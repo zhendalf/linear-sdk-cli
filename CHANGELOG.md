@@ -4,6 +4,13 @@ Release Please generates this file from Conventional Commits. Feature and fix pu
 not edit it directly; their squash-commit titles are the release-note source of truth. This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1](https://github.com/zhendalf/linear-sdk-cli/compare/v0.8.0...v0.8.1) (2026-10-04)
+
+
+### Bug Fixes
+
+* **deps:** update Node types to 26.6.4 ([b3fe4d5](https://github.com/zhendalf/linear-sdk-cli/commit/b3fe4d5026f356c5ed85a7e83533b145bc9dfbf0))
+
 ## [0.8.0](https://github.com/zhendalf/linear-sdk-cli/compare/v0.7.2...v0.8.0) (2026-09-29)
 
 ### Features
