@@ -70,7 +70,7 @@
     "janitor": "bun run test/janitor.ts"
   },
   "dependencies": {
-    "@inquirer/prompts": "^8.7.2",
+    "@inquirer/prompts": "^8.7.3",
     "@linear/sdk": "^97.0.0",
     "commander": "^15.0.0",
     "graphql": "^17.0.2",
@@ -82,7 +82,7 @@
     "@types/bun": "^1.4.2",
     "@types/node": "^26.6.4",
     "oxfmt": "^0.71.0",
-    "oxlint": "^1.86.0",
+    "oxlint": "^1.87.0",
     "typescript": "^7.0.2"
   }
 }
