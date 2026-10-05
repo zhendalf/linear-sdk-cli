@@ -4,6 +4,13 @@ Release Please generates this file from Conventional Commits. Feature and fix pu
 not edit it directly; their squash-commit titles are the release-note source of truth. This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2](https://github.com/zhendalf/linear-sdk-cli/compare/v0.8.1...v0.8.2) (2026-10-05)
+
+
+### Bug Fixes
+
+* **deps:** update inquirer prompts and oxlint ([7e3f10a](https://github.com/zhendalf/linear-sdk-cli/commit/7e3f10a07b718cbae4dafa37168d75a2008bf116))
+
 ## [0.8.1](https://github.com/zhendalf/linear-sdk-cli/compare/v0.8.0...v0.8.1) (2026-10-04)
 
 ### Bug Fixes
