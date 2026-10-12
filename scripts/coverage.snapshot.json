@@ -338,6 +338,7 @@
   "projectUpdates": "curated",
   "projects": "curated",
   "pushSubscriptionTest": "excluded",
+  "quotas": "raw-only",
   "rateLimitStatus": "excluded",
   "recentReleasesByAccessKey": "excluded",
   "refreshGoogleSheetsData": "raw-only",
