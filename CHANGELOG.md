@@ -4,6 +4,13 @@ Release Please generates this file from Conventional Commits. Feature and fix pu
 not edit it directly; their squash-commit titles are the release-note source of truth. This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.3](https://github.com/zhendalf/linear-sdk-cli/compare/v0.8.2...v0.8.3) (2026-10-19)
+
+### Bug Fixes
+
+- **deps:** finish SDK and formatter upgrades ([b511b91](https://github.com/zhendalf/linear-sdk-cli/commit/b511b91d37fee6c85e362ff1eb436985176fc5cc))
+- **deps:** update compatible dependency versions ([0f89628](https://github.com/zhendalf/linear-sdk-cli/commit/0f89628c9f2dd4aa63f02a7b4139822e8cea3540))
+
 ## [0.8.2](https://github.com/zhendalf/linear-sdk-cli/compare/v0.8.1...v0.8.2) (2026-10-13)
 
 ### Bug Fixes
@@ -187,7 +194,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `completion`), `fields` (key → `"string"`, `"number|null"`, `["string"]`, nested `{…}`,
   `{nullable: {…}}` for a relation that may be null, `"comments?"` for a key present only
   sometimes) and `variants` (the whole shape under `--web`, `--start`, `op=list`, …). New `linear
-commands <path...>` describes one command — a bare object under `--json` (`.output.fields`),
+  commands <path...>` describes one command — a bare object under `--json` (`.output.fields`),
   or usage, options and one `key: type` line per field for a human, plus its subcommands for a
   group; an unknown path is `not_found` (exit 3) with the nearest paths. The shapes are declared
   beside the interfaces they describe (`shape<IssueRow>({…})`, `src/lib/shape.ts`), where a field
@@ -232,9 +239,9 @@ commands <path...>` describes one command — a bare object under `--json` (`.ou
   TES-642).** `initiative add-project <initiative> <project>` (`--sort-order`) and
   `remove-project` (confirmed; finds the link on the project's side, so no workspace-wide paging)
   and `initiative unarchive <id>` (resolves among archived initiatives, refuses a live one). `initiative
-list` gains `--status`, `--owner`, `--archived` — the list stays every-status by default, and
+  list` gains `--status`, `--owner`, `--archived` — the list stays every-status by default, and
   the reference CLI's `--all-statuses` is accepted as the no-op it is here. `initiative
-create/update` take `--icon`/`--color`, and `initiative view` shows `icon`, `archivedAt` and
+  create/update` take `--icon`/`--color`, and `initiative view` shows `icon`, `archivedAt` and
   the linked `projects` (`{id, name, status}`).
 - **`project list --all-teams`, `team create --private`, health-only status updates (TES-642).**
   `project list` is scoped to the default team and the only way out was the accidental
@@ -439,7 +446,7 @@ create/update` take `--icon`/`--color`, and `initiative view` shows `icon`, `arc
   fills. **The team's default template is now applied**, as Linear's own new-issue form and the
   reference CLI do: the API applies it _only when asked_ (verified live — a plain `issueCreate` on
   a team with a default template returns an issue with no description), so `useDefaultTemplate:
-true` is sent unless `--no-default-template` (also accepted under the reference's spelling,
+  true` is sent unless `--no-default-template` (also accepted under the reference's spelling,
   `--no-use-default-template`); an explicit `--template` replaces it rather than stacking. A
   `--parent` child now **joins its parent's project** unless `--project` says otherwise — the
   sub-issues we created landed outside the project their parent was in — and `--milestone` can
@@ -455,7 +462,7 @@ true` is sent unless `--no-default-template` (also accepted under the reference'
   TES-596). All twelve globals are registered on every command so they can sit anywhere on the
   line, but `--fields` projects a _rendered_ result (a table or a detail block) and `--limit`/`--all`
   cap or exhaust a _paged_ query; on the ~90 commands that print a receipt (every mutation, `issue
-id`, `commands`, …) all three used to vanish without a word. That silence cost data: schpet's `-f`
+  id`, `commands`, …) all three used to vanish without a word. That silence cost data: schpet's `-f`
   is `--description-file` on `project create`, so `linear project create --name X -f desc.md`
   parsed `-f` as _our_ `--fields`, created the project with **no description**, and exited 0. Now a
   root `preAction` hook (`assertGlobalsApply` in `lib/options.ts`, driven by two applicability
@@ -492,7 +499,7 @@ id`, `commands`, …) all three used to vanish without a word. That silence cost
   the PR `ID Title` and stops copying the issue description into GitHub** (TES-637 (5)).
   `describe` used to print `Title`, a blank line, `Fixes ID`; it now prints `ID Title`, a blank
   line, `Linear-issue: Fixes ID`, `Linear-issue-url: <url>` — git trailers that `git
-interpret-trailers` / `git log --format=%(trailers:key=Linear-issue)` and jj's `trailers`
+  interpret-trailers` / `git log --format=%(trailers:key=Linear-issue)` and jj's `trailers`
   template read back, while Linear still sees the magic word directly before the id
   (linear.app/docs/github lists `fixes` and `references` among the recognized words) and links
   and closes the issue. `-r/--references` swaps the word. `--json` gains `url` and `message` (the
@@ -502,7 +509,7 @@ interpret-trailers` / `git log --format=%(trailers:key=Linear-issue)` and jj's `
   renamed. The issue _description_ is no longer pasted into the PR body: a GitHub PR is a wider
   audience than a Linear issue, and Linear links from the trailer, not the prose.
 - **A team-scoped listing with no team says it is listing every team's** (TES-637 (8)). `issue
-list`/`mine`/`search` and `project list` with no `--team`, no configured team and no
+  list`/`mine`/`search` and `project list` with no `--team`, no configured team and no
   `--all-teams` list the whole workspace — by design; schpet errors there ("No default team…"), so
   someone arriving from it could read the workspace as the team. One `info` line on stderr ("No
   default team configured; listing every team's. Pass --team <KEY> …"), silenced by `--quiet`,
@@ -605,7 +612,7 @@ list`/`mine`/`search` and `project list` with no `--team`, no configured team an
 
 - **`issue list`/`mine`/`search` rows omitted `milestone` and `cycle`** (TES-652). The list
   query selected project and labels but neither relation, so `issue list --project X --json | jq
-'group_by(.milestone.name)'` put every issue in the null bucket while `issue view` showed the
+  'group_by(.milestone.name)'` put every issue in the null bucket while `issue view` showed the
   milestone. Rows now carry `milestone: {id, name} | null` and `cycle: {id, number, name} | null`
   — the detail's exact object shapes, from the one existing query (two selections, no extra
   request; `LIST_QUERY` and `SEARCH_QUERY` share the relation block so they cannot drift again).
@@ -626,7 +633,7 @@ list`/`mine`/`search` and `project list` with no `--team`, no configured team an
   Non-interactively, `comment update <id>` with no body is a usage error, not an editor.
 - **`issue comment "<body>"` on a matching branch failed** (TES-619) — the README's headline
   example. `issue comment [id] [body]` read a lone operand as the id, so `linear issue comment
-'shipped'` on `tes-615-…` produced "No comment body provided" (and, in a terminal, opened
+  'shipped'` on `tes-615-…` produced "No comment body provided" (and, in a terminal, opened
   `$EDITOR` for the body first and only then rejected `'shipped'` as an id — work lost).
   `assign` and `state` already disambiguated a lone operand; `comment` now does the same: one
   operand that looks like an issue id is the id (body from `--body-file` or the editor), anything
@@ -656,7 +663,7 @@ list`/`mine`/`search` and `project list` with no `--team`, no configured team an
   `--help`; a bare group shows its help** (TES-633). The root has an action (bare `linear` shows the
   branch's issue) and `issue` has a default subcommand (`view`), so commander's own "unknown
   command" never fired for either: `linear issues list` was `too many arguments. Expected 0
-arguments but got 2: issues, list.` and `linear issue lst` was `'lst' is not a valid issue id`.
+  arguments but got 2: issues, list.` and `linear issue lst` was `'lst' is not a valid issue id`.
   Now: `Unknown command 'issues'. Did you mean 'issue'? Run 'linear --help' to see the commands.`
   and `'lst' is not a valid issue id (…). Did you mean 'linear issue list'?` — a prefix (`proj`),
   a small typo (`lable`, `isue`) or an alias (`docs`, `notif`) is close enough; two-letter aliases
@@ -691,7 +698,7 @@ arguments but got 2: issues, list.` and `linear issue lst` was `'lst' is not a v
   resolves the name inside that project (names are unique per project only, the same rule
   `issue update --milestone` applies); a name without `--project` is a usage error that says so:
   `'…' is not a milestone id; pass --project <name|id> to look a milestone up by name.` `state view
-<name-or-type>` resolves against `--team` or the configured default team, exactly as
+  <name-or-type>` resolves against `--team` or the configured default team, exactly as
   `issue create --state` does, and says to pass `--team` when there is neither. UUIDs still go
   straight through.
 - **`milestone list`/`view` printed progress ×100 — `3846%`** (TES-648, found while fixing the
@@ -814,7 +821,7 @@ arguments but got 2: issues, list.` and `linear issue lst` was `'lst' is not a v
   issue id inferred from the current branch as usual. `issue describe [id]` prints the issue
   title plus a commit-message trailer using Linear's git magic words (`Fixes <ID>`, or
   `References <ID>` with `-r`/`--references`) — drop it into `git commit -m "$(linear issue
-describe)"`. `issue pull-request [id]` (alias `pr`) creates a GitHub PR via the `gh` CLI:
+  describe)"`. `issue pull-request [id]` (alias `pr`) creates a GitHub PR via the `gh` CLI:
   the title defaults to the issue title (`--title` to override) and the body is the issue
   description followed by a `Fixes <ID>` trailer and the Linear URL, so the PR and issue
   reference each other. Flags: `--base`, `--head`, `--draft`, `--web`. The created PR URL is the
@@ -823,8 +830,8 @@ describe)"`. `issue pull-request [id]` (alias `pr`) creates a GitHub PR via the 
   or when `gh` itself fails.
 - **Multi-workspace credentials.** Store API keys for several workspaces and switch between
   them. New `auth` subcommands: `auth list` (configured workspaces + default), `auth default
-<slug>` (set the default), and `auth token` (print the resolved key for scripting). `auth
-login` now accepts the global `--workspace <slug>` (derived from the key's organization when
+  <slug>` (set the default), and `auth token` (print the resolved key for scripting). `auth
+  login` now accepts the global `--workspace <slug>` (derived from the key's organization when
   omitted) and `auth status` reports the active credential workspace. A new global
   `--workspace <slug>` selects which stored credential to use for any command. Credentials live
   in quoted `[workspaces."<slug>"]` tables under a top-level `default_workspace`. Credential
@@ -928,7 +935,7 @@ login` now accepts the global `--workspace <slug>` (derived from the key's organ
   stderr, where it lands in scrollback, CI logs and bug reports. The same channel let a project
   `.linear.toml` — a file that is not ours and may arrive with a checkout — emit raw escape
   sequences through our error output. We now report only the reason and the position (`line 3,
-column 36`), never an excerpt from a credential-bearing file, and strip control characters and
+  column 36`), never an excerpt from a credential-bearing file, and strip control characters and
   bidi overrides from what remains. The error stays actionable: it still says exactly where to look.
 - **Credential writes could lose a config or leave a truncated one.** Writing the config in place
   truncates it first, so a crash or a concurrently-running `linear` could observe — or leave behind
