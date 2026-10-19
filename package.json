@@ -54,8 +54,8 @@
     "lin": "bun run src/bin/linear.ts",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint .",
-    "format": "oxfmt .",
-    "format:check": "oxfmt --check .",
+    "format": "oxfmt . '!CHANGELOG.md'",
+    "format:check": "oxfmt --check . '!CHANGELOG.md'",
     "test": "bun test test/unit test/contract",
     "test:performance": "bun test --timeout 15000 test/performance",
     "test:unit": "bun test test/unit",
@@ -71,7 +71,7 @@
   },
   "dependencies": {
     "@inquirer/prompts": "^8.7.3",
-    "@linear/sdk": "^97.2.0",
+    "@linear/sdk": "^98.0.0",
     "commander": "^15.0.0",
     "graphql": "^17.0.2",
     "picocolors": "^1.1.1",
@@ -81,7 +81,7 @@
   "devDependencies": {
     "@types/bun": "^1.4.3",
     "@types/node": "^26.6.5",
-    "oxfmt": "^0.71.0",
+    "oxfmt": "^0.73.0",
     "oxlint": "^1.88.0",
     "typescript": "^7.0.2"
   }

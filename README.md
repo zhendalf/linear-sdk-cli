@@ -795,15 +795,15 @@ profile metadata. Logout reports whether removing a whole profile also removed i
 
 ```toml
 # ~/.config/linear/config.toml
-default_workspace = "acme"     # which stored credential is active
-team = "TES"                   # optional legacy/global fallback team
-sort = "priority"              # default issue-list sort: priority | updated | created
+default_workspace = "acme" # which stored credential is active
+team = "TES" # optional legacy/global fallback team
+sort = "priority" # default issue-list sort: priority | updated | created
 
-[workspaces."acme"]            # per-workspace credentials (hyphenated slugs are quoted)
-keyring = true                 # secret lives in the OS keyring (service linear-cli, account acme)
-team = "ENG"                   # non-secret default team for this workspace
+[workspaces."acme"] # per-workspace credentials (hyphenated slugs are quoted)
+keyring = true # secret lives in the OS keyring (service linear-cli, account acme)
+team = "ENG" # non-secret default team for this workspace
 [workspaces."other-org"]
-api_key = "lin_api_yyyyyyyy"   # …or, with `auth login --plaintext`, in this 0600 file
+api_key = "lin_api_yyyyyyyy" # …or, with `auth login --plaintext`, in this 0600 file
 team = "OPS"
 ```
 

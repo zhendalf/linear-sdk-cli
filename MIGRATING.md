@@ -179,7 +179,7 @@ Every one is now either identical, or says so on stderr, or is a usage error. Kn
 8. **`issue describe`** — theirs prints `ID Title`, a blank line, then `Linear-issue: Fixes ID` and
    `Linear-issue-url: URL`; ours printed `Title` and a bare `Fixes ID`. Piped into `git commit -m`
    that was a different commit. Adopted, byte for byte: proper trailers are what `git
-interpret-trailers` and jj read back, and Linear reads the magic word right before the id
+   interpret-trailers` and jj read back, and Linear reads the magic word right before the id
    either way (linear.app/docs/github). `-r/--references` still swaps in `References`.
 9. **`issue pull-request`** — theirs titles the PR `ID Title` and sends the issue URL as the body;
    ours titled it `Title` and pasted the issue _description_ into the body. Title adopted (a custom
