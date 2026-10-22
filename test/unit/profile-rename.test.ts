@@ -229,13 +229,44 @@ describe("API-key profile rename", () => {
 });
 
 describe("rename failure recovery", () => {
+  it("never replaces a destination inserted while the recovery marker is saved", async () => {
+    const rename = fs.renameSync;
+    const overwrite = vi.spyOn(backend, "set");
+    let raced = false;
+    vi.spyOn(fs, "renameSync").mockImplementation((source, target) => {
+      rename(source, target);
+      if (target === userConfigPath() && !raced) {
+        raced = true;
+        backend.store.set("new", "concurrent-client-secret");
+      }
+    });
+    await expect(renameApiKeyProfile("old", "new", validate)).rejects.toThrow("copy and verify");
+    expect(backend.store.get("new")).toBe("concurrent-client-secret");
+    expect(backend.store.get("old")).toBe(secret);
+    expect(config().workspaces.old.team).toBe("ENG");
+    expect(overwrite).not.toHaveBeenCalled();
+    await expect(renameApiKeyProfile("old", "new", validate)).rejects.toThrow("conflicts");
+    expect(backend.store.get("new")).toBe("concurrent-client-secret");
+  });
+
+  it("refuses keyring backends without atomic create before any mutation", async () => {
+    delete backend.create;
+    const before = fs.readFileSync(userConfigPath(), "utf8");
+    await expect(renameApiKeyProfile("old", "new", validate)).rejects.toThrow(
+      "no atomic create-only",
+    );
+    expect(validate).not.toHaveBeenCalled();
+    expect(fs.readFileSync(userConfigPath(), "utf8")).toBe(before);
+    expect(backend.store).toEqual(new Map([["old", secret]]));
+  });
+
   it("verifies destination readback before moving metadata or deleting the source", async () => {
-    const set = backend.set;
-    backend.set = () => {};
+    const set = backend.create!;
+    backend.create = () => {};
     await expect(renameApiKeyProfile("old", "new", validate)).rejects.toThrow("copy and verify");
     expect(backend.store.get("old")).toBe(secret);
     expect(config().workspaces.old.team).toBe("ENG");
-    backend.set = set;
+    backend.create = set;
     await renameApiKeyProfile("old", "new", validate);
     expect(backend.store.get("new")).toBe(secret);
   });
@@ -268,7 +299,7 @@ describe("rename failure recovery", () => {
   ]) {
     it(`resumes safely after a ${stage} failure without exposing the store error`, async () => {
       fs.writeFileSync(referenceCredentialsPath(), 'default = "old"\nworkspaces = ["old"]\n');
-      const set = backend.set.bind(backend);
+      const set = backend.create!.bind(backend);
       const del = backend.delete.bind(backend);
       const rename = fs.renameSync;
       let writes = 0;
@@ -282,7 +313,7 @@ describe("rename failure recovery", () => {
           throw new Error(secret);
         rename(source, target);
       });
-      backend.set = (account, value) => {
+      backend.create = (account, value) => {
         if (stage === "copy-before") throw new Error(secret);
         set(account, value);
         if (stage === "copy-after") throw new Error(secret);
@@ -304,7 +335,7 @@ describe("rename failure recovery", () => {
       expect([...backend.store.values()]).toContain(secret);
       expect(config().api_key_profile_rename).toBeDefined();
       filesystemFailure.mockRestore();
-      backend.set = set;
+      backend.create = set;
       backend.delete = del;
       await renameApiKeyProfile("old", "new", validate);
       expect(backend.store).toEqual(new Map([["new", secret]]));
@@ -333,7 +364,7 @@ describe("rename failure recovery", () => {
   });
 
   it("requires the original pair while an operation is pending", async () => {
-    backend.set = () => {
+    backend.create = () => {
       throw new Error("locked");
     };
     await expect(renameApiKeyProfile("old", "new", validate)).rejects.toThrow("incomplete");

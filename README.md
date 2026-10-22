@@ -312,6 +312,10 @@ keyring list/default. It ignores environment credentials and refuses credential 
 profiles do not contain a historical organization ID; the unchanged key proves its own organization,
 which is returned in the result. Configured destinations and unlisted keyring entries are collisions,
 even if they contain the same key. Nothing is revoked, exported, or placed on argv.
+Keyring moves use an atomic create-only operation on macOS Keychain, so another client's
+destination created during the rename cannot be replaced. The Linux `secret-tool` backend lacks
+this operation and keyring-backed renames are refused before changes; file-only profiles remain
+supported when no source keyring entry needs moving.
 
 Project files are never edited. JSON reports `checkedProjectConfigs` and `projectConfigUpdates`
 with exact paths and old/new workspace values; human output lists the same required edits. Discovery

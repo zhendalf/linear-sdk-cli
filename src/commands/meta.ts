@@ -647,6 +647,8 @@ export function registerMeta(program: Command): void {
 Validates the exact stored API key against the current Linear workspace slug.
 Preserves the key, profile team, user workspace/default, and shared keyring list.
 Refuses configured or unlisted keyring destinations; never overwrites or revokes.
+Keyring moves require atomic create-only support (macOS Keychain). Linux Secret
+Service entries are refused; file-only API-key profiles are supported.
 An interrupted rename can be resumed by repeating the same command.
 OAuth user/app profiles are not supported; their credentials and grants stay unchanged.
 Project files are never edited. Reports the discovered project config and any

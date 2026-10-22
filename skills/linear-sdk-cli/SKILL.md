@@ -125,8 +125,10 @@ Login associates the authenticated workspace with the discovered project config,
 When a workspace URL slug changes, use `linear auth rename <old-slug> <new-slug> --json`
 for an existing API-key profile. It validates the exact stored key's current organization/slug,
 ignores environment credentials, preserves storage/team/default metadata, and refuses destination
-collisions (including unlisted keyring records). API-key profiles have no historical organization ID;
-the same stored key proves its organization, returned in `organization`. Never export the key or
+collisions (including unlisted keyring records). Keyring moves require atomic create-only support
+(macOS Keychain). Linux Secret Service keyring entries are refused before changes; file-only profiles
+remain supported. API-key profiles have no historical organization ID; the unchanged stored key proves
+its organization, returned in `organization`. Never export the key or
 combine login/logout to rename it. If interrupted, repeat the same command to resume its non-secret
 recovery marker; do not log out, replace, or migrate either profile while recovery is pending.
 Project files stay unchanged: inspect `checkedProjectConfigs`, `projectConfigUpdates`, and

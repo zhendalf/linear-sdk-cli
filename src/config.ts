@@ -1085,6 +1085,11 @@ export async function renameApiKeyProfile(
         "The original system keyring is required to complete this rename.",
         "runtime",
       );
+    if (movesKeyring && !backend?.create)
+      throw new CliError(
+        "This keyring has no atomic create-only operation, so API-key profile rename is unsupported for its stored entries. macOS Keychain and file-only profiles are supported. No credentials were changed.",
+        "runtime",
+      );
     if (pending?.phase === "prepared" && movesKeyring && oldKey === null)
       throw new CliError(
         "The original keyring entry is missing. Restore it before retrying the rename.",
@@ -1120,7 +1125,9 @@ export async function renameApiKeyProfile(
     if (state.phase === "prepared") {
       if (movesKeyring) {
         step = "copy and verify the destination API key in the system keyring";
-        backend!.set(to, apiKey);
+        // A prior prepared attempt may already have copied this exact key.
+        // Otherwise the backend itself must reject a concurrent destination.
+        if (destinationKey === null) backend!.create!(to, apiKey);
         if (readAccount(to) !== apiKey) throw new Error("Keyring copy could not be verified");
       }
       ws[to] = { ...(ws[from] ?? {}) };

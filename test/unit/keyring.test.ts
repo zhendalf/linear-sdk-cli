@@ -1,4 +1,5 @@
-import { describe, it, expect, afterAll } from "bun:test";
+import { describe, it, expect, afterAll, vi } from "bun:test";
+import * as childProcess from "node:child_process";
 import { spawnSync } from "node:child_process";
 import {
   keyring,
@@ -7,6 +8,7 @@ import {
   setKeyringBackend,
   KeyringError,
   KEYRING_SERVICE,
+  linuxSecretService,
 } from "../../src/lib/keyring.js";
 
 describe("keyring selection", () => {
@@ -24,6 +26,41 @@ describe("keyring selection", () => {
     const real = keyring();
     if (process.platform === "darwin") expect(real).toBe(macosKeychain);
     else if (process.platform !== "linux") expect(real).toBeNull();
+  });
+});
+
+describe("create-only keyring writes", () => {
+  it("the memory backend refuses to replace an existing entry, even with the same secret", () => {
+    const backend = memoryKeyring();
+    backend.create!("new", "original");
+    expect(() => backend.create!("new", "replacement")).toThrow(KeyringError);
+    expect(() => backend.create!("new", "original")).toThrow(KeyringError);
+    expect(backend.get("new")).toBe("original");
+    expect(linuxSecretService.create).toBeUndefined();
+  });
+
+  it("macOS sends a create-only command on stdin and never puts the secret in argv", () => {
+    const spawn = vi
+      .spyOn(childProcess, "spawnSync")
+      .mockReturnValue({ status: 0, stdout: "", stderr: "" } as any);
+    try {
+      macosKeychain.create!("new", "fixture-secret");
+      const [bin, args, options] = spawn.mock.calls[0]!;
+      expect(bin).toBe("/usr/bin/security");
+      expect(args).toEqual(["-i"]);
+      const input = (options as any).input as string;
+      expect(input).toContain('add-generic-password -a "new" -s linear-cli -w "fixture-secret"');
+      expect(input).not.toContain("-U");
+      spawn.mockReturnValue({ status: 45, stdout: "", stderr: "fixture-secret" } as any);
+      expect(() => macosKeychain.create!("new", "fixture-secret")).toThrow("may already exist");
+      try {
+        macosKeychain.create!("new", "fixture-secret");
+      } catch (err) {
+        expect(String(err)).not.toContain("fixture-secret");
+      }
+    } finally {
+      spawn.mockRestore();
+    }
   });
 });
 
