@@ -216,7 +216,9 @@ describe("persistent app identity", () => {
   });
 
   it("requires the caller's app client ID and secret before exchanging tokens", async () => {
-    const fetch = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Unexpected exchange"));
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation((async () => {
+      throw new Error("Unexpected exchange");
+    }) as unknown as typeof globalThis.fetch);
     for (const args of [[], ["--client-secret", "secret"], ["--client-id", "supplied-client"]]) {
       await expect(run(["auth", "login", "--app", ...args, "--json"])).rejects.toThrow(
         /requires --client-id and --client-secret/,

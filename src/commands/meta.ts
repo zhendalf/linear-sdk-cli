@@ -101,6 +101,12 @@ const defaultAuthValidationClientFactory: AuthValidationClientFactory = (credent
     kind === "oauth-access-token" ? { accessToken: credential } : { apiKey: credential },
   ) as unknown as AuthValidationClient;
 let authValidationClientFactory = defaultAuthValidationClientFactory;
+let authSecretPrompt = promptSecret;
+
+/** Test seam that does not depend on Bun's module-namespace spying behavior. */
+export function setAuthSecretPromptForTests(prompt: typeof promptSecret | undefined): void {
+  authSecretPrompt = prompt ?? promptSecret;
+}
 
 /** Test seam for command-level auth tests; production always uses LinearClient. */
 export function setAuthValidationClientFactoryForTests(
@@ -333,7 +339,7 @@ export function registerMeta(program: Command): void {
           ctx.output.info(
             "Create a personal API key at https://linear.app/settings/account/security. Choose its permissions and team access in Linear; workspace policy may restrict key creation.",
           );
-          key = await promptSecret(ctx, "Linear API key:", { required: true });
+          key = await authSecretPrompt(ctx, "Linear API key:", { required: true });
         } else {
           if (key === "-") key = readStdinSync();
           else

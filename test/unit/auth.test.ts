@@ -25,7 +25,10 @@ import {
   resolveConfig,
 } from "../../src/config.js";
 import { memoryKeyring, setKeyringBackend } from "../../src/lib/keyring.js";
-import { setAuthValidationClientFactoryForTests } from "../../src/commands/meta.js";
+import {
+  setAuthSecretPromptForTests,
+  setAuthValidationClientFactoryForTests,
+} from "../../src/commands/meta.js";
 import { Context } from "../../src/context.js";
 import * as opener from "../../src/lib/open.js";
 import * as prompts from "../../src/lib/prompt.js";
@@ -67,6 +70,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   setAuthValidationClientFactoryForTests(undefined);
+  setAuthSecretPromptForTests(undefined);
   setKeyringBackend(undefined);
   if (savedXdg === undefined) delete process.env.XDG_CONFIG_HOME;
   else process.env.XDG_CONFIG_HOME = savedXdg;
@@ -389,8 +393,11 @@ describe("personal API-key login", () => {
   }
 
   it("prompts for a secret by default, validates it, and stores it without echoing", async () => {
-    const prompt = vi.spyOn(prompts, "promptSecret").mockResolvedValue(" lin_api_prompt_secret \n");
-    const fetch = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Unexpected OAuth"));
+    const prompt = vi.fn(async () => " lin_api_prompt_secret \n");
+    setAuthSecretPromptForTests(prompt);
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation((async () => {
+      throw new Error("Unexpected OAuth");
+    }) as unknown as typeof globalThis.fetch);
     const output = await interactiveLogin();
     expect(prompt).toHaveBeenCalledWith(expect.any(Context), "Linear API key:", { required: true });
     expect(fetch).not.toHaveBeenCalled();
@@ -404,7 +411,9 @@ describe("personal API-key login", () => {
   });
 
   it("leaves credentials and project settings untouched when the prompt is cancelled", async () => {
-    vi.spyOn(prompts, "promptSecret").mockRejectedValue(new Error("Prompt cancelled"));
+    setAuthSecretPromptForTests(async () => {
+      throw new Error("Prompt cancelled");
+    });
     await expect(interactiveLogin()).rejects.toThrow("Prompt cancelled");
     expect(kr.store.size).toBe(0);
     expect(existsSync(userConfigPath())).toBe(false);
@@ -412,7 +421,7 @@ describe("personal API-key login", () => {
   });
 
   it("refuses an empty secret without storing it", async () => {
-    vi.spyOn(prompts, "promptSecret").mockResolvedValue(" \n");
+    setAuthSecretPromptForTests(async () => " \n");
     await expect(interactiveLogin()).rejects.toThrow("No API key provided");
     expect(kr.store.size).toBe(0);
     expect(existsSync(userConfigPath())).toBe(false);
@@ -420,7 +429,8 @@ describe("personal API-key login", () => {
 
   it("requires explicit plaintext storage when there is no system keyring", async () => {
     setKeyringBackend(null);
-    const prompt = vi.spyOn(prompts, "promptSecret");
+    const prompt = vi.fn(async () => "unexpected");
+    setAuthSecretPromptForTests(prompt);
     await expect(interactiveLogin()).rejects.toThrow(/use --plaintext/);
     expect(prompt).not.toHaveBeenCalled();
     expect(existsSync(userConfigPath())).toBe(false);
