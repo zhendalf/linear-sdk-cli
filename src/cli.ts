@@ -19,6 +19,10 @@ import { registerProjectLabel } from "./commands/project-label.js";
 import { registerProjectUpdate } from "./commands/project-update.js";
 import { registerMilestone } from "./commands/milestone.js";
 import { registerCycle } from "./commands/cycle.js";
+import { registerRelease } from "./commands/release.js";
+import { registerReleasePipeline } from "./commands/release-pipeline.js";
+import { registerReleaseStage } from "./commands/release-stage.js";
+import { registerReleaseNote } from "./commands/release-note.js";
 import { registerUser } from "./commands/user.js";
 import { registerLabel } from "./commands/label.js";
 import { registerState } from "./commands/state.js";
@@ -94,6 +98,10 @@ export function createProgram(): Command {
   registerProjectUpdate(program);
   registerMilestone(program);
   registerCycle(program);
+  registerRelease(program);
+  registerReleasePipeline(program);
+  registerReleaseStage(program);
+  registerReleaseNote(program);
   // Phase 3: users, labels, workflow states, comments, documents, attachments, favorites.
   registerUser(program);
   registerLabel(program);

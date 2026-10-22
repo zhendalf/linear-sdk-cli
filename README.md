@@ -523,6 +523,104 @@ linear cv results 01234567-89ab-cdef-0123-456789abcdef --json
 # [{"type":"issue","id":"…","identifier":"ENG-42","name":"Fix login","url":"…"}]
 ```
 
+### Releases
+
+`release`, `release-pipeline`, `release-stage`, and `release-note` provide native release tracking.
+Linear currently requires a [Business or Enterprise workspace](https://linear.app/docs/releases.md);
+Business supports up to 15 pipelines. Schema visibility or an empty list does not establish
+entitlement to create pipelines, or permission to change them. Linear enforces plan, role, team,
+and credential permissions; the CLI preserves `feature_not_accessible` and `forbidden` errors.
+
+These commands use the CLI's usual OAuth or personal API credentials and `--workspace` selection.
+Pipeline **access keys** are separate credentials for the official
+[`linear-release`](https://github.com/linear/linear-release) CI tool. Do not put a pipeline key in
+`LINEAR_API_KEY` or `LINEAR_ACCESS_TOKEN`. This CLI does not consume `LINEAR_ACCESS_KEY`, create
+pipeline keys, or invoke/install the official tool automatically.
+
+```sh
+linear release-pipeline list --json
+linear release-pipeline view production --json       # UUID or API slug; not display name
+linear release-stage list production --all --json
+linear release list --pipeline production --stage-type started --json
+linear release view RELEASE_ID --json                # release UUID or slug
+linear release issues RELEASE_ID --all --json
+linear release links RELEASE_ID --json
+```
+
+Create a pipeline explicitly as `scheduled` or `continuous`. Creation includes Linear's default
+stages. Add further `started` stages for verification/observation, or rename/reorder the defaults:
+
+```sh
+linear release-pipeline create --name Production --type scheduled --json
+linear release-pipeline update PIPELINE_ID --rollover-issues false --json
+linear release-stage create --pipeline PIPELINE_ID --name Observe --type started \
+  --color '#5e6ad2' --position 3 --frozen true --json
+linear release-stage update STAGE_ID --frozen false --json
+```
+
+Stage types are immutable. Only `started` stages can be frozen, and Linear requires at least one
+unfrozen started stage. Freezing excludes releases in that stage from automated sync; it is not a
+deployment approval or a lock on manual membership edits. Pipeline updates support explicit
+`true|false` for production, automatic notes, and issue rollover. Repeated `--include-path` and
+`--team-id` replace the corresponding collections; `--clear-paths` and `--clear-teams` clear them.
+Team associations use UUIDs, not the global default `--team`.
+
+For a scheduled rollout, create the release with a full commit SHA, explicit version and stage,
+then add the exact issue scope. `release create` otherwise defaults to a started stage on scheduled
+pipelines and a completed stage on continuous pipelines:
+
+```sh
+linear release create --pipeline PIPELINE_ID --name 'Release 1.2.3' \
+  --release-version 1.2.3 --commit-sha "$approved_sha" --stage PLANNED_STAGE_ID \
+  --target-date 2026-10-30 --description-file release-plan.md --json
+linear release add-issue RELEASE_ID ENG-42 --json
+linear release update RELEASE_ID --stage VERIFY_STAGE_ID --json
+linear release-note create --pipeline PIPELINE_ID --release RELEASE_ID \
+  --title 'Verification' --body-file verification.md --json
+```
+
+`release update <id>` edits that exact release, including SHA/version/dates or a stage UUID from
+the same pipeline. `release update-version`, `sync`, and `complete` require **both** `--pipeline`
+and `--release-version`; they never implicitly pick the latest release. `update-version` accepts a
+stage **name**, matched by Linear, and attaches links without changing the version:
+
+```sh
+linear release update-version --pipeline PIPELINE_ID --release-version 1.2.3 \
+  --stage Observe --link "CI=https://ci.example/run/123" --json
+# Only after the external deployment, verification and observation gates pass:
+linear release complete --pipeline PIPELINE_ID --release-version 1.2.3 \
+  --link "GitHub=https://github.com/acme/app/releases/tag/v1.2.3" --json
+```
+
+Completion records Linear lifecycle state; it does not deploy, enforce service ordering, check
+approvals, verify a running revision, or wait for observation. Completing a scheduled release may
+move its open issues into the next release (creating one if needed), depending on pipeline settings.
+When `complete --commit-sha` targets a version, Linear preserves an existing stored SHA. Set and
+verify the intended SHA with `create`/`update` first. Stage transitions through `update` also trigger
+Linear's lifecycle behavior, including rollover on completion.
+
+For explicit, already-attributed data, `release sync --pipeline PIPELINE_ID --release-version 1.2.3
+--commit-sha FULL_SHA --issue ENG-42 --issue ENG-43=OTHER_FULL_SHA` calls Linear's native sync API.
+It does not scan Git. References accumulate; omitted issues are not removed. `--reverted-issue`
+removes reverted attribution, and `release remove-issue RELEASE_ID ENG-42 --yes` removes exact
+membership. Scheduled sync can assign the version to an unversioned started release or create a
+release; continuous sync creates/completes a release immediately. Use sync at the appropriate point
+in your deployment process, and read the returned release ID, version, SHA and stage.
+
+Use the official `linear-release` when you need commit-range scanning, path/subject filters,
+revert detection, branch/PR attribution, and pipeline-key CI authentication. It can work alongside
+this CLI against the same pipeline; pass the same explicit release version. Native commands are
+useful for preparation, exact membership, management, inspection, and subsequent lifecycle steps.
+No Git attribution implementation or additional runtime dependency is duplicated here.
+
+Release notes can cover repeated `--release <id>` values, or an inclusive **createdAt** range using
+both `--from-release` and `--to-release`. These shapes are mutually exclusive and all releases must
+belong to the note's pipeline. `release-note update` changes title, Markdown or scope; delete needs
+confirmation (`--yes` noninteractively). Use `--body-file -` or `--description-file -` for stdin.
+List commands emit bare arrays, views and mutations emit objects, and errors remain JSON on stderr.
+`linear commands release sync --json` exposes options and output fields without credentials.
+Archive/trash operations and other advanced fields remain available through `linear api`.
+
 ## Command overview
 
 Every group has `--help` with full options and (for the busy ones) an Examples section. Aliases
@@ -537,6 +635,10 @@ are shown in parentheses. For a machine-readable tree of _every_ command, run
 | **`project-update`** (`pu`)    | `create` · `list` (project status updates, with `--health`)                                                                                                                                                                                                                                      |
 | **`milestone`** (`m`)          | `list` · `view` · `create` · `update` · `delete`                                                                                                                                                                                                                                                 |
 | **`cycle`** (`c`)              | `list` · `view` · `current` · `create` · `update`                                                                                                                                                                                                                                                |
+| **`release`**                  | `list` · `view` · `create` · `update` · `sync` · `update-version` · `complete` · `issues` · `links` · `add-issue` · `remove-issue`                                                                                                                                                               |
+| **`release-pipeline`**         | `list` · `view` · `create` · `update`                                                                                                                                                                                                                                                            |
+| **`release-stage`**            | `list` · `view` · `create` · `update`                                                                                                                                                                                                                                                            |
+| **`release-note`**             | `list` · `view` · `create` · `update` · `delete`                                                                                                                                                                                                                                                 |
 | **`user`** (`u`)               | `list` · `view` · `me`                                                                                                                                                                                                                                                                           |
 | **`label`** (`lb`)             | `list` · `create` · `update` · `delete`                                                                                                                                                                                                                                                          |
 | **`state`** (`st`)             | `list` · `view` (workflow states)                                                                                                                                                                                                                                                                |
@@ -595,6 +697,11 @@ resolver semantics are designed, rather than acquiring a silent partial implemen
 | `attachment list`                                      | `Issue.attachments`                           | yes            | not exposed                                    | not exposed                   |
 | `comment list`, `issue comment list`, `issue comments` | `Issue.comments`                              | yes            | not exposed                                    | not exposed                   |
 | `cycle list`, `team cycles`                            | `Team.cycles`                                 | yes            | not exposed                                    | not exposed                   |
+| `release list`                                         | `Query.releases`                              | yes            | `--include-archived`                           | `archivedAt`                  |
+| `release-pipeline list`                                | `Query.releasePipelines`                      | yes            | `--include-archived`                           | `archivedAt`                  |
+| `release-stage list`                                   | `ReleasePipeline.stages`                      | yes            | `--include-archived`                           | `archivedAt`                  |
+| `release-note list`                                    | `Query.releaseNotes`                          | yes            | `--include-archived`                           | `archivedAt`                  |
+| `release issues`, `release links`                      | `Release.issues/links`                        | yes            | not exposed                                    | not exposed                   |
 | `custom-view list`                                     | `Query.customViews`                           | yes            | not exposed                                    | `archivedAt`                  |
 | `custom-view results`                                  | `CustomView.issues/projects/initiatives`      | yes            | not exposed                                    | not exposed                   |
 | `document list`                                        | `Query.documents`                             | yes            | not exposed                                    | not exposed                   |

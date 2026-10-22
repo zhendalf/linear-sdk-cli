@@ -68,6 +68,16 @@ import {
 } from "../services/team.js";
 import { USER_DETAIL_SHAPE, USER_ROW_SHAPE } from "../services/user.js";
 import { WEBHOOK_DETAIL_SHAPE, WEBHOOK_ROW_SHAPE } from "../services/webhook.js";
+import {
+  RELEASE_ROW_SHAPE,
+  RELEASE_DETAIL_SHAPE,
+  PIPELINE_ROW_SHAPE,
+  STAGE_ROW_SHAPE,
+  NOTE_ROW_SHAPE,
+  NOTE_DETAIL_SHAPE,
+  RELEASE_ISSUE_SHAPE,
+  RELEASE_LINK_SHAPE,
+} from "../services/release.js";
 import type { UpdateRow } from "../lib/status-update.js";
 import type { SettingOrigin, SettingOrigins } from "../config.js";
 import type { CommandNode } from "./introspect.js";
@@ -311,6 +321,39 @@ const RAW_API: OutputShape = {
 // ---------------------------------------------------------------------------
 
 export const OUTPUT_SHAPES: Record<string, OutputShape | null> = {
+  release: null,
+  "release list": list(RELEASE_ROW_SHAPE),
+  "release view": object(RELEASE_DETAIL_SHAPE),
+  "release create": receipt(RELEASE_DETAIL_SHAPE),
+  "release update": receipt(RELEASE_DETAIL_SHAPE),
+  "release sync": receipt(RELEASE_DETAIL_SHAPE),
+  "release update-version": receipt(RELEASE_DETAIL_SHAPE),
+  "release complete": receipt(RELEASE_DETAIL_SHAPE),
+  "release issues": list(RELEASE_ISSUE_SHAPE),
+  "release links": list(RELEASE_LINK_SHAPE),
+  "release add-issue": receipt({
+    id: "string",
+    releaseId: "string",
+    issueId: "string",
+    identifier: "string",
+  }),
+  "release remove-issue": receipt({ releaseId: "string", issue: "string", removed: "boolean" }),
+  "release-pipeline": null,
+  "release-pipeline list": list(PIPELINE_ROW_SHAPE),
+  "release-pipeline view": object(PIPELINE_ROW_SHAPE),
+  "release-pipeline create": receipt(PIPELINE_ROW_SHAPE),
+  "release-pipeline update": receipt(PIPELINE_ROW_SHAPE),
+  "release-stage": null,
+  "release-stage list": list(STAGE_ROW_SHAPE),
+  "release-stage view": object(STAGE_ROW_SHAPE),
+  "release-stage create": receipt(STAGE_ROW_SHAPE),
+  "release-stage update": receipt(STAGE_ROW_SHAPE),
+  "release-note": null,
+  "release-note list": list(NOTE_ROW_SHAPE),
+  "release-note view": object(NOTE_DETAIL_SHAPE),
+  "release-note create": receipt(NOTE_DETAIL_SHAPE),
+  "release-note update": receipt(NOTE_DETAIL_SHAPE),
+  "release-note delete": receipt({ id: "string", deleted: "boolean" }),
   api: RAW_API,
 
   changelog: list({

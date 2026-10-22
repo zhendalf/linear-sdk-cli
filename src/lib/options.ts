@@ -359,6 +359,16 @@ export function addGlobalOptions(program: Command): Command {
 
 /** Commands whose output `--fields` projects: everything that renders a table or a detail block. */
 export const FIELDS_COMMANDS: ReadonlySet<string> = new Set([
+  "release list",
+  "release view",
+  "release issues",
+  "release links",
+  "release-pipeline list",
+  "release-pipeline view",
+  "release-stage list",
+  "release-stage view",
+  "release-note list",
+  "release-note view",
   "whoami",
   "auth whoami",
   "auth status",
@@ -424,6 +434,12 @@ export const FIELDS_COMMANDS: ReadonlySet<string> = new Set([
 
 /** Commands with bounded lists: `--limit <n>` caps them, `--all` (or `--limit 0`) exhausts them. */
 export const LIMIT_COMMANDS: ReadonlySet<string> = new Set([
+  "release list",
+  "release issues",
+  "release links",
+  "release-pipeline list",
+  "release-stage list",
+  "release-note list",
   "changelog",
   "attachment list",
   "comment list",
@@ -501,6 +517,8 @@ export const TEAM_COMMANDS: ReadonlySet<string> = new Set([
 
 /** Commands whose confirmation prompt is bypassed by `--yes`. */
 export const YES_COMMANDS: ReadonlySet<string> = new Set([
+  "release remove-issue",
+  "release-note delete",
   "attachment delete",
   "auth logout",
   "comment delete",

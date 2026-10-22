@@ -335,6 +335,40 @@ Lead with these two machine-readable commands:
   grep -n 'type Issue ' "${TMPDIR:-/tmp}/linear.graphql"
   ```
 
+### Releases and CI
+
+Use `release-pipeline list`, `release-stage list <pipeline>`, and `release list --pipeline <id|slug>`
+to inspect releases. Pipeline/release lookups accept UUIDs or API slugs, not display names.
+Releases require Business/Enterprise; successful schema introspection or an empty list does not
+prove mutation permission or plan eligibility. Preserve `feature_not_accessible`/`forbidden` errors.
+
+Native commands use ordinary CLI OAuth/API credentials. Pipeline access keys and
+`LINEAR_ACCESS_KEY` belong to the official [linear-release](https://github.com/linear/linear-release)
+CI tool; this CLI does not consume them or install/invoke that tool. Use the official tool for Git
+scanning, path filtering, revert handling and PR attribution. Native `release sync` takes explicit
+`--issue KEY-123[=FULL_SHA]` references and never scans the checkout.
+
+For scheduled releases, prepare with `release create --pipeline <id> --name <name>
+--release-version <version> --commit-sha <full-sha> --stage <planned-stage-id>`. Set exact membership
+with `release add-issue <release-id> <issue>`. `release update <id> --stage <stage-id>` edits an exact
+release; `release update-version --pipeline <id> --release-version <version> --stage <name>` can
+also attach repeated `--link Label=URL`. Freeze a started stage with `release-stage update <id>
+--frozen true` to exclude its releases from automated sync, while keeping one started stage unfrozen.
+
+`sync`, `update-version` and `complete` require a pipeline AND version; no latest fallback is used.
+Scheduled sync can label an unversioned started release or create a release; continuous sync creates
+a completed release immediately. Synced references accumulate; omission does not remove issues.
+Use `--reverted-issue` or `release remove-issue <id> <issue> --yes` for explicit removal.
+Complete only after separately authorized deployment/verification/observation gates pass. Completion
+and transitions to a completed stage may move open issues into another release according to the
+pipeline's rollover setting. `complete --commit-sha` preserves an existing SHA when targeting a
+version: set/verify it using create/update first. No command deploys code or proves verification.
+
+`release-note create --pipeline <id> --release <id> --body-file <path>` supports repeated release
+IDs or a paired `--from-release`/`--to-release` inclusive createdAt range, all in the same pipeline.
+Use file/stdin body input, inspect `release-note view`, and keep release-note deletion confirmation
+and exact membership removal explicit. Archive/trash and advanced operations remain under `api`.
+
 ## Available commands
 
 Generated from `linear commands --json` (run `bun run skill:docs` to refresh):
@@ -516,6 +550,38 @@ linear project-update
 linear project-update create
 linear project-update list
 
+linear release
+linear release add-issue
+linear release complete
+linear release create
+linear release issues
+linear release links
+linear release list
+linear release remove-issue
+linear release sync
+linear release update
+linear release update-version
+linear release view
+
+linear release-note
+linear release-note create
+linear release-note delete
+linear release-note list
+linear release-note update
+linear release-note view
+
+linear release-pipeline
+linear release-pipeline create
+linear release-pipeline list
+linear release-pipeline update
+linear release-pipeline view
+
+linear release-stage
+linear release-stage create
+linear release-stage list
+linear release-stage update
+linear release-stage view
+
 linear roadmap
 linear roadmap create
 linear roadmap delete
@@ -588,6 +654,10 @@ prints the same). These are supplementary — `--help` on any command is authori
 - [project-label](references/project-label.md) — Manage project labels (distinct from issue labels)
 - [project-status](references/project-status.md) — Manage workspace project-status definitions
 - [project-update](references/project-update.md) — Post and list project status updates
+- [release](references/release.md) — Track releases, lifecycle and issue membership
+- [release-pipeline](references/release-pipeline.md) — Manage release pipelines
+- [release-stage](references/release-stage.md) — Manage release stages and freezing
+- [release-note](references/release-note.md) — Manage Markdown release notes
 - [roadmap](references/roadmap.md) — Work with roadmaps
 - [schema](references/schema.md) — Print the Linear GraphQL schema as SDL
 - [state](references/state.md) — Inspect workflow states

@@ -62,6 +62,32 @@ const CURATED: Record<string, string[]> = {
     "deleteProjectMilestone",
   ],
   cycle: ["cycles", "cycle", "createCycle", "updateCycle"],
+  // Tailored GraphQL projections through the SDK transport cover these capabilities.
+  release: [
+    "release",
+    "releases",
+    "createRelease",
+    "updateRelease",
+    "releaseSync",
+    "releaseComplete",
+    "releaseUpdateByPipeline",
+    "createIssueToRelease",
+    "issueToReleaseDeleteByIssueAndRelease",
+  ],
+  "release-pipeline": [
+    "releasePipeline",
+    "releasePipelines",
+    "createReleasePipeline",
+    "updateReleasePipeline",
+  ],
+  "release-stage": ["releaseStage", "createReleaseStage", "updateReleaseStage"],
+  "release-note": [
+    "releaseNote",
+    "releaseNotes",
+    "createReleaseNote",
+    "updateReleaseNote",
+    "deleteReleaseNote",
+  ],
   // phase 3 — users, labels, workflow states, comments, documents, attachments, favorites
   // (viewer is already curated under `meta`; createComment under `issue` — not duplicated here)
   user: ["users", "user"],
@@ -149,6 +175,9 @@ const EXCLUDED: Array<{ pattern: RegExp; reason: string }> = [
 
 /** Curated schema fields that are not separately enumerable LinearClient members. */
 const CURATED_FIELD_CAPABILITIES = [
+  "Release projections — `ReleasePipeline.stages`, `Release.issues/links`, and release-note " +
+    "document content are selected through the authenticated SDK GraphQL transport, with stable " +
+    "command JSON shapes and offline schema validation.",
   "Issue delegation (Developer Preview) — `Issue.delegate`, `IssueCreateInput.delegateId`, " +
     "`IssueUpdateInput.delegateId`, and eligible agent-user fields are covered by `issue delegate` " +
     "and the delegation options on `issue create`/`issue update`.",
