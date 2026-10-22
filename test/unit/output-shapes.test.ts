@@ -68,6 +68,10 @@ const DRIVES: Record<string, Drive> = {
   "auth login": { args: [], skip: "validates the key with a fresh LinearClient (network)" },
   "auth logout": { args: ["acme", "--yes"] },
   "auth migrate": { args: [], skip: "requires an available OS keyring" },
+  "auth rename": {
+    args: ["old", "new"],
+    skip: "validates the stored key with a fresh LinearClient (network)",
+  },
   "auth status": { args: [], nullOk: ["scopes"] },
   "auth token": { args: [] },
   "auth whoami": { args: [], nullOk: ["authorization.scopes"] },

@@ -958,6 +958,246 @@ function workspacesTable(obj: Record<string, unknown>): Record<string, Workspace
   return obj.workspaces as Record<string, WorkspaceTable>;
 }
 
+interface ProfileRename {
+  from: string;
+  to: string;
+  phase: "prepared" | "committed";
+  keyring: boolean;
+}
+
+export interface RenameProfileResult {
+  path: string;
+  storage: CredentialStorage;
+  team: string | null;
+  defaultWorkspace: string | null;
+  referenceCredentialsPath: string | null;
+}
+
+/**
+ * Move an API-key profile without login/logout or revocation. The private config
+ * contains a non-secret recovery marker until all stores agree. Copy, verify,
+ * commit metadata, update the shared reference list, then delete the old secret.
+ * Retrying the same command resumes an interrupted operation; never overwrite a
+ * destination belonging to another operation, even when its key happens to match.
+ * OAuth lifecycles are deliberately excluded (including dormant fallback records).
+ */
+export async function renameApiKeyProfile(
+  from: string,
+  to: string,
+  validate: (apiKey: string) => Promise<void>,
+): Promise<RenameProfileResult> {
+  const slugPattern = /^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$/;
+  if (!slugPattern.test(from) || !slugPattern.test(to) || from === to)
+    throw new CliError("Pass two different lowercase Linear workspace URL slugs.", "usage");
+  const path = userConfigPath();
+  const referencePath = referenceCredentialsPath();
+  const lock = acquireUserConfigLock(path);
+  const retry = `linear auth rename ${from} ${to}`;
+  let started = false;
+  let step = "save the recovery marker in the private user config";
+  try {
+    const obj = readUserObject(path);
+    const ws = workspacesTable(obj);
+    const pending = obj.api_key_profile_rename as ProfileRename | undefined;
+    if (
+      pending &&
+      (pending.from !== from ||
+        pending.to !== to ||
+        !["prepared", "committed"].includes(pending.phase) ||
+        typeof pending.keyring !== "boolean")
+    )
+      throw new CliError(
+        "Another profile rename is pending. Complete the original `auth rename <old-slug> <new-slug>` command first (see api_key_profile_rename in the private user config).",
+        "usage",
+      );
+    const user = readUserConfig(path);
+    if (
+      (pending?.phase === "prepared" && Object.hasOwn(ws, to)) ||
+      (pending?.phase === "committed" && Object.hasOwn(ws, from))
+    )
+      throw new CliError(
+        "Profile metadata conflicts with the pending rename. No credentials were removed.",
+        "runtime",
+      );
+    const selected = pending?.phase === "committed" ? to : from;
+    const entry = user.workspaces[selected];
+    if (!entry || !Object.hasOwn(user.workspaces, selected))
+      throw new CliError(`Workspace '${selected}' is not configured.`, "not_found");
+    if (entry.oauth || entry.app || entry.appFileCredential !== undefined)
+      throw new CliError(
+        "`auth rename` supports API-key profiles only. OAuth user sessions rotate refresh tokens; OAuth app profiles bind organization identity and acquire scoped tokens. Neither lifecycle is migrated by this command. Credentials and grants were left unchanged.",
+        "usage",
+      );
+    if (!pending && Object.hasOwn(user.workspaces, to))
+      throw new CliError(
+        `Destination workspace '${to}' is already configured. Nothing changed.`,
+        "usage",
+      );
+
+    const backend = keyring();
+    const readAccount = (account: string): string | null => {
+      try {
+        return backend?.get(account) ?? null;
+      } catch {
+        throw new CliError(
+          "Could not inspect the system keyring. No credentials were removed.",
+          "runtime",
+        );
+      }
+    };
+    // Probe exact names, including unlisted destinations and inactive OAuth records.
+    for (const slug of [from, to]) {
+      if (readAccount(oauthAccount(slug)) !== null || readAccount(`app:${slug}`) !== null)
+        throw new CliError(
+          `Workspace '${slug}' has an OAuth keyring record. API-key-only rename cannot move or replace it. Credentials and grants were left unchanged.`,
+          "usage",
+        );
+    }
+    const oldKey = readAccount(from);
+    const destinationKey = readAccount(to);
+    if (!pending && destinationKey !== null)
+      throw new CliError(
+        `Destination '${to}' already exists in the system keyring. Nothing changed.`,
+        "usage",
+      );
+    const apiKey = entry.apiKey ?? (selected === from ? oldKey : destinationKey);
+    if (!apiKey)
+      throw new CliError(
+        "The selected stored API key is unavailable. No credentials were removed.",
+        "auth",
+      );
+    if (
+      (oldKey !== null && oldKey !== apiKey) ||
+      (destinationKey !== null && destinationKey !== apiKey)
+    )
+      throw new CliError(
+        "A rename credential changed or conflicts with the stored profile. No credentials were removed.",
+        "runtime",
+      );
+    const movesKeyring = pending?.keyring ?? oldKey !== null;
+    if (pending && !movesKeyring && (oldKey !== null || destinationKey !== null))
+      throw new CliError(
+        "Credential storage changed since this rename started. No credentials were removed.",
+        "runtime",
+      );
+    if (movesKeyring && !backend)
+      throw new CliError(
+        "The original system keyring is required to complete this rename.",
+        "runtime",
+      );
+    if (movesKeyring && !backend?.create)
+      throw new CliError(
+        "This keyring has no atomic create-only operation, so API-key profile rename is unsupported for its stored entries. macOS Keychain and file-only profiles are supported. No credentials were changed.",
+        "runtime",
+      );
+    if (pending?.phase === "prepared" && movesKeyring && oldKey === null)
+      throw new CliError(
+        "The original keyring entry is missing. Restore it before retrying the rename.",
+        "runtime",
+      );
+
+    // API keys have no historical organization-ID binding. The exact stored key,
+    // never an invocation override, proves its organization and current URL slug.
+    const configBefore = existsSync(path) ? readFileSync(path, "utf8") : null;
+    const referenceBefore = existsSync(referencePath) ? readFileSync(referencePath, "utf8") : null;
+    await validate(apiKey);
+    if (
+      (existsSync(path) ? readFileSync(path, "utf8") : null) !== configBefore ||
+      (existsSync(referencePath) ? readFileSync(referencePath, "utf8") : null) !==
+        referenceBefore ||
+      readAccount(from) !== oldKey ||
+      readAccount(to) !== destinationKey ||
+      [from, to].some(
+        (slug) => readAccount(oauthAccount(slug)) !== null || readAccount(`app:${slug}`) !== null,
+      )
+    )
+      throw new CliError(
+        "Profile storage changed during validation. Retry the rename; no credentials were removed.",
+        "runtime",
+      );
+
+    const state: ProfileRename = pending ?? { from, to, phase: "prepared", keyring: movesKeyring };
+    started = true;
+    if (!pending) {
+      obj.api_key_profile_rename = state;
+      writeUserObject(path, obj);
+    }
+    if (state.phase === "prepared") {
+      if (movesKeyring) {
+        step = "copy and verify the destination API key in the system keyring";
+        // A prior prepared attempt may already have copied this exact key.
+        // Otherwise the backend itself must reject a concurrent destination.
+        if (destinationKey === null) backend!.create!(to, apiKey);
+        if (readAccount(to) !== apiKey) throw new Error("Keyring copy could not be verified");
+      }
+      ws[to] = { ...(ws[from] ?? {}) };
+      if (!entry.apiKey) ws[to]!.keyring = true;
+      delete ws[from];
+      if (user.defaultWorkspace === from) obj.default_workspace = to;
+      if (obj.workspace === from) obj.workspace = to;
+      obj.api_key_profile_rename = { ...state, phase: "committed" };
+      step = "commit the renamed profile in the private user config";
+      writeUserObject(path, obj);
+    }
+
+    // Preserve unknown reference settings. Its inline-key format is never read
+    // as a credential source and must never be rewritten as a workspace list.
+    let updatedReference: string | null = null;
+    const reference = readReferenceCredentials(referencePath);
+    if (reference.workspaces.includes(from)) {
+      const referenceObj = readUserObject(referencePath);
+      referenceObj.workspaces = [
+        ...new Set(reference.workspaces.map((s) => (s === from ? to : s))),
+      ];
+      if (referenceObj.default === from) referenceObj.default = to;
+      step = "update the reference CLI's shared credentials list";
+      writeUserObject(referencePath, referenceObj);
+      updatedReference = referencePath;
+    }
+    if (movesKeyring) {
+      step = "remove the old API-key entry from the system keyring";
+      if (
+        readAccount(to) !== apiKey ||
+        (readAccount(from) !== null && readAccount(from) !== apiKey)
+      )
+        throw new Error("Keyring changed before cleanup");
+      backend!.delete(from);
+      if (readAccount(from) !== null) throw new Error("Old keyring entry remains");
+    }
+    step = "clear the recovery marker in the private user config";
+    delete obj.api_key_profile_rename;
+    writeUserObject(path, obj);
+    return {
+      path,
+      storage: entry.apiKey ? "file" : "keychain",
+      team: asString(ws[to]?.team) ?? null,
+      defaultWorkspace:
+        asString(obj.default_workspace) ??
+        (reference.defaultWorkspace === from ? to : reference.defaultWorkspace) ??
+        null,
+      referenceCredentialsPath: updatedReference,
+    };
+  } catch (err) {
+    if (!started) throw err;
+    // Store errors may contain secrets. Keep a stable recovery instruction and
+    // retain the marker; at least one validated copy always precedes deletion.
+    throw new CliError(
+      `Profile rename is incomplete: could not ${step}. No grant was revoked. A credential copy is retained under '${from}' or '${to}'. Rerun \`${retry}\` to resume; do not log out either profile during recovery.`,
+      "runtime",
+    );
+  } finally {
+    releaseLockMarker(lock);
+  }
+}
+
+/** Read-only report: discovery is bounded to cwd plus explicitly supplied files. */
+export function profileRenameProjectUpdates(from: string, to: string, paths: string[]) {
+  return [...new Set(paths)].flatMap((path) => {
+    const { settings } = readTomlFile(path);
+    return settings.workspace === from ? [{ path, key: "workspace", from, to }] : [];
+  });
+}
+
 export interface WriteCredentialResult {
   /** Our config file — always written (the slug list lives there). */
   path: string;

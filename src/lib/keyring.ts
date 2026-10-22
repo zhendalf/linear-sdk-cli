@@ -35,6 +35,8 @@ export interface KeyringBackend {
   get(account: string): string | null;
   /** Create or replace the entry. */
   set(account: string, secret: string): void;
+  /** Atomically create a new entry, failing if it exists. Absent when unsupported. */
+  create?(account: string, secret: string): void;
   /** Remove the entry. Returns false when there was none. */
   delete(account: string): boolean;
 }
@@ -118,6 +120,26 @@ export const macosKeychain: KeyringBackend = {
     }
   },
 
+  create(account, secret) {
+    // Omitting -U makes the Keychain enforce uniqueness at insertion time.
+    // Keep the credential on stdin, just like set(), but never replace a racer.
+    const line =
+      [
+        "add-generic-password",
+        "-a",
+        quoteForSecurity(account, "workspace slug"),
+        "-s",
+        KEYRING_SERVICE,
+        "-w",
+        quoteForSecurity(secret, "API key"),
+      ].join(" ") + "\n";
+    const result = runSecurity(["-i"], line);
+    if (result.status !== 0)
+      throw new KeyringError(
+        "Could not create the destination keychain entry; it may already exist or the keychain is unavailable.",
+      );
+  },
+
   delete(account) {
     const r = runSecurity(["delete-generic-password", "-a", account, "-s", KEYRING_SERVICE]);
     if (r.status === 0) return true;
@@ -145,6 +167,8 @@ function runSecretTool(args: string[], input?: string) {
 export const linuxSecretService: KeyringBackend = {
   name: "secret-service",
   label: "system keyring (Secret Service)",
+  // secret-tool store replaces matching items and exposes no atomic create-only
+  // operation. Deliberately omit create rather than emulate it with get + set.
 
   get(account) {
     const r = runSecretTool(["lookup", "service", KEYRING_SERVICE, "account", account]);
@@ -265,6 +289,10 @@ export function memoryKeyring(initial: Record<string, string> = {}): KeyringBack
     store,
     get: (a) => store.get(a) ?? null,
     set: (a, s) => void store.set(a, s),
+    create: (a, s) => {
+      if (store.has(a)) throw new KeyringError("Destination keyring entry already exists.");
+      store.set(a, s);
+    },
     delete: (a) => store.delete(a),
   };
 }

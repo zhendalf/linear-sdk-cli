@@ -1,6 +1,6 @@
 /**
  * Top-level meta commands: whoami, auth (login/list/default/token/status/
- * logout/migrate), config.
+ * logout/rename/migrate), config.
  */
 
 import { Command } from "commander";
@@ -20,6 +20,8 @@ import {
   readOAuthCredential,
   writeOAuthCredential,
   migrateCredentials,
+  renameApiKeyProfile,
+  profileRenameProjectUpdates,
   redactKey,
   resolveConfig,
   defaultProjectConfigPath,
@@ -628,6 +630,80 @@ export function registerMeta(program: Command): void {
         if (c.apiKeySource === "user" && backend && !ctx.output.json) {
           ctx.output.info(`Run \`linear auth migrate\` to move it into the ${backend.label}.`);
         }
+      }),
+    );
+
+  // rename ------------------------------------------------------------------
+  auth
+    .command("rename <old-slug> <new-slug>")
+    .description("Rename a stored API-key profile after its Linear workspace URL slug changes")
+    .option(
+      "--project-config <paths...>",
+      "also inspect these project configs for old workspace selectors (read-only)",
+    )
+    .addHelpText(
+      "after",
+      `
+Validates the exact stored API key against the current Linear workspace slug.
+Preserves the key, profile team, user workspace/default, and shared keyring list.
+Refuses configured or unlisted keyring destinations; never overwrites or revokes.
+Keyring moves require atomic create-only support (macOS Keychain). Linux Secret
+Service entries are refused; file-only API-key profiles are supported.
+An interrupted rename can be resumed by repeating the same command.
+OAuth user/app profiles are not supported; their credentials and grants stay unchanged.
+Project files are never edited. Reports the discovered project config and any
+--project-config paths needing updates; other repositories must be checked separately.
+Example: linear auth rename old-workspace new-workspace --json`,
+    )
+    .action(
+      action(async (ctx: Context, opts, oldSlug: string, newSlug: string) => {
+        const from = explicitWorkspaceSlug(oldSlug);
+        const to = explicitWorkspaceSlug(newSlug);
+        if (ctx.options.workspace && ctx.options.workspace !== from)
+          throw usageError("--workspace must match <old-slug> when renaming a profile.");
+        if (ctx.options.apiKey || ctx.options.accessToken)
+          throw usageError(
+            "`auth rename` uses only the named stored profile; remove credential flags.",
+          );
+        const checkedProjectConfigs = [
+          ...new Set([
+            ...(ctx.config.projectConfigPath ? [ctx.config.projectConfigPath] : []),
+            ...(opts.projectConfig ?? []).map((path: string) => resolve(path)),
+          ]),
+        ] as string[];
+        const projectConfigUpdates = profileRenameProjectUpdates(from, to, checkedProjectConfigs);
+        const globalConfigUpdates = profileRenameProjectUpdates(
+          from,
+          to,
+          ctx.config.globalConfigPath ? [ctx.config.globalConfigPath] : [],
+        );
+        let organization: AuthIdentity["organization"] | undefined;
+        const saved = await renameApiKeyProfile(from, to, async (key) => {
+          organization = (await validateAuthCredential(key, to)).organization;
+        });
+        const otherProjects = `Update workspace = "${from}" to "${to}" in other project configs and LINEAR_WORKSPACE overrides. Only the listed project paths were checked.`;
+        ctx.output.emit(
+          {
+            success: true,
+            from,
+            workspace: to,
+            credentialType: "api-key",
+            organization: organization!,
+            ...saved,
+            checkedProjectConfigs,
+            projectConfigUpdates,
+            globalConfigUpdates,
+            otherProjects,
+          },
+          () => {
+            ctx.output.success(
+              `Renamed API-key profile '${from}' to '${to}'. Credential preserved; no grant revoked.`,
+            );
+            for (const update of [...projectConfigUpdates, ...globalConfigUpdates])
+              ctx.output.info(`Update ${update.path}: workspace = "${to}" (currently "${from}").`);
+            ctx.output.info(otherProjects);
+          },
+        );
       }),
     );
 
