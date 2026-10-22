@@ -4,6 +4,13 @@ Release Please generates this file from Conventional Commits. Feature and fix pu
 not edit it directly; their squash-commit titles are the release-note source of truth. This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0](https://github.com/zhendalf/linear-sdk-cli/compare/v0.8.3...v0.9.0) (2026-10-22)
+
+### Features
+
+- add native release commands and folder project defaults ([#97](https://github.com/zhendalf/linear-sdk-cli/issues/97)) ([e382f52](https://github.com/zhendalf/linear-sdk-cli/commit/e382f52a8146ede0d9268d6c6aa557f9836e9274))
+- **auth:** add resumable workspace API-key profile rename ([#95](https://github.com/zhendalf/linear-sdk-cli/issues/95)) ([9297b16](https://github.com/zhendalf/linear-sdk-cli/commit/9297b16e00928441124bffe291a0567e86c59f09))
+
 ## [0.8.3](https://github.com/zhendalf/linear-sdk-cli/compare/v0.8.2...v0.8.3) (2026-10-19)
 
 ### Bug Fixes
