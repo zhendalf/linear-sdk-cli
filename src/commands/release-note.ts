@@ -58,7 +58,9 @@ export function registerReleaseNote(program: Command): void {
     .requiredOption("--pipeline <id|slug>", "pipeline UUID or slug")
     .action(
       action(async (ctx, opts) => {
-        const n = await svc.createNote(ctx.client, opts.pipeline, noteInput(opts));
+        const input = noteInput(opts);
+        svc.validateNoteScope(input, true);
+        const n = await svc.createNote(ctx.client, opts.pipeline, input);
         ctx.output.emit(n, () => ctx.output.success(`Created release note ${n.id}`));
       }),
     );
@@ -68,7 +70,9 @@ export function registerReleaseNote(program: Command): void {
       .description("Update a note's title, Markdown, or covered releases"),
   ).action(
     action(async (ctx, opts, id: string) => {
-      const n = await svc.updateNote(ctx.client, id, noteInput(opts));
+      const input = noteInput(opts);
+      svc.validateNoteScope(input, false);
+      const n = await svc.updateNote(ctx.client, id, input);
       ctx.output.emit(n, () => ctx.output.success(`Updated release note ${n.id}`));
     }),
   );

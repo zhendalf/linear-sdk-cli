@@ -554,7 +554,8 @@ export interface NoteInput {
   rangeFromReleaseId?: string;
   rangeToReleaseId?: string;
 }
-function validateNoteScope(input: NoteInput, required: boolean): void {
+/** Validate scope before command handlers obtain an authenticated client. */
+export function validateNoteScope(input: NoteInput, required: boolean): void {
   const explicit = input.releaseIds !== undefined;
   const range = input.rangeFromReleaseId !== undefined || input.rangeToReleaseId !== undefined;
   if (explicit && range)

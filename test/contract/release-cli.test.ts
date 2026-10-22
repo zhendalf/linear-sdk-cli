@@ -288,8 +288,8 @@ describe("native Releases CLI contract", () => {
     const result = spawnSync(
       "bun",
       [
-        "run",
-        "src/bin/linear.ts",
+        "--no-env-file",
+        join(import.meta.dir, "..", "..", "src", "bin", "linear.ts"),
         "release-note",
         "create",
         "--pipeline",
@@ -298,10 +298,62 @@ describe("native Releases CLI contract", () => {
         "-",
         "--json",
       ],
-      { encoding: "utf8", input: "# Notes\n\nBody\n" },
+      {
+        encoding: "utf8",
+        input: "# Notes\n\nBody\n",
+        cwd: dir,
+        env: {
+          PATH: process.env.PATH,
+          HOME: dir,
+          XDG_CONFIG_HOME: join(dir, "config"),
+          NO_COLOR: "1",
+        },
+      },
     );
     expect(result.status).toBe(2);
     expect(result.stdout).toBe("");
     expect(JSON.parse(result.stderr).error.message).toContain("Provide --release");
+  });
+  it("validates incomplete note ranges before authentication for create and update", () => {
+    for (const command of [
+      ["create", "--pipeline", ID],
+      ["update", ID],
+    ]) {
+      for (const endpoint of ["--from-release", "--to-release"]) {
+        const result = spawnSync(
+          "bun",
+          [
+            "--no-env-file",
+            join(import.meta.dir, "..", "..", "src", "bin", "linear.ts"),
+            "release-note",
+            ...command,
+            endpoint,
+            ID,
+            "--body-file",
+            "-",
+            "--json",
+          ],
+          {
+            encoding: "utf8",
+            input: "# Notes\n",
+            cwd: dir,
+            env: {
+              PATH: process.env.PATH,
+              HOME: dir,
+              XDG_CONFIG_HOME: join(dir, "config"),
+              NO_COLOR: "1",
+            },
+          },
+        );
+        expect(result.status).toBe(2);
+        expect(result.stdout).toBe("");
+        expect(JSON.parse(result.stderr)).toMatchObject({
+          error: {
+            code: "usage",
+            message: "--from-release and --to-release must be provided together.",
+          },
+        });
+      }
+    }
   });
 });
