@@ -4,6 +4,13 @@ Release Please generates this file from Conventional Commits. Feature and fix pu
 not edit it directly; their squash-commit titles are the release-note source of truth. This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1](https://github.com/zhendalf/linear-sdk-cli/compare/v0.9.0...v0.9.1) (2026-10-22)
+
+
+### Bug Fixes
+
+* **auth:** default to personal API-key login ([#98](https://github.com/zhendalf/linear-sdk-cli/issues/98)) ([0d57f7c](https://github.com/zhendalf/linear-sdk-cli/commit/0d57f7c741bc5e9099787271cde16f436cb21f13))
+
 ## [0.9.0](https://github.com/zhendalf/linear-sdk-cli/compare/v0.8.3...v0.9.0) (2026-10-22)
 
 ### Features
