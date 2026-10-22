@@ -1101,7 +1101,10 @@ export async function renameApiKeyProfile(
       (existsSync(referencePath) ? readFileSync(referencePath, "utf8") : null) !==
         referenceBefore ||
       readAccount(from) !== oldKey ||
-      readAccount(to) !== destinationKey
+      readAccount(to) !== destinationKey ||
+      [from, to].some(
+        (slug) => readAccount(oauthAccount(slug)) !== null || readAccount(`app:${slug}`) !== null,
+      )
     )
       throw new CliError(
         "Profile storage changed during validation. Retry the rename; no credentials were removed.",

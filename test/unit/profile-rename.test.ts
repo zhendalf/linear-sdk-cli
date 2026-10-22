@@ -196,11 +196,13 @@ describe("API-key profile rename", () => {
     expect(backend.store).toEqual(new Map([["old", secret]]));
   });
 
-  for (const change of ["keyring", "config", "reference"]) {
+  for (const change of ["keyring", "config", "reference", "oauth", "app"]) {
     it(`detects a concurrent ${change} change during validation`, async () => {
       await expect(
         renameApiKeyProfile("old", "new", async () => {
           if (change === "keyring") backend.store.set("old", "changed-secret");
+          if (change === "oauth") backend.store.set("oauth:new", "new-oauth-secret");
+          if (change === "app") backend.store.set("app:new", "new-app-secret");
           if (change === "config") fs.appendFileSync(userConfigPath(), 'extra = "changed"\n');
           if (change === "reference")
             fs.writeFileSync(referenceCredentialsPath(), 'workspaces = ["other"]\n');
