@@ -76,7 +76,7 @@ export function enrichAuthorizationError(error: unknown, config: ResolvedConfig)
   const capabilities = authorizationCapabilities(config);
   const remediation =
     capabilities.credentialType === "oauth-user"
-      ? "Re-authenticate with `linear auth login --admin`; member admin status alone is insufficient."
+      ? "Create a personal API key with admin permission in Linear's Security & Access settings, then run `linear auth login`; member admin status alone is insufficient."
       : "Use a credential authorized for the admin scope; member admin status alone is insufficient.";
   return new CliError(
     normalized.message,

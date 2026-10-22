@@ -14,10 +14,10 @@
  *  - Authentication secrets have a STRICTER boundary and are never read from a project file
  *    or from the reference CLI's global file (avoids committing secrets):
  *    Explicit `--access-token` / `--api-key` flags override their environment counterparts.
- *    Invocation OAuth access tokens are stateless (`LINEAR_ACCESS_TOKEN` only). Human browser
- *    OAuth sessions, app client credentials, and API keys may come from the OS keyring.
- *    App credentials require explicit --plaintext to use a private user config file;
- *    browser OAuth stays keyring-only. Environment client credentials stay invocation-scoped.
+ *    Invocation OAuth access tokens are stateless (`LINEAR_ACCESS_TOKEN` / --access-token).
+ *    Existing OAuth user sessions, app client credentials, and API keys may come from the OS keyring.
+ *    New login requires explicit --plaintext to use a private user config file;
+ *    existing browser OAuth stays keyring-only. Environment client credentials stay invocation-scoped.
  *    A project `workspace` may select which already-stored credential to use;
  *    it can never provide or override the secret itself.
  *
@@ -1443,7 +1443,7 @@ export function writeOAuthCredential(credential: OAuthUserCredential): WriteOAut
   const backend = keyring();
   if (!backend) {
     throw new CliError(
-      "Browser OAuth requires a usable system keyring; use `linear auth login --key -` on this platform.",
+      "Stored OAuth sessions require a usable system keyring; use `linear auth login --key - --plaintext` for a personal API key on this platform.",
       "runtime",
     );
   }
@@ -1540,7 +1540,7 @@ export function probeKeyringCredential(slug: string): KeyringCredentialProbe {
   const backend = keyring();
   if (!backend) {
     throw new CliError(
-      `No usable system keyring is available, so workspace '${sanitize(slug)}' cannot be adopted. Run \`linear auth login --key -\` to read the key from stdin instead.`,
+      `No usable system keyring is available, so workspace '${sanitize(slug)}' cannot be adopted. Run \`linear auth login --key - --plaintext\` to read the key from stdin into the private user config instead.`,
       "runtime",
     );
   }

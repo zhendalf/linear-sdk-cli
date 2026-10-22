@@ -18,7 +18,6 @@ import {
   setDefaultWorkspace,
   listCredentials,
   readOAuthCredential,
-  writeOAuthCredential,
   migrateCredentials,
   renameApiKeyProfile,
   profileRenameProjectUpdates,
@@ -35,12 +34,11 @@ import {
 import { keyring } from "../lib/keyring.js";
 import { readStdinSync } from "../lib/body.js";
 import { CliError, authError, normalizeError, usageError } from "../lib/errors.js";
-import { confirmDestructive, promptSelect } from "../lib/prompt.js";
+import { confirmDestructive, promptSecret, promptSelect } from "../lib/prompt.js";
 import { listTeams } from "../services/team.js";
 import { resolveTeam } from "../lib/resolve.js";
 import { ISSUE_SORTS } from "../services/issue.js";
 import { firstTeam, type Context } from "../context.js";
-import { openUrl } from "../lib/open.js";
 import {
   authorizationCapabilities,
   credentialType as resolvedCredentialType,
@@ -48,18 +46,8 @@ import {
 import {
   ClientCredentialsTokenProvider,
   clientCredentialsScopes,
-  DEFAULT_OAUTH_SCOPES,
-  buildAuthorizationUrl,
-  createPkceRequest,
-  exchangeAuthorizationCode,
   revokeOAuthToken,
-  startLoopbackCallback,
-  type OAuthUserCredential,
 } from "../oauth.js";
-
-export const DEFAULT_OAUTH_REDIRECT_URI = "http://127.0.0.1:43821/oauth/callback";
-/** Public PKCE client identity. This is not a credential; no client secret is shipped or used. */
-export const DEFAULT_OAUTH_CLIENT_ID = "eda60862e4bb8b8af82cfb3193b65c2f";
 
 /**
  * The `whoami` handler, shared by the top-level `linear whoami` and the
@@ -231,17 +219,14 @@ export function registerMeta(program: Command): void {
   // login -------------------------------------------------------------------
   auth
     .command("login")
-    .description("Authenticate and select the workspace for this project")
+    .description("Sign in with a personal API key (default) or app credentials")
     .option("--no-project", "save credentials without changing the project workspace")
     .option("--key <key>", "use a personal API key ('-' reads it from stdin)")
     .option(
       "--plaintext",
       "Store API-key or app credentials in the private user config file (0600)",
     )
-    .option("--no-browser", "print the authorization URL instead of opening it")
-    .option("--read-only", "request read-only OAuth access")
-    .option("--admin", "explicitly add the OAuth admin scope")
-    .option("--timeout <seconds>", "seconds to wait for the loopback callback", "120")
+    .option("--read-only", "request read-only access with --app")
     .option("--app", "sign in as an app using client credentials")
     .option("--client-credentials", "alias for --app")
     .option("--scope <scopes>", "comma-separated app scopes (default: read,write)")
@@ -249,30 +234,18 @@ export function registerMeta(program: Command): void {
       "--client-secret <secret>",
       "app client secret ('-' reads stdin; defaults to LINEAR_CLIENT_SECRET)",
     )
-    .option(
-      "--client-id <id>",
-      "OAuth client ID (app: LINEAR_CLIENT_ID; browser: packaged CLI app)",
-    )
-    .option("--redirect-uri <uri>", "registered HTTP loopback callback URI")
+    .option("--client-id <id>", "app client ID (defaults to LINEAR_CLIENT_ID)")
     .action(
       action(async (ctx: Context, opts) => {
         if (ctx.options.accessToken !== undefined) {
           throw usageError(
-            "`auth login` cannot persist an injected access token. Remove --access-token and use browser OAuth, or use --key - for a personal API key.",
+            "`auth login` cannot persist an injected access token. Use LINEAR_ACCESS_TOKEN or --access-token with a data command, or use `auth login --key -` for a personal API key.",
           );
         }
         if (opts.app || opts.clientCredentials) {
-          if (
-            opts.key !== undefined ||
-            ctx.options.apiKey !== undefined ||
-            opts.redirectUri ||
-            opts.browser === false
-          ) {
-            throw usageError(
-              "--app cannot be combined with personal API-key or browser callback options.",
-            );
+          if (opts.key !== undefined || ctx.options.apiKey !== undefined) {
+            throw usageError("--app cannot be combined with --key or --api-key.");
           }
-          if (opts.admin) throw usageError("App actors cannot request the admin scope.");
           if (!opts.plaintext && !keyring())
             throw new CliError(
               "App authentication requires a system keyring; use --plaintext for explicit private-file storage.",
@@ -337,144 +310,64 @@ export function registerMeta(program: Command): void {
           );
           return;
         }
-        if (opts.clientSecret !== undefined || opts.scope !== undefined)
-          throw usageError("--client-secret and --scope require --app or --client-credentials.");
+        if (
+          opts.clientId !== undefined ||
+          opts.clientSecret !== undefined ||
+          opts.scope !== undefined ||
+          opts.readOnly
+        )
+          throw usageError(
+            "--client-id, --client-secret, --scope, and --read-only require --app or --client-credentials. Set personal API-key permissions in Linear's Security & Access settings.",
+          );
         let key: string | undefined = selectLoginKey(opts.key, ctx.options.apiKey);
-        if (key !== undefined) {
-          if (
-            opts.readOnly ||
-            opts.admin ||
-            opts.browser === false ||
-            opts.redirectUri ||
-            opts.clientId
-          ) {
-            throw usageError("OAuth-only options cannot be combined with --key or --api-key.");
-          }
+        if (key === undefined && !ctx.isTTY)
+          throw usageError(
+            "Personal API-key login requires interactive input. Pipe a key to `linear auth login --key -`, or use --app for app credentials. To authenticate commands without saving credentials, set LINEAR_API_KEY or LINEAR_ACCESS_TOKEN.",
+          );
+        if (!opts.plaintext && !keyring())
+          throw new CliError(
+            "API-key login requires a system keyring; use --plaintext for explicit private-file storage.",
+            "runtime",
+          );
+        if (key === undefined) {
+          ctx.output.info(
+            "Create a personal API key at https://linear.app/settings/account/security. Choose its permissions and team access in Linear; workspace policy may restrict key creation.",
+          );
+          key = await promptSecret(ctx, "Linear API key:", { required: true });
+        } else {
           if (key === "-") key = readStdinSync();
           else
             ctx.output.warn(
               "An API key on the command line is visible to other processes and shell history; prefer --key - (stdin).",
             );
-          key = key.trim();
-          if (!key) throw usageError("No API key provided.");
-          const identity = await validateAuthCredential(key, ctx.options.workspace);
-          const { user: me, organization: org } = identity;
-          const { path, storage, keyringLabel } = writeCredential(org.urlKey, key, {
-            plaintext: opts.plaintext === true,
-          });
-          const projectConfigPath = saveLoginProject(ctx, org.urlKey, opts.project !== false);
-          const where =
-            storage === "keychain"
-              ? `Credential saved to the ${keyringLabel}; ${path} records the workspace.`
-              : `Credential saved to ${path} (plaintext, 0600).`;
-          ctx.output.emit(
-            {
-              success: true,
-              credentialType: "api-key",
-              workspace: org.urlKey,
-              user: me,
-              storage,
-              path,
-              projectConfigPath,
-            },
-            () =>
-              ctx.output.success(
-                `Authenticated as ${me.name} <${me.email}> for workspace '${org.urlKey}'. ${where}${projectConfigPath ? ` Project workspace saved to ${projectConfigPath}.` : ""}`,
-              ),
-          );
-          return;
         }
-
-        if (opts.plaintext) {
-          throw usageError(
-            "Browser OAuth is keyring-only; --plaintext requires --key, --api-key, or --client-credentials.",
-          );
-        }
-        if (opts.readOnly && opts.admin) {
-          throw usageError("--read-only cannot be combined with --admin.");
-        }
-        const timeoutSeconds = Number(opts.timeout);
-        if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) {
-          throw usageError("--timeout must be a positive number of seconds.");
-        }
-        const clientId = String(
-          opts.clientId ?? process.env.LINEAR_OAUTH_CLIENT_ID ?? DEFAULT_OAUTH_CLIENT_ID,
-        ).trim();
-        const redirectUri = String(
-          opts.redirectUri ?? process.env.LINEAR_OAUTH_REDIRECT_URI ?? DEFAULT_OAUTH_REDIRECT_URI,
-        );
-        const scopes = opts.readOnly
-          ? ["read"]
-          : opts.admin
-            ? [...DEFAULT_OAUTH_SCOPES, "admin"]
-            : [...DEFAULT_OAUTH_SCOPES];
-        const pkce = createPkceRequest();
-        const callback = await startLoopbackCallback({
-          redirectUri,
-          state: pkce.state,
-          timeoutMs: timeoutSeconds * 1000,
+        key = key.trim();
+        if (!key) throw usageError("No API key provided.");
+        const identity = await validateAuthCredential(key, ctx.options.workspace);
+        const { user: me, organization: org } = identity;
+        const { path, storage, keyringLabel } = writeCredential(org.urlKey, key, {
+          plaintext: opts.plaintext === true,
         });
-        try {
-          const authorizationUrl = buildAuthorizationUrl({
-            clientId,
-            redirectUri: callback.redirectUri,
-            scopes,
-            challenge: pkce.challenge,
-            state: pkce.state,
-          });
-          if (opts.browser === false) {
-            ctx.output.info(`Open this URL to authenticate with Linear:\n${authorizationUrl}`);
-          } else {
-            ctx.output.info("Opening Linear in your browser…");
-            await openUrl(authorizationUrl);
-          }
-          const code = await callback.wait;
-          const token = await exchangeAuthorizationCode({
-            code,
-            verifier: pkce.verifier,
-            clientId,
-            redirectUri: callback.redirectUri,
-          });
-          const identity = await validateAuthCredential(
-            token.accessToken,
-            ctx.options.workspace,
-            "oauth-access-token",
-          );
-          const credential: OAuthUserCredential = {
-            version: 1,
-            kind: "oauth-user",
-            actor: "user",
-            ...token,
-            clientId,
-            workspace: identity.organization,
-            user: identity.user,
-          };
-          const saved = writeOAuthCredential(credential);
-          const projectConfigPath = saveLoginProject(
-            ctx,
-            credential.workspace.urlKey,
-            opts.project !== false,
-          );
-          ctx.output.emit(
-            {
-              success: true,
-              credentialType: "oauth-user",
-              workspace: credential.workspace.urlKey,
-              user: credential.user,
-              storage: saved.storage,
-              scopes: credential.scopes,
-              expiresAt: new Date(credential.expiresAt).toISOString(),
-              path: saved.path,
-              projectConfigPath,
-            },
-            () =>
-              ctx.output.success(
-                `Authenticated as ${credential.user.name} <${credential.user.email}> for workspace '${credential.workspace.urlKey}'. OAuth credentials saved to the ${saved.keyringLabel}.${projectConfigPath ? ` Project workspace saved to ${projectConfigPath}.` : ""}`,
-              ),
-          );
-        } finally {
-          await callback.close();
-        }
+        const projectConfigPath = saveLoginProject(ctx, org.urlKey, opts.project !== false);
+        const where =
+          storage === "keychain"
+            ? `Credential saved to the ${keyringLabel}; ${path} records the workspace.`
+            : `Credential saved to ${path} (plaintext, 0600).`;
+        ctx.output.emit(
+          {
+            success: true,
+            credentialType: "api-key",
+            workspace: org.urlKey,
+            user: me,
+            storage,
+            path,
+            projectConfigPath,
+          },
+          () =>
+            ctx.output.success(
+              `Authenticated as ${me.name} <${me.email}> for workspace '${org.urlKey}'. ${where}${projectConfigPath ? ` Project workspace saved to ${projectConfigPath}.` : ""}`,
+            ),
+        );
       }),
     );
 

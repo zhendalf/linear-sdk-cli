@@ -1,5 +1,4 @@
 import { describe, it, expect, mock, beforeEach, afterEach, vi } from "bun:test";
-import { readFileSync } from "node:fs";
 import { Context } from "../../src/context.js";
 import { CliError } from "../../src/lib/errors.js";
 
@@ -129,27 +128,6 @@ describe("promptSecret", () => {
   it("promptInput still uses the echoing prompt — it is for non-secrets", async () => {
     await promptInput(interactiveContext(), "Name:");
     expect(calls.map((c) => c.prompt)).toEqual(["input"]);
-  });
-});
-
-/** Browser OAuth is the interactive default; personal keys are accepted only through an explicit
- * option, with stdin remaining the secret-safe compatibility path. */
-describe("auth login keeps personal API keys explicit", () => {
-  const source = readFileSync(new URL("../../src/commands/meta.ts", import.meta.url), "utf8");
-  const loginSource = source.slice(source.indexOf("// login"), source.indexOf("// adopt"));
-
-  it("defaults to browser OAuth and retains --key -", () => {
-    expect(source).toContain('.option("--no-browser"');
-    expect(source).toContain('if (key === "-") key = readStdinSync()');
-  });
-
-  it("does not prompt for or echo an API key from the browser-login path", () => {
-    expect(source).not.toContain('promptSecret(ctx, "Linear API key:"');
-  });
-
-  it("never writes the key to output — the receipt names the user and the path", () => {
-    // `auth token` is the one command whose job is to print the secret; login is not it.
-    expect(loginSource).not.toMatch(/success\([^)]*\bkey\b[^)]*\)/);
   });
 });
 

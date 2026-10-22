@@ -286,6 +286,7 @@ describe("stored OAuth client", () => {
       globalThis.fetch = (async (input, init) => {
         if (String(input).endsWith("/oauth/token")) {
           expect(String(init?.body)).toContain("refresh_token=refresh-old");
+          expect(String(init?.body)).toContain("client_id=public-client");
           return Response.json({
             access_token: "access-new",
             refresh_token: "refresh-new",

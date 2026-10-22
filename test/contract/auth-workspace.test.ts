@@ -28,6 +28,7 @@ const envKeys = [
   "LINEAR_CLIENT_ID",
   "LINEAR_CLIENT_SECRET",
   "LINEAR_CLIENT_SCOPES",
+  "LINEAR_OAUTH_CLIENT_ID",
 ];
 let savedEnv: Record<string, string | undefined>;
 let root: string;
@@ -204,7 +205,6 @@ describe("persistent app identity", () => {
 
   it("refuses admin scopes and secret options without explicit app identity", async () => {
     for (const args of [
-      ["--app", "--admin"],
       ["--client-credentials", "--scope", "read,admin"],
       ["--client-credentials", "--scope", "read,,write"],
       ["--client-credentials", "--read-only", "--scope", "read"],
@@ -212,6 +212,17 @@ describe("persistent app identity", () => {
     ]) {
       await expect(run(["auth", "login", ...args, "--json"])).rejects.toThrow();
     }
+    expect(() => readFileSync(userConfigPath(), "utf8")).toThrow();
+  });
+
+  it("requires the caller's app client ID and secret before exchanging tokens", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Unexpected exchange"));
+    for (const args of [[], ["--client-secret", "secret"], ["--client-id", "supplied-client"]]) {
+      await expect(run(["auth", "login", "--app", ...args, "--json"])).rejects.toThrow(
+        /requires --client-id and --client-secret/,
+      );
+    }
+    expect(fetch).not.toHaveBeenCalled();
     expect(() => readFileSync(userConfigPath(), "utf8")).toThrow();
   });
 

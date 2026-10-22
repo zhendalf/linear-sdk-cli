@@ -35,22 +35,24 @@ lin --version
 
 ### Authentication
 
-The CLI supports distinct human, hosted-app, and personal-key lifecycles:
+The CLI supports personal API keys, supplied access tokens, and app credentials. No client ID
+is bundled, and new login never starts browser OAuth:
 
-1. **Human browser OAuth (default)** via Authorization Code + PKCE S256, `actor=user`:
+1. **Personal API key (default)**:
 
    ```bash
-   linear auth login                    # opens Linear; read + write scopes
-   linear auth login --read-only        # read scope only
-   linear auth login --no-browser       # prints URL; loopback callback still required
+   linear auth login                    # hidden API-key prompt in an interactive terminal
+   printf '%s\n' "$LINEAR_API_KEY" | linear auth login --key -
    ```
 
-   The CLI validates the viewer/workspace and stores the access token, rotating refresh token,
-   expiry, scopes, client identity, and workspace identity only in the OS keyring. It refreshes
-   before expiry and once after an authentication failure. `--admin` is explicit; no client secret
-   is embedded. `auth logout` revokes this grant before removing it (`--local-only` skips
-   revocation). Remote/headless callers need the loopback host reachable; Linear has no documented
-   device-code flow.
+   Create a key at https://linear.app/settings/account/security, choosing permissions and team
+   access in Linear; workspace policy may restrict member key creation. Never ask for a key in
+   chat. The CLI validates the viewer/workspace before storing it in the OS keyring. If no keyring
+   is available, login requires explicit `--plaintext` for private user-config storage (`0600`).
+   Passing `--key <value>` also works but exposes the key in argv and produces a warning.
+   JSON, `--no-input`, and redirected sessions never prompt; use explicit `--key -` for stdin.
+   Bare login does not import environment credentials. `--read-only` and `--scope` require
+   `--app`; they cannot restrict an existing personal API key.
 
 2. **Invocation OAuth access token** via `--access-token <token>` or `LINEAR_ACCESS_TOKEN` — use
    this for hosted Linear apps, agents, and service accounts. Prefer the environment variable so
@@ -60,6 +62,7 @@ The CLI supports distinct human, hosted-app, and personal-key lifecycles:
    LINEAR_ACCESS_TOKEN=... linear whoami --json
    ```
 
+   Tokens may represent a user or app; their issuing grant determines identity and permissions.
    The host application owns OAuth installation, token refresh/client-credentials exchange,
    client-secret storage, and webhooks. These tokens remain invocation-scoped.
    Long-lived hosts can import `ClientCredentialsTokenProvider` from `linear-sdk-cli`; it caches
@@ -102,16 +105,7 @@ The CLI supports distinct human, hosted-app, and personal-key lifecycles:
    LINEAR_API_KEY=lin_api_... linear whoami --json
    ```
 
-5. **Stored personal API-key credentials** via the explicit compatibility path:
-
-   ```bash
-   printf '%s\n' "$LINEAR_API_KEY" | linear auth login --key -
-   ```
-
-   Passing `--key <value>` also works but exposes it in argv and produces a warning. API keys may
-   use `--plaintext`; browser OAuth is always keyring-only.
-
-6. **Multiple workspaces** — store several OAuth or API-key credentials and select one per call with
+5. **Multiple workspaces** — store several app or API-key credentials and select one per call with
    `--workspace <slug>`; set a default with `linear auth default <slug>`:
 
    ```bash
@@ -119,6 +113,11 @@ The CLI supports distinct human, hosted-app, and personal-key lifecycles:
    linear auth default acme          # make 'acme' the default
    linear issue list --workspace acme --json
    ```
+
+Existing stored OAuth user profiles remain supported: their own saved client ID is used for
+refresh, scope reporting is retained, and logout revokes the grant (`--local-only` skips
+revocation). New browser login and its `--no-browser`, `--redirect-uri`, `--timeout`, and `--admin`
+options have been removed. Do not tell users to register or install a CLI OAuth application.
 
 Login associates the authenticated workspace with the discovered project config, or creates `.linear.toml` at the Git root (cwd outside Git). Use `--no-project` for credential-only login; JSON reports `projectConfigPath` or null. Credentials stay global. Workspace selection is `--workspace` → `LINEAR_WORKSPACE` → project config → optional global default. A sole stored workspace is automatic; multiple unselected workspaces prompt only interactively and fail in JSON/noninteractive mode. Login/adoption/logout never assign a new default. Existing legacy defaults remain valid because their original intent is unknown; `auth default` is an explicit convenience.
 
