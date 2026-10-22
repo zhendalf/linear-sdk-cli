@@ -391,8 +391,6 @@ export const OUTPUT_SHAPES: Record<string, OutputShape | null> = {
     workspace: "string",
     user: { id: "string", name: "string", email: "string" },
     storage: "string",
-    "scopes?": ["string"],
-    "expiresAt?": "string",
     path: "string",
     projectConfigPath: "string|null",
   }),

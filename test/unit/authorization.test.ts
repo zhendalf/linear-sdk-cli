@@ -69,4 +69,16 @@ describe("authorization error context", () => {
     expect(error.code).toBe("forbidden");
     expect(error.details).toBeUndefined();
   });
+
+  it("guides existing OAuth users to API-key login rather than a removed OAuth option", () => {
+    class ForbiddenError extends Error {}
+    const error = enrichAuthorizationError(
+      new ForbiddenError("The token is missing the required 'admin' scope."),
+      config({ oauthCredential: { scopes: ["read", "write"] } }),
+    );
+    expect(error.details?.credentialType).toBe("oauth-user");
+    expect(error.suggestion).toContain("personal API key with admin permission");
+    expect(error.suggestion).toContain("`linear auth login`");
+    expect(error.suggestion).not.toContain("--admin");
+  });
 });

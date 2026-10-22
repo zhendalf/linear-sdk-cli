@@ -10,8 +10,8 @@
  * Backends are synchronous (spawnSync) because config resolution is
  * synchronous and runs before any command body. Only macOS Keychain and the
  * Linux Secret Service (`secret-tool`) are implemented; everywhere else — and
- * wherever the tool is missing — `keyring()` returns null and the callers fall
- * back to the plaintext file without complaint.
+ * wherever the tool is missing — `keyring()` returns null. Login requires explicit
+ * --plaintext for private-file storage; low-level legacy API-key writers can fall back.
  *
  * The secret never travels on argv (visible to every process via `ps`): on
  * macOS it goes through `security -i`, which reads its command line from stdin;

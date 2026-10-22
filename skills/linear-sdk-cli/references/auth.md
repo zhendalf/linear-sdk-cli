@@ -69,7 +69,7 @@ storage: string
 
 ### `linear auth login`
 
-Authenticate and select the workspace for this project
+Sign in with a personal API key (default) or app credentials
 
 ```
 linear auth login [options]
@@ -80,16 +80,12 @@ linear auth login [options]
 | `--no-project`             | save credentials without changing the project workspace                 |
 | `--key <key>`              | use a personal API key ('-' reads it from stdin)                        |
 | `--plaintext`              | Store API-key or app credentials in the private user config file (0600) |
-| `--no-browser`             | print the authorization URL instead of opening it                       |
-| `--read-only`              | request read-only OAuth access                                          |
-| `--admin`                  | explicitly add the OAuth admin scope                                    |
-| `--timeout <seconds>`      | seconds to wait for the loopback callback                               |
+| `--read-only`              | request read-only access with --app                                     |
 | `--app`                    | sign in as an app using client credentials                              |
 | `--client-credentials`     | alias for --app                                                         |
 | `--scope <scopes>`         | comma-separated app scopes (default: read,write)                        |
 | `--client-secret <secret>` | app client secret ('-' reads stdin; defaults to LINEAR_CLIENT_SECRET)   |
-| `--client-id <id>`         | OAuth client ID (app: LINEAR_CLIENT_ID; browser: packaged CLI app)      |
-| `--redirect-uri <uri>`     | registered HTTP loopback callback URI                                   |
+| `--client-id <id>`         | app client ID (defaults to LINEAR_CLIENT_ID)                            |
 
 **Output (`--json`)**: a receipt object
 
@@ -99,8 +95,6 @@ credentialType: string
 workspace: string
 user: {id: string, name: string, email: string}
 storage: string
-scopes?: string[]
-expiresAt?: string
 path: string
 projectConfigPath: string | null
 ```

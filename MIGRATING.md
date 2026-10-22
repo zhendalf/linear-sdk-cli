@@ -48,12 +48,20 @@ linear auth list        # …lists it, Storage: keychain
 
 If it does not — no keyring on this platform, or you used schpet's plaintext mode (`slug =
 "lin_api_…"` inline in `credentials.toml`, which we deliberately do not read) — pipe the key to
-`linear auth login --key -`; `--plaintext` keeps it in our `0600` `config.toml` instead. Bare
-`linear auth login` now starts browser OAuth, so it never prompts for a personal API key. `auth
-migrate` moves plaintext credentials from our file into the keyring, same command name as theirs.
+`linear auth login --key -`, or run bare `linear auth login` for a hidden personal API-key prompt.
+Login requires a system keyring unless you explicitly pass `--plaintext` to use our `0600`
+`config.toml` instead. `auth migrate` moves plaintext credentials from our file into the keyring,
+same command name as theirs.
 Because the API-key entry is shared, `auth logout` here removes it for both tools (and drops the
 slug from schpet's list file, so neither reports a workspace whose key is gone). The API key is
 **never** read from a project `.linear.toml`.
+
+Earlier versions defaulted to browser OAuth through a bundled client ID. That login flow and its
+callback options have been removed. Existing stored OAuth user profiles still refresh and support
+logout/revocation using their saved client ID. For new authentication, use a personal API key,
+`LINEAR_ACCESS_TOKEN` / `--access-token` on commands (the issuing grant determines user/app identity),
+or `auth login --app` with your own client ID and secret. Supplied access tokens remain temporary;
+the CLI does not persist or refresh them. No hardcoded OAuth client ID is shipped.
 
 ## 3. Config — same files, same keys
 

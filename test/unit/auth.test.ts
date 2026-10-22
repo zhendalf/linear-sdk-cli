@@ -1,6 +1,6 @@
 /**
  * The `auth` commands against an isolated config directory and a fake keyring.
- * Login uses a fake identity validator; browser OAuth exercises a local callback.
+ * Login uses a fake identity validator and secret prompt.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "bun:test";
 import {
@@ -15,7 +15,6 @@ import {
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createServer } from "node:http";
 import { buildSchema, introspectionFromSchema } from "graphql";
 import { connection } from "./_fakes.js";
 import { createProgram } from "../../src/cli.js";
@@ -26,13 +25,14 @@ import {
   resolveConfig,
 } from "../../src/config.js";
 import { memoryKeyring, setKeyringBackend } from "../../src/lib/keyring.js";
-import { setAuthValidationClientFactoryForTests } from "../../src/commands/meta.js";
+import {
+  setAuthSecretPromptForTests,
+  setAuthValidationClientFactoryForTests,
+} from "../../src/commands/meta.js";
 import { Context } from "../../src/context.js";
 import * as opener from "../../src/lib/open.js";
 import * as prompts from "../../src/lib/prompt.js";
 import type { OAuthUserCredential } from "../../src/oauth.js";
-
-const nativeFetch = globalThis.fetch;
 
 let root: string;
 let kr: ReturnType<typeof memoryKeyring>;
@@ -70,6 +70,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   setAuthValidationClientFactoryForTests(undefined);
+  setAuthSecretPromptForTests(undefined);
   setKeyringBackend(undefined);
   if (savedXdg === undefined) delete process.env.XDG_CONFIG_HOME;
   else process.env.XDG_CONFIG_HOME = savedXdg;
@@ -99,24 +100,6 @@ async function runJson(args: string[]): Promise<any> {
     spy.mockRestore();
   }
   return JSON.parse(out);
-}
-
-async function freePort(): Promise<number> {
-  const server = createServer();
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address();
-  const port = typeof address === "object" && address ? address.port : 0;
-  await new Promise<void>((resolve) => server.close(() => resolve()));
-  return port;
-}
-
-async function eventually<T>(read: () => T | undefined): Promise<T> {
-  for (let i = 0; i < 100; i++) {
-    const value = read();
-    if (value !== undefined) return value;
-    await new Promise((resolve) => setTimeout(resolve, 2));
-  }
-  throw new Error("Timed out waiting for test output");
 }
 
 describe("auth status", () => {
@@ -367,79 +350,104 @@ describe("login project association", () => {
   });
 });
 
-describe("browser OAuth login", () => {
-  it("completes PKCE through the loopback, emits secret-safe JSON, and stores only in keyring", async () => {
-    const port = await freePort();
-    const redirectUri = `http://127.0.0.1:${port}/oauth/callback`;
-    setAuthValidationClientFactoryForTests((_credential, kind) => {
-      expect(kind).toBe("oauth-access-token");
+describe("personal API-key login", () => {
+  beforeEach(() => {
+    setAuthValidationClientFactoryForTests((key, kind) => {
+      expect(key).toBe("lin_api_prompt_secret");
+      expect(kind).toBe("api-key");
       return {
         viewer: Promise.resolve({ id: "user-1", name: "Ada", email: "ada@example.com" }),
         organization: Promise.resolve({ id: "org-1", name: "Acme", urlKey: "acme" }),
       };
     });
-    vi.spyOn(globalThis, "fetch").mockImplementation((async (input, init) => {
-      expect(String(input)).toBe("https://api.linear.app/oauth/token");
-      const body = String(init?.body);
-      expect(body).toContain("code_verifier=");
-      expect(body).not.toContain("client_secret");
-      return Response.json({
-        access_token: "access-secret",
-        refresh_token: "refresh-secret",
-        expires_in: 3600,
-        scope: "read write",
-        token_type: "Bearer",
-      });
-    }) as typeof fetch);
+  });
 
-    let out = "";
-    let err = "";
-    vi.spyOn(process.stdout, "write").mockImplementation((chunk: any) => {
-      out += chunk;
+  async function interactiveLogin(): Promise<{ stdout: string; stderr: string }> {
+    const streams = [process.stdin, process.stdout];
+    const descriptors = streams.map((stream) => Object.getOwnPropertyDescriptor(stream, "isTTY"));
+    let stdout = "";
+    let stderr = "";
+    const out = vi.spyOn(process.stdout, "write").mockImplementation((chunk: any) => {
+      stdout += chunk;
       return true;
     });
-    vi.spyOn(process.stderr, "write").mockImplementation((chunk: any) => {
-      err += chunk;
+    const err = vi.spyOn(process.stderr, "write").mockImplementation((chunk: any) => {
+      stderr += chunk;
       return true;
     });
-    const login = createProgram().parseAsync([
-      "node",
-      "linear",
+    try {
+      streams.forEach((stream) =>
+        Object.defineProperty(stream, "isTTY", { value: true, configurable: true }),
+      );
+      await createProgram().parseAsync(["node", "linear", "auth", "login"]);
+      return { stdout, stderr };
+    } finally {
+      out.mockRestore();
+      err.mockRestore();
+      streams.forEach((stream, index) => {
+        const descriptor = descriptors[index];
+        if (descriptor) Object.defineProperty(stream, "isTTY", descriptor);
+        else delete (stream as any).isTTY;
+      });
+    }
+  }
+
+  it("prompts for a secret by default, validates it, and stores it without echoing", async () => {
+    const prompt = vi.fn(async () => " lin_api_prompt_secret \n");
+    setAuthSecretPromptForTests(prompt);
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation((async () => {
+      throw new Error("Unexpected OAuth");
+    }) as unknown as typeof globalThis.fetch);
+    const output = await interactiveLogin();
+    expect(prompt).toHaveBeenCalledWith(expect.any(Context), "Linear API key:", { required: true });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(kr.store.get("acme")).toBe("lin_api_prompt_secret");
+    expect(kr.store.has("oauth:acme")).toBe(false);
+    expect(readFileSync(userConfigPath(), "utf8")).not.toContain("lin_api_prompt_secret");
+    expect(readFileSync(join(root, ".linear.toml"), "utf8")).toBe('workspace = "acme"\n');
+    expect(output.stdout + output.stderr).not.toContain("lin_api_prompt_secret");
+    expect(output.stderr).toContain("https://linear.app/settings/account/security");
+    expect(output.stderr).not.toContain("shell history");
+  });
+
+  it("leaves credentials and project settings untouched when the prompt is cancelled", async () => {
+    setAuthSecretPromptForTests(async () => {
+      throw new Error("Prompt cancelled");
+    });
+    await expect(interactiveLogin()).rejects.toThrow("Prompt cancelled");
+    expect(kr.store.size).toBe(0);
+    expect(existsSync(userConfigPath())).toBe(false);
+    expect(existsSync(join(root, ".linear.toml"))).toBe(false);
+  });
+
+  it("refuses an empty secret without storing it", async () => {
+    setAuthSecretPromptForTests(async () => " \n");
+    await expect(interactiveLogin()).rejects.toThrow("No API key provided");
+    expect(kr.store.size).toBe(0);
+    expect(existsSync(userConfigPath())).toBe(false);
+  });
+
+  it("requires explicit plaintext storage when there is no system keyring", async () => {
+    setKeyringBackend(null);
+    const prompt = vi.fn(async () => "unexpected");
+    setAuthSecretPromptForTests(prompt);
+    await expect(interactiveLogin()).rejects.toThrow(/use --plaintext/);
+    expect(prompt).not.toHaveBeenCalled();
+    expect(existsSync(userConfigPath())).toBe(false);
+  });
+
+  it("supports explicit plaintext login without a keyring", async () => {
+    setKeyringBackend(null);
+    const receipt = await runJson([
       "auth",
       "login",
-      "--no-browser",
-      "--client-id",
-      "public-client",
-      "--redirect-uri",
-      redirectUri,
-      "--timeout",
-      "2",
-      "--json",
+      "--key",
+      "lin_api_prompt_secret",
+      "--plaintext",
+      "--no-project",
     ]);
-    const authorizationUrl = await eventually(
-      () => err.match(/https:\/\/linear\.app\/oauth\/authorize\?\S+/)?.[0],
-    );
-    const state = new URL(authorizationUrl).searchParams.get("state");
-    expect(state).toBeTruthy();
-    await nativeFetch(`${redirectUri}?code=authorization-code&state=${encodeURIComponent(state!)}`);
-    await login;
-
-    const receipt = JSON.parse(out);
-    expect(receipt).toMatchObject({
-      success: true,
-      credentialType: "oauth-user",
-      workspace: "acme",
-      storage: "keychain",
-      scopes: ["read", "write"],
-    });
-    expect(out).not.toContain("access-secret");
-    expect(out).not.toContain("refresh-secret");
-    expect(err).not.toContain("access-secret");
-    expect(readFileSync(userConfigPath(), "utf8")).not.toContain("secret");
-    expect(kr.store.get("oauth:acme")).toContain("refresh-secret");
-    expect(receipt.projectConfigPath).toBe(join(root, ".linear.toml"));
-    expect(readFileSync(receipt.projectConfigPath, "utf8")).toBe('workspace = "acme"\n');
-    expect(resolveConfig().credentialWorkspace).toBe("acme");
+    expect(receipt).toMatchObject({ credentialType: "api-key", storage: "file" });
+    expect(resolveConfig().apiKey).toBe("lin_api_prompt_secret");
   });
 });
 
