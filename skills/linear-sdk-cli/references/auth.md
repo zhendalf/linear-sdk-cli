@@ -144,6 +144,37 @@ migrated: string[]
 path: string
 ```
 
+### `linear auth rename`
+
+Rename a stored API-key profile after its Linear workspace URL slug changes
+
+```
+linear auth rename [options] <old-slug> <new-slug>
+```
+
+| Option                        | Description                                                                |
+| ----------------------------- | -------------------------------------------------------------------------- |
+| `--project-config <paths...>` | also inspect these project configs for old workspace selectors (read-only) |
+
+**Output (`--json`)**: a receipt object
+
+```text
+success: boolean
+from: string
+workspace: string
+credentialType: string
+organization: {id: string, name: string, urlKey: string}
+path: string
+storage: string
+team: string | null
+defaultWorkspace: string | null
+referenceCredentialsPath: string | null
+checkedProjectConfigs: string[]
+projectConfigUpdates: Array<{path: string, key: string, from: string, to: string}>
+globalConfigUpdates: Array<{path: string, key: string, from: string, to: string}>
+otherProjects: string
+```
+
 ### `linear auth status`
 
 Show where the active credential is resolved from (value redacted)

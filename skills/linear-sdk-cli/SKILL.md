@@ -122,6 +122,21 @@ The CLI supports distinct human, hosted-app, and personal-key lifecycles:
 
 Login associates the authenticated workspace with the discovered project config, or creates `.linear.toml` at the Git root (cwd outside Git). Use `--no-project` for credential-only login; JSON reports `projectConfigPath` or null. Credentials stay global. Workspace selection is `--workspace` → `LINEAR_WORKSPACE` → project config → optional global default. A sole stored workspace is automatic; multiple unselected workspaces prompt only interactively and fail in JSON/noninteractive mode. Login/adoption/logout never assign a new default. Existing legacy defaults remain valid because their original intent is unknown; `auth default` is an explicit convenience.
 
+When a workspace URL slug changes, use `linear auth rename <old-slug> <new-slug> --json`
+for an existing API-key profile. It validates the exact stored key's current organization/slug,
+ignores environment credentials, preserves storage/team/default metadata, and refuses destination
+collisions (including unlisted keyring records). API-key profiles have no historical organization ID;
+the same stored key proves its organization, returned in `organization`. Never export the key or
+combine login/logout to rename it. If interrupted, repeat the same command to resume its non-secret
+recovery marker; do not log out, replace, or migrate either profile while recovery is pending.
+Project files stay unchanged: inspect `checkedProjectConfigs`, `projectConfigUpdates`, and
+`globalConfigUpdates`, then update the authorized selectors separately. Supply
+`--project-config /absolute/path/.linear.toml` to inspect additional known configs. Other repositories
+and `LINEAR_WORKSPACE` overrides require a separate check; discovery is not machine-wide.
+OAuth user/app profiles and dormant OAuth records are explicitly unsupported and left untouched:
+user refresh-token rotation needs coordination, and app token exchange has scope/revocation effects.
+The command performs no OAuth refresh, exchange, browser authorization, or revocation.
+
 An explicit credential flag overrides environment credentials. If both credential kinds occur at
 the same precedence level, the CLI fails rather than silently choosing an actor. Inspect resolution
 with `linear auth status`. `linear auth token` exports stored API keys only and never OAuth tokens.
@@ -339,6 +354,7 @@ linear auth list
 linear auth login
 linear auth logout
 linear auth migrate
+linear auth rename
 linear auth status
 linear auth token
 linear auth whoami

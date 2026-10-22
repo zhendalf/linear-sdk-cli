@@ -298,6 +298,41 @@ Successful browser, app, and API-key login also save `workspace = "<authenticate
 
 Global defaults are optional: login, credential adoption, and logout never choose a new one. Use `linear auth default <slug>` to explicitly select a global fallback. Removing that workspace clears its default without promoting another workspace. Existing defaults, including defaults imported from the reference CLI, are preserved on upgrade because older files cannot distinguish a user choice from an automatically assigned default. To opt out of a legacy default, remove the top-level `default_workspace` from the user config and, if present, `default` from the reference CLI's `credentials.toml`; retain the workspace entries.
 
+After a workspace URL slug changes, migrate its stored **API-key profile** with:
+
+```sh
+linear auth rename old-workspace new-workspace --json
+# Or include additional known project configs without editing them:
+linear auth rename old-workspace new-workspace --project-config /path/to/another/.linear.toml
+```
+
+The command validates the exact stored key against Linear's current organization/slug, preserving
+the credential, storage type, profile team, user workspace/default, and the reference CLI's shared
+keyring list/default. It ignores environment credentials and refuses credential flags. API-key
+profiles do not contain a historical organization ID; the unchanged key proves its own organization,
+which is returned in the result. Configured destinations and unlisted keyring entries are collisions,
+even if they contain the same key. Nothing is revoked, exported, or placed on argv.
+
+Project files are never edited. JSON reports `checkedProjectConfigs` and `projectConfigUpdates`
+with exact paths and old/new workspace values; human output lists the same required edits. Discovery
+covers the active project config plus explicit `--project-config` paths. Check other repositories
+separately, update their `workspace` selectors, and update `LINEAR_WORKSPACE` overrides. The reference
+CLI's global `linear.toml` selector, if affected, is reported in `globalConfigUpdates` for manual editing.
+
+If storage fails or the process stops partway through, repeat **the same rename command**. A
+non-secret `api_key_profile_rename` marker in the private user config reserves the destination and
+records recovery progress. The source is kept until a verified destination and committed metadata
+exist. Recovery checks for conflicting changes and resumes the remaining steps. Do not log out,
+replace, or migrate either profile while recovery is pending. Fix the reported store/permission
+problem, then retry; do not delete the recovery marker or print credential-store contents.
+
+OAuth user and app profiles (including dormant keyring records) are refused before validation or
+mutation. User sessions have rotating refresh tokens and require coordination with in-flight
+refreshes; app profiles contain organization-bound client credentials, and token exchanges with
+different scopes can revoke existing app tokens. This command does not refresh, exchange, revoke,
+or rename either OAuth lifecycle. It does not require browser authorization. See Linear's
+[OAuth lifecycle documentation](https://linear.app/developers/oauth-2-0-authentication).
+
 If revocation is intentionally unavailable, `auth logout --local-only` removes only local state.
 If browser login temporarily superseded an existing personal API-key profile for that workspace,
 OAuth logout preserves and reactivates the API key instead of deleting it.
