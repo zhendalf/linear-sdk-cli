@@ -183,6 +183,7 @@ const SETTING_ORIGIN_SHAPE = shape<SettingOrigin>({
 const SETTING_ORIGINS_SHAPE = shape<SettingOrigins>({
   team: SETTING_ORIGIN_SHAPE,
   workspace: SETTING_ORIGIN_SHAPE,
+  project: SETTING_ORIGIN_SHAPE,
   sort: SETTING_ORIGIN_SHAPE,
 });
 
@@ -196,6 +197,7 @@ const CONFIG_SHOW_SHAPE: ObjectFields = {
   workspaceProfile: "string|null",
   team: "string|null",
   workspace: "string|null",
+  project: "string|null",
   sort: "string",
   origins: SETTING_ORIGINS_SHAPE,
   userConfigPath: "string",
@@ -452,7 +454,13 @@ export const OUTPUT_SHAPES: Record<string, OutputShape | null> = {
   completion: { kind: "none", note: "always prints a shell script; --json has no effect" },
 
   config: runs("config show", object(CONFIG_SHOW_SHAPE)),
-  "config init": receipt({ success: "boolean", path: "string", team: "string", "sort?": "string" }),
+  "config init": receipt({
+    success: "boolean",
+    path: "string",
+    team: "string",
+    "sort?": "string",
+    "project?": "string",
+  }),
   "config set": receipt({
     success: "boolean",
     path: "string",

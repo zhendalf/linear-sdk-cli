@@ -918,10 +918,10 @@ profile slug where applicable:
    only, so a migrating user's defaults carry over
 7. no default team
 
-`workspace` and `sort` keep their existing flag → environment → project → user → legacy-global
+`workspace`, `project`, and `sort` use flag → environment → project → user → legacy-global
 order. Workspace credential selection is independent and follows the order described above.
 
-Keys: `team` (or `team_id`), `workspace`, and `sort` (or `issue_sort`). You can write these from
+Keys: `team` (or `team_id`), `workspace`, `project`, and `sort` (or `issue_sort`). You can write these from
 the CLI. Project and top-level setting edits preserve comments and layout. Profile updates preserve
 all TOML data and use the same locked, atomic rewrite as credential updates:
 
@@ -929,10 +929,25 @@ all TOML data and use the same locked, atomic rewrite as credential updates:
 linear config init                    # pick a team from a list → <git root>/.linear.toml
 linear config init --team TES         # …or say which (scripts); --sort, --path, --force
 linear config set sort updated        # edit one key in the project config in effect
+linear config set project "My Project" # default Linear project for new issues (name or UUID)
 linear config set team ENG --user     # legacy top-level user fallback (backward compatible)
 linear config set team ENG --user --workspace acme # validated default for the acme profile
 linear config                         # show the result, with each value's source
 ```
+
+To associate a particular folder and its descendants with a Linear project, run
+`linear config set project "My Project" --path .linear.toml` inside that folder. Without `--path`,
+`config set` edits the discovered config, or creates one at the Git root (cwd outside Git).
+Keep `team` and `workspace` in the same file when needed: discovery reads the nearest config
+file, without merging ancestor files.
+
+`issue create` (also `issue new`) uses this project automatically. `--project <name|id>` overrides
+it; sub-issues inherit their parent's project ahead of the configured default. `--no-project`
+creates outside any project, including parent and template defaults. `LINEAR_PROJECT` overrides
+the configured value for an invocation. A configured project is resolved before creation, so
+an unknown or ambiguous name fails without creating an issue; UUIDs avoid name ambiguity.
+This default applies to issue creation; list, search, and update commands keep their explicit
+project selection. Remove the `project` line from the config to clear the association.
 
 `config set` will not write `api_key` or anything else that belongs to the credential store — that
 is what `auth login` is for. A profile team is validated against the selected workspace whenever a

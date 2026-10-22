@@ -94,6 +94,66 @@ function writeProjectConfig(dir: string, body: string) {
 }
 
 describe("resolveConfig precedence", () => {
+  it("resolves the default project with provenance through every non-secret config tier", () => {
+    const globalPath = join(xdg, "linear", "linear.toml");
+    const parentPath = join(root, "proj", ".linear.toml");
+    writeFileSync(globalPath, 'project = "Global project"\n');
+    writeUserConfig('project = "User project"\n');
+    writeFileSync(parentPath, 'project = "Folder project"\n');
+    const cases: Array<{
+      source: ConfigSource;
+      project: string | undefined;
+      env: NodeJS.ProcessEnv;
+      flags?: ConfigInputs["flags"];
+      path?: string;
+      remove?: string;
+    }> = [
+      {
+        source: "flag",
+        project: "Flag project",
+        flags: { project: "Flag project" },
+        env: baseEnv({ LINEAR_PROJECT: "Env project" }),
+      },
+      { source: "env", project: "Env project", env: baseEnv({ LINEAR_PROJECT: "Env project" }) },
+      { source: "project", project: "Folder project", env: baseEnv(), path: parentPath },
+      {
+        source: "user",
+        project: "User project",
+        env: baseEnv(),
+        path: userConfigPath(baseEnv()),
+        remove: parentPath,
+      },
+      {
+        source: "global",
+        project: "Global project",
+        env: baseEnv(),
+        path: globalPath,
+        remove: userConfigPath(baseEnv()),
+      },
+      { source: "none", project: undefined, env: baseEnv(), remove: globalPath },
+    ];
+    for (const item of cases) {
+      if (item.remove) rmSync(item.remove);
+      const config = resolveConfig({ cwd: projectDir, env: item.env, flags: item.flags });
+      expect(config.project).toBe(item.project);
+      expect(config.origins.project.source).toBe(item.source);
+      if (item.path)
+        expect(config.origins.project).toMatchObject({ path: item.path, key: "project" });
+    }
+  });
+
+  it("a nearer folder config overrides an ancestor's project association", () => {
+    writeProjectConfig(join(root, "proj"), 'project = "Parent project"\n');
+    writeProjectConfig(projectDir, 'project = "Nested project"\n');
+    const config = resolveConfig({ cwd: projectDir, env: baseEnv() });
+    expect(config.project).toBe("Nested project");
+    expect(config.origins.project).toEqual({
+      source: "project",
+      path: join(projectDir, ".linear.toml"),
+      key: "project",
+    });
+  });
+
   it("prefers flag over env over user config for the api key", () => {
     // The only configured workspace supplies the user-config key.
     writeUserConfig(`[workspaces."solo"]\napi_key = "lin_api_userkey0000"`);
@@ -373,6 +433,7 @@ describe("config discovery — every place the reference CLI reads", () => {
         key: "workspace",
       },
       sort: { source: "env", path: undefined },
+      project: { source: "none" },
     });
   });
 });

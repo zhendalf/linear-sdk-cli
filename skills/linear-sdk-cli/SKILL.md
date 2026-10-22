@@ -152,6 +152,16 @@ forbidden errors include stable `error.details` with the required scope and reme
 
 ## Agent best practices
 
+Folder defaults: `linear config set project "My Project" --path .linear.toml` associates the
+current folder and descendants with a Linear project (name or UUID). Include `team` and
+`workspace` in that file when needed; discovery reads the nearest config without merging
+ancestor files. Omit `--path` to edit the discovered config, or create one at the Git root
+(cwd outside Git). `linear config show --json` reports `project` and `origins.project`.
+`issue create` / `issue new` uses the default; `--project` overrides it, a parent's project
+takes precedence over it, and `--no-project` suppresses config, parent, and template defaults.
+`LINEAR_PROJECT` overrides file defaults. List/search/update commands do not inherit this
+project selection. Remove the config's `project` line to clear the association.
+
 This CLI is built for non-interactive use. Follow these and it will never hang and
 always emit parseable output.
 

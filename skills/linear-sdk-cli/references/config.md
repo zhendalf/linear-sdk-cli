@@ -25,8 +25,9 @@ credentialWorkspace: string | null
 workspaceProfile: string | null
 team: string | null
 workspace: string | null
+project: string | null
 sort: string
-origins: {team: {source: string, path?: string, key?: string, workspace?: string}, workspace: {source: string, path?: string, key?: string, workspace?: string}, sort: {source: string, path?: string, key?: string, workspace?: string}}
+origins: {team: {source: string, path?: string, key?: string, workspace?: string}, workspace: {source: string, path?: string, key?: string, workspace?: string}, project: {source: string, path?: string, key?: string, workspace?: string}, sort: {source: string, path?: string, key?: string, workspace?: string}}
 userConfigPath: string
 projectConfigPath: string | null
 globalConfigPath: string | null
@@ -40,12 +41,13 @@ Write a project .linear.toml (at the git root, or here outside a repository)
 linear config init [options]
 ```
 
-| Option           | Description                                                        |
-| ---------------- | ------------------------------------------------------------------ |
-| `--team <key>`   | default team key (otherwise chosen from a list)                    |
-| `--sort <order>` | default issue-list sort (priority \| manual \| updated \| created) |
-| `--path <file>`  | write this file instead of <git root>/.linear.toml                 |
-| `--force`        | overwrite an existing file                                         |
+| Option                 | Description                                                        |
+| ---------------------- | ------------------------------------------------------------------ |
+| `--team <key>`         | default team key (otherwise chosen from a list)                    |
+| `--project <name\|id>` | default Linear project for new issues                              |
+| `--sort <order>`       | default issue-list sort (priority \| manual \| updated \| created) |
+| `--path <file>`        | write this file instead of <git root>/.linear.toml                 |
+| `--force`              | overwrite an existing file                                         |
 
 **Output (`--json`)**: a receipt object
 
@@ -54,11 +56,12 @@ success: boolean
 path: string
 team: string
 sort?: string
+project?: string
 ```
 
 ### `linear config set`
 
-Set one project or user setting (team, workspace, sort)
+Set one project or user setting (team, workspace, sort, project)
 
 ```
 linear config set [options] <key> <value>
@@ -98,8 +101,9 @@ credentialWorkspace: string | null
 workspaceProfile: string | null
 team: string | null
 workspace: string | null
+project: string | null
 sort: string
-origins: {team: {source: string, path?: string, key?: string, workspace?: string}, workspace: {source: string, path?: string, key?: string, workspace?: string}, sort: {source: string, path?: string, key?: string, workspace?: string}}
+origins: {team: {source: string, path?: string, key?: string, workspace?: string}, workspace: {source: string, path?: string, key?: string, workspace?: string}, project: {source: string, path?: string, key?: string, workspace?: string}, sort: {source: string, path?: string, key?: string, workspace?: string}}
 userConfigPath: string
 projectConfigPath: string | null
 globalConfigPath: string | null

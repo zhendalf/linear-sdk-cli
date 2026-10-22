@@ -371,8 +371,12 @@ export function registerIssue(program: Command): void {
     .option("-s, --state <name>", "workflow state name or type")
     .option("-P, --priority <0-4>", "priority", parsePriority)
     .option("-l, --label <name>", "label (repeatable / comma-separated)", parseList)
-    .option("-p, --project <name>", "project name or id")
-    .option("--milestone <name>", "project milestone (requires --project)")
+    .option("-p, --project <name>", "project name or id (overrides the configured default)")
+    .option("--no-project", "create outside any project, ignoring configured and parent defaults")
+    .option(
+      "--milestone <name>",
+      "project milestone (requires an explicit, configured, or parent project)",
+    )
     .option(CYCLE_FLAG, CYCLE_DESC)
     .option("--estimate <n>", "estimate points", parseIntOption)
     .option(
@@ -391,6 +395,7 @@ export function registerIssue(program: Command): void {
       [
         "",
         "Examples:",
+        "  linear config set project 'My Project'                      # default for this folder/repo",
         "  linear issue create --title 'Fix login' --team TES --assignee me",
         "  linear issue create --title 'Fix login' --assignee me --delegate Codex",
         "  linear issue create --title 'Fix login' --delegate Codex --dry-run --json",
@@ -438,7 +443,8 @@ export function registerIssue(program: Command): void {
             state: opts.state,
             priority: opts.priority,
             label: opts.label,
-            project: opts.project,
+            project: opts.project === false ? null : opts.project,
+            defaultProject: ctx.config.project,
             milestone: opts.milestone,
             cycle: opts.cycle,
             estimate: opts.estimate,

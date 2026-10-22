@@ -50,6 +50,7 @@ beforeEach(() => {
     LINEAR_TEAM: process.env.LINEAR_TEAM,
     LINEAR_TEAM_ID: process.env.LINEAR_TEAM_ID,
     LINEAR_WORKSPACE: process.env.LINEAR_WORKSPACE,
+    LINEAR_PROJECT: process.env.LINEAR_PROJECT,
   };
   process.env.XDG_CONFIG_HOME = join(root, "xdg");
   process.env.HOME = root;
@@ -60,6 +61,7 @@ beforeEach(() => {
     "LINEAR_TEAM",
     "LINEAR_TEAM_ID",
     "LINEAR_WORKSPACE",
+    "LINEAR_PROJECT",
   ]) {
     delete process.env[key];
   }
@@ -94,6 +96,14 @@ async function runJson(args: string[]): Promise<any> {
 const run = (args: string[]) => createProgram().parseAsync(["node", "linear", ...args, "--json"]);
 
 describe("config init", () => {
+  it("writes an optional default project and exposes it with its source", async () => {
+    const out = await runJson(["config", "init", "--team", "TES", "--project", "My Project"]);
+    expect(out.project).toBe("My Project");
+    const shown = await runJson(["config"]);
+    expect(shown.project).toBe("My Project");
+    expect(shown.origins.project).toEqual({ source: "project", path: out.path, key: "project" });
+  });
+
   it("writes <git root>/.linear.toml from a subdirectory, and the repo sees it", async () => {
     const out = await runJson(["config", "init", "--team", "tes", "--sort", "updated"]);
     const path = join(repo, ".linear.toml");

@@ -922,7 +922,10 @@ export interface CreateOptions {
   state?: string;
   priority?: number;
   label?: string[];
-  project?: string;
+  /** Explicit project; null creates outside any project, including template/parent defaults. */
+  project?: string | null;
+  /** Configured fallback, applied only when neither an explicit nor a parent project wins. */
+  defaultProject?: string;
   milestone?: string;
   cycle?: string;
   estimate?: number;
@@ -1305,6 +1308,7 @@ export async function prepareIssueCreate(
   if (opts.clearDelegate) input.delegateId = null;
   if (opts.state) input.stateId = await resolveStateId(client, team.id, opts.state);
   if (opts.label?.length) input.labelIds = await resolveLabelIds(client, opts.label, team.id);
+  if (opts.project === null) input.projectId = null;
   if (opts.project) input.projectId = await resolveProjectId(client, opts.project);
   if (opts.parent) {
     const parent = await resolveIssue(client, opts.parent);
@@ -1312,15 +1316,20 @@ export async function prepareIssueCreate(
     // A sub-issue lands in its parent's project unless told otherwise — what
     // Linear's UI does, and what the reference CLI does. Without this, every
     // `--parent` child sat outside the project its parent belongs to.
-    if (!input.projectId) {
+    if (input.projectId === undefined) {
       const parentProject = await parent.project;
       if (parentProject) input.projectId = parentProject.id;
     }
   }
+  if (input.projectId === undefined && opts.defaultProject) {
+    input.projectId = await resolveProjectId(client, opts.defaultProject);
+  }
   if (opts.milestone) {
     // Resolved after the parent so a milestone can name one in the inherited project.
     if (!input.projectId)
-      throw usageError("A milestone requires --project (or a --parent in a project).");
+      throw usageError(
+        "A milestone requires --project, a configured project, or a --parent in a project.",
+      );
     input.projectMilestoneId = await resolveMilestoneId(client, input.projectId, opts.milestone);
   }
   if (opts.cycle) input.cycleId = await resolveCycleId(client, team.id, opts.cycle);
