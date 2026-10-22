@@ -68,6 +68,14 @@ export const SCALARS: Record<string, unknown> = {
   estimate: 3,
   progress: 0.5,
   position: 1,
+  frozen: false,
+  isProduction: true,
+  autoGenerateReleaseNotesOnCompletion: false,
+  rolloverIssuesOnCompletion: true,
+  includePathPatterns: [],
+  releaseCount: 1,
+  generationStatus: null,
+  commitSha: null,
   sortOrder: 1,
   scope: 1,
   issueCount: 4,
@@ -164,6 +172,7 @@ function rawScalar(name: string): unknown {
   if (found.hit) return found.value instanceof Date ? found.value.toISOString() : found.value;
   if (name === "hasNextPage") return false;
   if (name === "endCursor") return null;
+  if (name === "success") return true;
   if (name === "__typename") return "Thing";
   return name;
 }

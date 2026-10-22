@@ -829,6 +829,7 @@ Example: linear auth rename old-workspace new-workspace --json`,
             workspaceProfile: c.workspaceProfile ?? null,
             team: c.team ?? null,
             workspace: c.workspace ?? null,
+            project: c.project ?? null,
             sort: c.sort,
             origins: c.origins,
             userConfigPath: c.userConfigPath,
@@ -842,6 +843,7 @@ Example: linear auth rename old-workspace new-workspace --json`,
             ["Workspace profile", c.workspaceProfile ?? "(none)"],
             ["Team", show("team", c.team)],
             ["Workspace", show("workspace", c.workspace)],
+            ["Default issue project", show("project", c.project)],
             ["Sort", show("sort", c.sort)],
             ["User config", c.userConfigPath],
             ["Project config", c.projectConfigPath],
@@ -856,6 +858,7 @@ Example: linear auth rename old-workspace new-workspace --json`,
     .command("init")
     .description("Write a project .linear.toml (at the git root, or here outside a repository)")
     .option("--team <key>", "default team key (otherwise chosen from a list)")
+    .option("--project <name|id>", "default Linear project for new issues")
     .option("--sort <order>", `default issue-list sort (${ISSUE_SORTS.join(" | ")})`)
     .option("--path <file>", "write this file instead of <git root>/.linear.toml")
     .option("--force", "overwrite an existing file")
@@ -884,10 +887,11 @@ Example: linear auth rename old-workspace new-workspace --json`,
           team: validateSetting("team", team),
         };
         if (opts.sort !== undefined) settings.sort = validateSetting("sort", opts.sort);
+        if (opts.project !== undefined) settings.project = validateSetting("project", opts.project);
         initProjectConfig(path, settings, { force: opts.force === true });
         ctx.output.emit({ success: true, path, ...settings }, () =>
           ctx.output.success(
-            `Wrote ${path} (team ${settings.team}${settings.sort ? `, sort ${settings.sort}` : ""}).`,
+            `Wrote ${path} (team ${settings.team}${settings.project ? `, project ${settings.project}` : ""}${settings.sort ? `, sort ${settings.sort}` : ""}).`,
           ),
         );
       }),

@@ -2,7 +2,7 @@
  * Configuration resolution.
  *
  * Two tiers with different trust boundaries:
- *  - Non-secret settings (team, workspace, sort): flag > env > project
+ *  - Non-secret settings (team, workspace, project, sort): flag > env > project
  *    config > selected workspace profile (team only) > user config
  *    (`~/.config/linear/config.toml`) > the reference CLI's global config
  *    (`~/.config/linear/linear.toml`, read-only).
@@ -68,6 +68,7 @@ import {
 export interface RawSettings {
   team?: string;
   workspace?: string;
+  project?: string;
   sort?: string;
   apiKey?: string;
   accessToken?: string;
@@ -102,7 +103,7 @@ export interface SettingOrigin {
 }
 
 /** The non-secret settings, each with its provenance. */
-export type SettingOrigins = Record<"team" | "workspace" | "sort", SettingOrigin>;
+export type SettingOrigins = Record<"team" | "workspace" | "project" | "sort", SettingOrigin>;
 
 export interface ResolvedConfig {
   apiKey?: string;
@@ -130,6 +131,8 @@ export interface ResolvedConfig {
   team?: string;
   /** Non-secret display workspace setting (separate from credentialWorkspace). */
   workspace?: string;
+  /** Default Linear project name or id for issue creation only. */
+  project?: string;
   sort: string;
   /** Where `sort` came from, so an invalid value can be blamed precisely. */
   sortSource: ConfigSource;
@@ -215,7 +218,7 @@ interface UserConfig {
   workspaces: Record<string, WorkspaceEntry>;
 }
 
-type NonSecretSetting = "team" | "workspace" | "sort";
+type NonSecretSetting = keyof SettingOrigins;
 type SettingKeys = Partial<Record<NonSecretSetting, string>>;
 
 interface FileSettings {
@@ -299,6 +302,7 @@ function settingsFromParsed(parsed: Record<string, unknown>): FileSettings {
   const found = [
     read("team", ["team", "team_id"]),
     read("workspace", ["workspace"]),
+    read("project", ["project"]),
     read("sort", ["sort", "issue_sort"]),
   ];
   const settings: RawSettings = {};
@@ -468,6 +472,7 @@ function fromEnv(env: NodeJS.ProcessEnv): RawSettings {
     accessToken: env.LINEAR_ACCESS_TOKEN,
     team: env.LINEAR_TEAM || env.LINEAR_TEAM_ID,
     workspace: env.LINEAR_WORKSPACE,
+    project: env.LINEAR_PROJECT,
     sort: env.LINEAR_ISSUE_SORT,
   };
 }
@@ -645,7 +650,7 @@ export function resolveConfig(inputs: ConfigInputs = {}): ResolvedConfig {
     ["user", user.settings, userPath, user.settingKeys],
     ["global", global.settings, globalPath, global.keys],
   ];
-  const pick = <K extends "team" | "workspace" | "sort">(key: K): string | undefined =>
+  const pick = (key: NonSecretSetting): string | undefined =>
     tiers.find(([, settings]) => settings[key] !== undefined)?.[1][key];
 
   const profileTeam = workspaceProfile ? user.workspaces[workspaceProfile]?.team : undefined;
@@ -664,7 +669,7 @@ export function resolveConfig(inputs: ConfigInputs = {}): ResolvedConfig {
   ];
 
   /** Which tier `pick` took the value from, and which file if it was one. */
-  const originOf = (key: "team" | "workspace" | "sort"): SettingOrigin => {
+  const originOf = (key: NonSecretSetting): SettingOrigin => {
     const candidates = key === "team" ? teamTiers : tiers;
     const hit = candidates.find(([, settings]) => settings[key] !== undefined);
     if (!hit) return { source: "none" };
@@ -678,6 +683,7 @@ export function resolveConfig(inputs: ConfigInputs = {}): ResolvedConfig {
   const origins: SettingOrigins = {
     team: originOf("team"),
     workspace: originOf("workspace"),
+    project: originOf("project"),
     sort: originOf("sort"),
   };
 
@@ -696,6 +702,7 @@ export function resolveConfig(inputs: ConfigInputs = {}): ResolvedConfig {
     // The display setting walks every tier. Credential selection above uses
     // the flag, env, and project tiers, then the auth-specific user default.
     workspace: pick("workspace"),
+    project: pick("project"),
     sort: pick("sort") ?? "priority",
     sortSource: origins.sort.source,
     origins,
@@ -1948,7 +1955,7 @@ export function redactKey(key: string | undefined): string {
 // ---------------------------------------------------------------------------
 
 /** The settings `config set` / `config init` will write to a project file. */
-export const SETTABLE_KEYS = ["team", "workspace", "sort"] as const;
+export const SETTABLE_KEYS = ["team", "workspace", "sort", "project"] as const;
 export type SettableKey = (typeof SETTABLE_KEYS)[number];
 
 /**
@@ -1959,6 +1966,7 @@ export type SettableKey = (typeof SETTABLE_KEYS)[number];
 const KEY_ALIASES: Record<SettableKey, readonly string[]> = {
   team: ["team", "team_id"],
   workspace: ["workspace"],
+  project: ["project"],
   sort: ["sort", "issue_sort"],
 };
 

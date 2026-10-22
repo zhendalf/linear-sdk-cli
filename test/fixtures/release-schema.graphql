@@ -1,0 +1,441 @@
+# Subset of Linear live introspection, read-only capture 2026-10-21.
+# Output fields/arguments are limited to native release operations; mutation inputs retain all fields; filters include only used fields.
+# No workspace entities or credentials are stored here.
+
+scalar DateTime
+
+type DeletePayload {
+  success: Boolean!
+}
+
+type DocumentContent {
+  content: String
+}
+
+type EntityExternalLink {
+  id: ID!
+  url: String!
+  label: String!
+}
+
+type EntityExternalLinkConnection {
+  nodes: [EntityExternalLink!]!
+  pageInfo: PageInfo!
+}
+
+input IDComparator {
+  eq: ID
+  neq: ID
+  in: [ID!]
+  nin: [ID!]
+}
+
+type Issue {
+  id: ID!
+  title: String!
+  identifier: String!
+  url: String!
+}
+
+type IssueConnection {
+  nodes: [Issue!]!
+  pageInfo: PageInfo!
+}
+
+input IssueReferenceInput {
+  identifier: String!
+  commitSha: String!
+}
+
+type IssueToRelease {
+  id: ID!
+  issue: Issue!
+  release: Release!
+}
+
+input IssueToReleaseCreateInput {
+  id: String
+  issueId: String!
+  releaseId: String!
+}
+
+type IssueToReleasePayload {
+  issueToRelease: IssueToRelease!
+  success: Boolean!
+}
+
+scalar JSONObject
+
+type Mutation {
+  issueToReleaseCreate(input: IssueToReleaseCreateInput!): IssueToReleasePayload!
+  issueToReleaseDeleteByIssueAndRelease(releaseId: String!, issueId: String!): DeletePayload!
+  releaseNoteCreate(input: ReleaseNoteCreateInput!): ReleaseNotePayload!
+  releaseNoteUpdate(input: ReleaseNoteUpdateInput!, id: String!): ReleaseNotePayload!
+  releaseNoteDelete(id: String!): DeletePayload!
+  releasePipelineCreate(input: ReleasePipelineCreateInput!): ReleasePipelinePayload!
+  releasePipelineUpdate(input: ReleasePipelineUpdateInput!, id: String!): ReleasePipelinePayload!
+  releaseSync(input: ReleaseSyncInput!): ReleasePayload!
+  releaseCreate(input: ReleaseCreateInput!): ReleasePayload!
+  releaseUpdate(input: ReleaseUpdateInput!, id: String!): ReleasePayload!
+  releaseComplete(input: ReleaseCompleteInput!): ReleasePayload!
+  releaseUpdateByPipeline(input: ReleaseUpdateByPipelineInput!): ReleasePayload!
+  releaseStageCreate(input: ReleaseStageCreateInput!): ReleaseStagePayload!
+  releaseStageUpdate(input: ReleaseStageUpdateInput!, id: String!): ReleaseStagePayload!
+}
+
+type PageInfo {
+  hasNextPage: Boolean!
+  endCursor: String
+}
+
+input PullRequestReferenceInput {
+  repositoryOwner: String!
+  repositoryName: String!
+  number: Int!
+}
+
+type Query {
+  releaseNotes(
+    filter: ReleaseNoteFilter
+    after: String
+    first: Int
+    includeArchived: Boolean
+  ): ReleaseNoteConnection!
+  releaseNote(id: String!): ReleaseNote!
+  releasePipelines(
+    filter: ReleasePipelineFilter
+    after: String
+    first: Int
+    includeArchived: Boolean
+  ): ReleasePipelineConnection!
+  releasePipeline(id: String!): ReleasePipeline!
+  releases(
+    filter: ReleaseFilter
+    after: String
+    first: Int
+    includeArchived: Boolean
+  ): ReleaseConnection!
+  release(id: String!): Release!
+  releaseStage(id: String!): ReleaseStage!
+}
+
+type Release {
+  id: ID!
+  archivedAt: DateTime
+  name: String!
+  description: String
+  version: String
+  commitSha: String
+  pipeline: ReleasePipeline!
+  stage: ReleaseStage!
+  startDate: TimelessDate
+  targetDate: TimelessDate
+  startedAt: DateTime
+  completedAt: DateTime
+  canceledAt: DateTime
+  url: String!
+  issues(after: String, first: Int, includeArchived: Boolean): IssueConnection!
+  issueCount(includeArchived: Boolean): Int!
+  links(after: String, first: Int, includeArchived: Boolean): EntityExternalLinkConnection!
+}
+
+input ReleaseCompleteInput {
+  version: String
+  commitSha: String
+  name: String
+  description: String
+  links: [ReleaseLinkInput!]
+  documents: [ReleaseDocumentInput!]
+  releaseNotes: ReleaseNoteInput
+  pipelineId: String!
+}
+
+type ReleaseConnection {
+  nodes: [Release!]!
+  pageInfo: PageInfo!
+}
+
+input ReleaseCreateInput {
+  id: String
+  name: String!
+  description: String
+  version: String
+  commitSha: String
+  pipelineId: String!
+  stageId: String
+  startDate: TimelessDate
+  targetDate: TimelessDate
+  createdAt: DateTime
+  startedAt: DateTime
+  completedAt: DateTime
+}
+
+input ReleaseDebugSinkInput {
+  inspectedShas: [String!]!
+  issues: JSONObject!
+  revertedIssues: JSONObject
+  pullRequests: [JSONObject!]!
+  includePaths: [String!]
+  includeSubjects: [String!]
+  issuePattern: String
+}
+
+input ReleaseDocumentInput {
+  title: String!
+  content: String!
+}
+
+input ReleaseFilter {
+  id: IDComparator
+  version: StringComparator
+  pipeline: ReleasePipelineFilter
+  stage: ReleaseStageFilter
+}
+
+input ReleaseLinkInput {
+  url: String!
+  label: String
+}
+
+type ReleaseNote {
+  id: ID!
+  archivedAt: DateTime
+  pipeline: ReleasePipeline!
+  title: String
+  firstRelease: Release
+  lastRelease: Release
+  releaseCount: Int!
+  generationStatus: ReleaseNoteGenerationStatus
+  url: String!
+  documentContent: DocumentContent
+}
+
+type ReleaseNoteConnection {
+  nodes: [ReleaseNote!]!
+  pageInfo: PageInfo!
+}
+
+input ReleaseNoteCreateInput {
+  id: String
+  pipelineId: String!
+  releaseIds: [String!]
+  rangeFromReleaseId: String
+  rangeToReleaseId: String
+  title: String
+  content: String
+}
+
+input ReleaseNoteFilter {
+  pipeline: ReleasePipelineFilter
+  release: ReleaseFilter
+}
+
+enum ReleaseNoteGenerationStatus {
+  pending
+  completed
+}
+
+input ReleaseNoteInput {
+  content: String!
+  title: String
+}
+
+type ReleaseNotePayload {
+  releaseNote: ReleaseNote!
+  success: Boolean!
+}
+
+input ReleaseNoteUpdateInput {
+  releaseIds: [String!]
+  rangeFromReleaseId: String
+  rangeToReleaseId: String
+  title: String
+  content: String
+}
+
+type ReleasePayload {
+  release: Release!
+  success: Boolean!
+}
+
+type ReleasePipeline {
+  id: ID!
+  archivedAt: DateTime
+  name: String!
+  slugId: String!
+  type: ReleasePipelineType!
+  isProduction: Boolean!
+  autoGenerateReleaseNotesOnCompletion: Boolean!
+  rolloverIssuesOnCompletion: Boolean!
+  includePathPatterns: [String!]!
+  url: String!
+  stages(after: String, first: Int, includeArchived: Boolean): ReleaseStageConnection!
+}
+
+type ReleasePipelineConnection {
+  nodes: [ReleasePipeline!]!
+  pageInfo: PageInfo!
+}
+
+input ReleasePipelineCreateInput {
+  id: String
+  name: String!
+  slugId: String
+  type: ReleasePipelineType
+  isProduction: Boolean
+  autoGenerateReleaseNotesOnCompletion: Boolean
+  rolloverIssuesOnCompletion: Boolean
+  includePathPatterns: [String!]
+  teamIds: [String!]
+}
+
+input ReleasePipelineFilter {
+  id: IDComparator
+}
+
+type ReleasePipelinePayload {
+  releasePipeline: ReleasePipeline!
+  success: Boolean!
+}
+
+enum ReleasePipelineType {
+  continuous
+  scheduled
+}
+
+input ReleasePipelineUpdateInput {
+  name: String
+  slugId: String
+  type: ReleasePipelineType
+  isProduction: Boolean
+  autoGenerateReleaseNotesOnCompletion: Boolean
+  rolloverIssuesOnCompletion: Boolean
+  includePathPatterns: [String!]
+  teamIds: [String!]
+}
+
+type ReleaseStage {
+  id: ID!
+  archivedAt: DateTime
+  name: String!
+  color: String!
+  type: ReleaseStageType!
+  position: Float!
+  frozen: Boolean!
+  pipeline: ReleasePipeline!
+}
+
+type ReleaseStageConnection {
+  nodes: [ReleaseStage!]!
+  pageInfo: PageInfo!
+}
+
+input ReleaseStageCreateInput {
+  id: String
+  name: String!
+  color: String!
+  type: ReleaseStageType!
+  position: Float!
+  pipelineId: String!
+  frozen: Boolean
+}
+
+input ReleaseStageFilter {
+  type: ReleaseStageTypeComparator
+}
+
+type ReleaseStagePayload {
+  releaseStage: ReleaseStage!
+  success: Boolean!
+}
+
+enum ReleaseStageType {
+  planned
+  started
+  completed
+  canceled
+}
+
+input ReleaseStageTypeComparator {
+  eq: ReleaseStageType
+  neq: ReleaseStageType
+  in: [ReleaseStageType!]
+  nin: [ReleaseStageType!]
+  null: Boolean
+}
+
+input ReleaseStageUpdateInput {
+  name: String
+  color: String
+  position: Float
+  frozen: Boolean
+}
+
+input ReleaseSyncInput {
+  name: String
+  description: String
+  version: String
+  commitSha: String!
+  preserveStoredCommitSha: Boolean
+  issueReferences: [IssueReferenceInput!]
+  revertedIssueReferences: [IssueReferenceInput!]
+  pullRequestReferences: [PullRequestReferenceInput!]
+  repository: RepositoryDataInput
+  debugSink: ReleaseDebugSinkInput
+  links: [ReleaseLinkInput!]
+  documents: [ReleaseDocumentInput!]
+  releaseNotes: ReleaseNoteInput
+  pipelineId: String!
+}
+
+input ReleaseUpdateByPipelineInput {
+  version: String
+  stage: String
+  name: String
+  description: String
+  links: [ReleaseLinkInput!]
+  documents: [ReleaseDocumentInput!]
+  releaseNotes: ReleaseNoteInput
+  pipelineId: String!
+}
+
+input ReleaseUpdateInput {
+  name: String
+  description: String
+  version: String
+  commitSha: String
+  stageId: String
+  startDate: TimelessDate
+  targetDate: TimelessDate
+  startedAt: DateTime
+  completedAt: DateTime
+  trashed: Boolean
+}
+
+input RepositoryDataInput {
+  owner: String!
+  name: String!
+  provider: String!
+  url: String!
+}
+
+input StringComparator {
+  eq: String
+  neq: String
+  in: [String!]
+  nin: [String!]
+  eqIgnoreCase: String
+  neqIgnoreCase: String
+  startsWith: String
+  startsWithIgnoreCase: String
+  notStartsWith: String
+  endsWith: String
+  notEndsWith: String
+  contains: String
+  containsIgnoreCase: String
+  notContains: String
+  notContainsIgnoreCase: String
+  containsIgnoreCaseAndAccent: String
+}
+
+scalar TimelessDate

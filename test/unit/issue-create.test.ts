@@ -4,7 +4,7 @@
  * command-level tests run the real program against a fake client.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createProgram } from "../../src/cli.js";
@@ -60,7 +60,12 @@ function fakeClient(opts: { parentProject?: { id: string } | null } = {}) {
     team: async (id: string) => (id === TEAM_ID ? teamModel : undefined),
     viewer: Promise.resolve({ id: "me-uuid" }),
     issues: async () => connection([parent]),
-    projects: async () => connection([{ id: PROJECT_ID, name: "Explicit" }]),
+    projects: async (args: any) =>
+      connection(
+        args.filter.name.eqIgnoreCase.toLowerCase() === "explicit"
+          ? [{ id: PROJECT_ID, name: "Explicit" }]
+          : [],
+      ),
     createIssue: async (input: any) => {
       createInputs.push(input);
       return payload("issue", {
@@ -153,6 +158,47 @@ describe("resolveTemplateId — scope and preference", () => {
 });
 
 describe("createIssue — a sub-issue joins its parent's project (TES-639)", () => {
+  it("uses the configured fallback when the parent has no project, including milestone resolution", async () => {
+    const client = fakeClient({ parentProject: null });
+    client.project = async (id: string) => {
+      expect(id).toBe(PROJECT_ID);
+      return { projectMilestones: async () => connection([{ id: "ms-1", name: "Alpha" }]) };
+    };
+    await createIssue(
+      client,
+      {
+        title: "t",
+        team: "TES",
+        parent: "TES-7",
+        defaultProject: "Explicit",
+        milestone: "Alpha",
+      },
+      undefined,
+    );
+    expect(createInputs[0]).toMatchObject({
+      parentId: PARENT_ID,
+      projectId: PROJECT_ID,
+      projectMilestoneId: "ms-1",
+    });
+  });
+
+  it("rejects a milestone when project membership is explicitly disabled", async () => {
+    await expect(
+      createIssue(
+        fakeClient(),
+        {
+          title: "t",
+          team: "TES",
+          project: null,
+          defaultProject: PROJECT_ID,
+          milestone: "Alpha",
+        },
+        undefined,
+      ),
+    ).rejects.toMatchObject({ code: "usage" });
+    expect(createInputs).toEqual([]);
+  });
+
   it("--parent alone: projectId is the parent's project", async () => {
     await createIssue(fakeClient(), { title: "t", team: "TES", parent: "TES-7" }, undefined);
     expect(createInputs[0]).toMatchObject({ parentId: PARENT_ID, projectId: PROJECT_ID });
@@ -250,11 +296,13 @@ describe("`issue create` command — flags (TES-639)", () => {
       HOME: process.env.HOME,
       LINEAR_API_KEY: process.env.LINEAR_API_KEY,
       LINEAR_TEAM: process.env.LINEAR_TEAM,
+      LINEAR_PROJECT: process.env.LINEAR_PROJECT,
     };
     process.env.XDG_CONFIG_HOME = join(root, "xdg");
     process.env.HOME = root;
     process.env.LINEAR_API_KEY = "lin_api_test000000000000";
     process.env.LINEAR_TEAM = "TES";
+    delete process.env.LINEAR_PROJECT;
     clientDescriptor = Object.getOwnPropertyDescriptor(Context.prototype, "client");
     Object.defineProperty(Context.prototype, "client", {
       get: () => fakeClient(),
@@ -286,6 +334,68 @@ describe("`issue create` command — flags (TES-639)", () => {
     }
     return JSON.parse(out);
   }
+
+  it("creates from a nested folder in its configured project, resolving a project name", async () => {
+    writeFileSync(join(root, ".linear.toml"), 'project = "Explicit"\n');
+    const nested = join(root, "nested");
+    mkdirSync(nested);
+    process.chdir(nested);
+    const out = await runJson(["issue", "new", "--title", "t"]);
+    expect(createInputs[0].projectId).toBe(PROJECT_ID);
+    expect(out).toEqual({
+      id: "new-issue-uuid",
+      identifier: "TES-99",
+      url: "https://linear.app/t/issue/TES-99",
+    });
+  });
+
+  it("explicit --project wins over the folder and environment defaults", async () => {
+    writeFileSync(join(root, ".linear.toml"), 'project = "Missing folder project"\n');
+    process.env.LINEAR_PROJECT = "Missing environment project";
+    await runJson(["issue", "create", "--title", "t", "--project", PROJECT_ID]);
+    expect(createInputs[0].projectId).toBe(PROJECT_ID);
+  });
+
+  it("LINEAR_PROJECT overrides the folder default", async () => {
+    writeFileSync(join(root, ".linear.toml"), 'project = "Missing folder project"\n');
+    process.env.LINEAR_PROJECT = PROJECT_ID;
+    await runJson(["issue", "create", "--title", "t"]);
+    expect(createInputs[0].projectId).toBe(PROJECT_ID);
+  });
+
+  it("a parent project wins over the configured fallback, even if the fallback is invalid", async () => {
+    writeFileSync(join(root, ".linear.toml"), 'project = "Missing folder project"\n');
+    await runJson(["issue", "create", "--title", "t", "--parent", "TES-7"]);
+    expect(createInputs[0]).toMatchObject({ projectId: PROJECT_ID, parentId: PARENT_ID });
+  });
+
+  it("--no-project suppresses config, parent, and template project defaults", async () => {
+    writeFileSync(join(root, ".linear.toml"), 'project = "Missing folder project"\n');
+    await runJson([
+      "issue",
+      "create",
+      "--title",
+      "t",
+      "--no-project",
+      "--parent",
+      "TES-7",
+      "--template",
+      TPL_SHARED,
+    ]);
+    expect(createInputs[0]).toMatchObject({
+      projectId: null,
+      parentId: PARENT_ID,
+      templateId: TPL_SHARED,
+    });
+  });
+
+  it("an unresolved configured project fails before creating an issue", async () => {
+    writeFileSync(join(root, ".linear.toml"), 'project = "Missing folder project"\n');
+    await expect(runJson(["issue", "create", "--title", "t"])).rejects.toMatchObject({
+      code: "not_found",
+    });
+    expect(createInputs).toEqual([]);
+  });
 
   it("--no-default-template and the reference's --no-use-default-template both drop the flag", async () => {
     await runJson(["issue", "create", "--title", "t", "--no-default-template"]);
