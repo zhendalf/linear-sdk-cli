@@ -40,7 +40,7 @@ const ROW = shape<Row>({
 describe("ShapeOf<T> (compile-time drift guard)", () => {
   it("rejects a renamed, missing, re-typed, de-nulled or de-optionalised field", () => {
     // Each of these is a type error; the test's job is to keep them one
-    // (`tsc` fails on an unused @ts-expect-error).
+    // (`bun check` fails on an unused @ts-expect-error).
     // @ts-expect-error a key the interface does not have
     shape<Row>({ ...ROW, identifier: "string" });
     // @ts-expect-error wrong scalar type

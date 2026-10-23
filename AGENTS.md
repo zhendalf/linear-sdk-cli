@@ -15,15 +15,17 @@ lives in `skills/linear-sdk-cli/`. Coverage audit tooling and its checked-in bas
 
 ## Development Commands
 
-- `bun install` installs dependencies; Bun 1.1 or newer is required.
+- Use the Bun version pinned by `packageManager` in `package.json` for development and CI.
+- `bun install --frozen-lockfile` installs the locked dependencies.
 - `bun run dev -- issue list` runs the CLI from source. `bun run lin -- ...` is an equivalent
   local alias.
 - `bun test test/unit/issue-create.test.ts` runs one focused test file.
 - `bun run test:unit`, `bun run test:contract`, and `bun run test` run the local test tiers.
-- `bun run typecheck`, `bun run lint`, and `bun run format:check` run individual static checks.
-- `bun run format` applies Oxfmt formatting.
-- `bun run verify` runs type checking, Oxlint, the SDK coverage audit, formatting checks, and all
-  unit/contract tests. Run it before handing off changes.
+- `bun check` (also `bun run typecheck`) checks the entire TypeScript project using `tsconfig.json`.
+- `bun run lint` and `bun run format:check` run the other individual static checks.
+- `bun run format` applies `bun fmt` using `.oxfmtrc.json`, excluding the generated changelog.
+- `bun run verify` runs `bun check`, Oxlint, the changelog and SDK coverage audits, formatting
+  checks, and all unit/contract tests. Run it before handing off changes.
 - `bun run test:live` runs credentialed integration tests. `bun run test:live:admin` also enables
   admin-tier mutations. Both require `LINEAR_API_KEY`; do not run them unless live API mutations are
   intended.

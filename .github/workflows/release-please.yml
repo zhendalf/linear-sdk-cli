@@ -49,7 +49,7 @@ jobs:
         if: ${{ steps.release.outputs.prs_created == 'true' }}
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version-file: package.json
 
       - name: Install dependencies
         if: ${{ steps.release.outputs.prs_created == 'true' }}
@@ -60,7 +60,7 @@ jobs:
         env:
           HEAD_BRANCH: ${{ steps.release-pr.outputs.head_branch }}
         run: |
-          bunx oxfmt CHANGELOG.md
+          bun fmt CHANGELOG.md
           if git diff --quiet -- CHANGELOG.md; then
             exit 0
           fi

@@ -52,10 +52,10 @@
     "prepublishOnly": "bun run verify",
     "dev": "bun run src/bin/linear.ts",
     "lin": "bun run src/bin/linear.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "bun check",
     "lint": "oxlint .",
-    "format": "oxfmt . '!CHANGELOG.md'",
-    "format:check": "oxfmt --check . '!CHANGELOG.md'",
+    "format": "bun fmt . '!CHANGELOG.md'",
+    "format:check": "bun fmt --check . '!CHANGELOG.md'",
     "test": "bun test test/unit test/contract",
     "test:performance": "bun test --timeout 15000 test/performance",
     "test:unit": "bun test test/unit",
@@ -77,12 +77,10 @@
     "picocolors": "^1.1.1",
     "smol-toml": "^1.9.1"
   },
-  "packageManager": "bun@1.4.3",
+  "packageManager": "bun@1.4.4",
   "devDependencies": {
-    "@types/bun": "^1.4.3",
+    "@types/bun": "^1.4.4",
     "@types/node": "^26.6.5",
-    "oxfmt": "^0.73.0",
-    "oxlint": "^1.88.0",
-    "typescript": "^7.0.2"
+    "oxlint": "^1.88.0"
   }
 }

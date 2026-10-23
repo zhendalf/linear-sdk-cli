@@ -1013,8 +1013,16 @@ await createProgram().parseAsync(["node", "linear", "issue", "list", "--json"]);
 
 ## Development
 
+Use the Bun version pinned by `packageManager` in `package.json`, then install dependencies with
+`bun install --frozen-lockfile`. Type checking uses [Bun's built-in checker](https://bun.com/docs/runtime/check)
+with the existing `tsconfig.json`; no separate TypeScript compiler is required.
+Formatting uses [Bun's built-in formatter](https://bun.com/docs/format) with `.oxfmtrc.json`.
+
 ```sh
-bun run verify           # typecheck + lint + unit/contract tests
+bun check                # typecheck the project (also: bun run typecheck)
+bun run format           # bun fmt, excluding the generated changelog
+bun run format:check     # bun fmt --check with the same exclusion
+bun run verify           # bun check + lint + audits + formatting + unit/contract tests
 bun run test:live        # live integration tests (needs LINEAR_API_KEY + LINEAR_CLI_LIVE=1)
 bun run test:live:admin  # also runs admin-tier suites (e.g. team create/update)
 bun run audit:changelog  # verify package, tag, and generated release-note history

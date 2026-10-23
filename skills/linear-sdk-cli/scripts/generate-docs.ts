@@ -297,7 +297,7 @@ async function updateSkillMd(commands: CliCommand[], groups: string[]): Promise<
 
   const before = current.slice(0, begin + BEGIN_MARKER.length);
   const after = current.slice(end);
-  // Format chosen to match Oxfmt: no blank line after the opening marker,
+  // Format chosen to match bun fmt: no blank line after the opening marker,
   // one blank line before the closing marker, so re-running stays a no-op.
   const block = ["", "```text", buildCommandList(commands), "```", "", ""].join("\n");
   const next = `${before}${block}${after}`;
@@ -313,17 +313,17 @@ async function updateSkillMd(commands: CliCommand[], groups: string[]): Promise<
 }
 
 /**
- * Run Oxfmt over the generated markdown so the output matches the repo's
+ * Run bun fmt over the generated markdown so the output matches the repo's
  * formatting (table alignment, list spacing) and re-running stays a clean no-op.
- * Best-effort: if Oxfmt isn't available the docs are still valid markdown.
+ * Best-effort: if formatting fails the docs are still valid markdown.
  */
 function formatGenerated(): void {
-  const result = spawnSync("bunx", ["oxfmt", "."], {
+  const result = spawnSync(process.execPath, ["fmt", "."], {
     stdio: "inherit",
     cwd: SKILL_DIR,
   });
   if (result.status !== 0) {
-    console.warn("Warning: Oxfmt formatting step skipped (non-zero exit).");
+    console.warn("Warning: bun fmt formatting step skipped (non-zero exit).");
   }
 }
 
