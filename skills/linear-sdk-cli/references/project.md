@@ -22,6 +22,7 @@ linear project [options]
 
 ```text
 id: string
+identifier: string | null
 name: string
 description: string | null
 content: string | null
@@ -47,7 +48,7 @@ members: Array<{id: string, displayName: string, email: string}>
 
 ### `linear project archive`
 
-Archive a project
+Archive a project (by identifier, name, or UUID)
 
 ```
 linear project archive [options] <id>
@@ -100,7 +101,7 @@ url: string
 
 ### `linear project delete`
 
-Delete (trash) a project — `archive` keeps it, read-only
+Delete (trash) a project (by identifier, name, or UUID); archive keeps it read-only
 
 Aliases: `rm`
 
@@ -136,6 +137,7 @@ linear project list [options]
 
 ```text
 id: string
+identifier: string | null
 name: string
 state: string | null
 progress: number | null
@@ -150,7 +152,7 @@ trashed: boolean
 
 ### `linear project milestones`
 
-List a project's milestones
+List a project's milestones (project identifier, name, or UUID)
 
 ```
 linear project milestones [options] <id>
@@ -167,7 +169,7 @@ progress: number | null
 
 ### `linear project update`
 
-Update a project
+Update a project (by identifier, name, or UUID)
 
 Aliases: `edit`
 
@@ -203,7 +205,7 @@ url: string
 
 ### `linear project view`
 
-Show a project (by name or id)
+Show a project (by identifier, name, or UUID)
 
 Aliases: `show`
 
@@ -215,6 +217,7 @@ linear project view [options] <id>
 
 ```text
 id: string
+identifier: string | null
 name: string
 description: string | null
 content: string | null

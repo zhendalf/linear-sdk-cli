@@ -20,7 +20,7 @@ linear milestone [options]
 
 ### `linear milestone create`
 
-Create a milestone in a project
+Create a milestone in a project (project identifier, name, or UUID)
 
 Aliases: `new`
 
@@ -52,9 +52,9 @@ Aliases: `rm`
 linear milestone delete [options] <id>
 ```
 
-| Option                 | Description                                                                      |
-| ---------------------- | -------------------------------------------------------------------------------- |
-| `-p, --project <name>` | the milestone's project, when <id> is a name (names are unique per project only) |
+| Option                 | Description                                                                   |
+| ---------------------- | ----------------------------------------------------------------------------- |
+| `-p, --project <name>` | project identifier, name, or UUID; required when the milestone <id> is a name |
 
 **Output (`--json`)**: a receipt object
 
@@ -66,7 +66,7 @@ deleted: boolean
 
 ### `linear milestone list`
 
-List milestones in a project
+List milestones in a project (project identifier, name, or UUID)
 
 Aliases: `ls`
 
@@ -95,13 +95,13 @@ Aliases: `edit`
 linear milestone update [options] <id>
 ```
 
-| Option                      | Description                                                                      |
-| --------------------------- | -------------------------------------------------------------------------------- |
-| `-p, --project <name>`      | the milestone's project, when <id> is a name (names are unique per project only) |
-| `--name <name>`             | new name                                                                         |
-| `-d, --description <text>`  | new description                                                                  |
-| `--description-file <path>` | read description from a file ('-' = stdin)                                       |
-| `--target <date>`           | target date (YYYY-MM-DD)                                                         |
+| Option                      | Description                                                                   |
+| --------------------------- | ----------------------------------------------------------------------------- |
+| `-p, --project <name>`      | project identifier, name, or UUID; required when the milestone <id> is a name |
+| `--name <name>`             | new name                                                                      |
+| `-d, --description <text>`  | new description                                                               |
+| `--description-file <path>` | read description from a file ('-' = stdin)                                    |
+| `--target <date>`           | target date (YYYY-MM-DD)                                                      |
 
 **Output (`--json`)**: a receipt object
 
@@ -118,9 +118,9 @@ Show a milestone and the issues in it (by id, or by name with --project)
 linear milestone view [options] <id>
 ```
 
-| Option                 | Description                                                                      |
-| ---------------------- | -------------------------------------------------------------------------------- |
-| `-p, --project <name>` | the milestone's project, when <id> is a name (names are unique per project only) |
+| Option                 | Description                                                                   |
+| ---------------------- | ----------------------------------------------------------------------------- |
+| `-p, --project <name>` | project identifier, name, or UUID; required when the milestone <id> is a name |
 
 **Output (`--json`)**: a bare object
 

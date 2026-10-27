@@ -6,6 +6,7 @@
  */
 
 import { fetchNextWithRetry, withRetry } from "../client.js";
+import { CliError } from "./errors.js";
 
 /** Linear accepts at most 250 nodes per connection page. */
 export const MAX_PAGE_SIZE = 250;
@@ -90,7 +91,7 @@ export function pageSizeForMore(limit: number): number {
 /** A GraphQL connection page as returned by a raw query. */
 interface RawConnection {
   nodes: any[];
-  pageInfo: { hasNextPage: boolean; endCursor?: string };
+  pageInfo: { hasNextPage: boolean; endCursor?: string | null };
 }
 
 /** A client exposing the low-level GraphQL `rawRequest`. */
@@ -105,9 +106,10 @@ interface RawClient {
  * `connectionPath` (a dot path) within `data.data`. Each call is wrapped in
  * `withRetry`; pagination stops at `limit` or when `hasNextPage` is false.
  *
- * Mirrors the hand-rolled loops in the list services exactly: page size is
- * `limit === Infinity ? 250 : Math.min(limit, 250)`, and rows are capped at
- * `limit` mid-page.
+ * With `uniqueBy`, duplicate nodes do not consume the limit. One extra unique
+ * node proves truncation, rather than relying on a possibly repeated next page.
+ * Missing/repeated cursors and pages without progress fail closed, so `--all`
+ * cannot loop forever or present an incomplete result as complete.
  */
 export async function collectRawQuery<T>(
   client: RawClient,
@@ -116,11 +118,25 @@ export async function collectRawQuery<T>(
   connectionPath: string,
   limit: number,
   transform: (node: any) => T,
+  options: { uniqueBy?: (node: any) => string } = {},
 ): Promise<T[]> {
-  const pageLimit = pageSize(limit);
+  const target = options.uniqueBy && limit !== Infinity ? limit + 1 : limit;
+  const pageLimit = pageSize(target);
   const rows: T[] = [];
+  const seenIds = new Set<string>();
+  const seenCursors = new Set<string>();
   let after: string | undefined;
   let hasMore = false;
+
+  const stalled = (reason: string): never => {
+    throw new CliError(
+      `Pagination for ${connectionPath} did not advance; stopped to avoid repeated results.`,
+      "api",
+      undefined,
+      "Retry with narrower filters; do not increase --limit or use --all to work around this error.",
+      { connection: connectionPath, reason, uniqueResults: rows.length },
+    );
+  };
 
   for (;;) {
     const data: any = await withRetry(() =>
@@ -133,15 +149,30 @@ export async function collectRawQuery<T>(
     // A nested path (`issue.comments`) can land on null when the parent entity
     // is gone; that is an empty list, not a crash.
     if (!conn) break;
+    const previousCount = rows.length;
     for (const [index, n] of conn.nodes.entries()) {
+      if (options.uniqueBy) {
+        const id = options.uniqueBy(n);
+        if (seenIds.has(id)) continue;
+        seenIds.add(id);
+      }
       rows.push(transform(n));
-      if (rows.length >= limit) {
+      if (rows.length >= target) {
         hasMore = index < conn.nodes.length - 1 || conn.pageInfo.hasNextPage;
         break;
       }
     }
-    if (rows.length >= limit || !conn.pageInfo.hasNextPage) break;
-    after = conn.pageInfo.endCursor;
+    if (rows.length >= target) break;
+    if (rows.length === previousCount && (conn.nodes.length || conn.pageInfo.hasNextPage)) {
+      stalled("no_new_results");
+    }
+    if (!conn.pageInfo.hasNextPage) break;
+    const cursor = conn.pageInfo.endCursor;
+    if (!cursor) return stalled("missing_cursor");
+    if (seenCursors.has(cursor)) stalled("repeated_cursor");
+    seenCursors.add(cursor);
+    after = cursor;
   }
+  if (options.uniqueBy) return withMoreMetadata(rows.slice(0, limit), rows.length > limit);
   return withMoreMetadata(rows, hasMore);
 }

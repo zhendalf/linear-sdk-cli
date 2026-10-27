@@ -24,7 +24,7 @@ export function registerOpen(program: Command): void {
       "after",
       [
         "",
-        "Targets: an issue id (TES-123), `team:<key>`, `project:<name>`, or an https URL.",
+        "Targets: an issue id (TES-123), `team:<key>`, `project:<identifier|name|UUID>`, or an https URL.",
         "With no target, opens the current workspace. A bare team key opens that team.",
       ].join("\n"),
     )

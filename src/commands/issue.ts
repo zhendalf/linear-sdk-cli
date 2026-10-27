@@ -111,7 +111,7 @@ function addNoopAllAssignees(command: Command): void {
  * (`issue attach` is a real subcommand now — TES-602 — so it never lands here.)
  */
 const SCHPET_ISSUE_SUBCOMMANDS: Record<string, string> = {
-  link: "Use 'linear attachment create <issue> --url <url>'.",
+  link: "Use 'linear attachment create <issue> --url <url> --title <title>'.",
   commits:
     "'issue commits' is not available here (jj/git log integration is not adopted). Use 'git log --grep <ID>'.",
   "agent-session": "Use 'linear issue agent-session list|view <issue>'.",
@@ -371,7 +371,10 @@ export function registerIssue(program: Command): void {
     .option("-s, --state <name>", "workflow state name or type")
     .option("-P, --priority <0-4>", "priority", parsePriority)
     .option("-l, --label <name>", "label (repeatable / comma-separated)", parseList)
-    .option("-p, --project <name>", "project name or id (overrides the configured default)")
+    .option(
+      "-p, --project <name>",
+      "project identifier, name, or UUID (overrides the configured default)",
+    )
     .option("--no-project", "create outside any project, ignoring configured and parent defaults")
     .option(
       "--milestone <name>",
@@ -531,7 +534,7 @@ export function registerIssue(program: Command): void {
     .option("--delegate <agent>", "delegate to an eligible agent app user (name or id)")
     .option("-s, --state <name>", "workflow state name or type")
     .option("-P, --priority <0-4>", "priority", parsePriority)
-    .option("-p, --project <name>", "project name or id")
+    .option("-p, --project <name>", "project identifier, name, or UUID")
     .option("--milestone <name>", "project milestone")
     .option(CYCLE_FLAG, CYCLE_DESC)
     .option("--estimate <n>", "estimate points", parseIntOption)

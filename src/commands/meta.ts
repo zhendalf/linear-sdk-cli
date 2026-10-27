@@ -757,7 +757,10 @@ Example: linear auth rename old-workspace new-workspace --json`,
     .command("init")
     .description("Write a project .linear.toml (at the git root, or here outside a repository)")
     .option("--team <key>", "default team key (otherwise chosen from a list)")
-    .option("--project <name|id>", "default Linear project for new issues")
+    .option(
+      "--project <name|id>",
+      "default Linear project for new issues (identifier, name, or UUID)",
+    )
     .option("--sort <order>", `default issue-list sort (${ISSUE_SORTS.join(" | ")})`)
     .option("--path <file>", "write this file instead of <git root>/.linear.toml")
     .option("--force", "overwrite an existing file")

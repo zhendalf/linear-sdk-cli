@@ -222,8 +222,10 @@ export function registerInitiative(program: Command): void {
 
   // add-project / remove-project --------------------------------------------
   initiative
-    .command("add-project <initiative> <project>")
-    .description("Link a project to an initiative")
+    .command("add-project")
+    .argument("<initiative>", "initiative name or UUID")
+    .argument("<project>", "project identifier (e.g. P-TES-123), name, or UUID")
+    .description("Link a project to an initiative (project identifier, name, or UUID)")
     .option("--sort-order <n>", "position among the initiative's projects", parseIntOption)
     .addHelpText(
       "after",
@@ -241,8 +243,10 @@ export function registerInitiative(program: Command): void {
     );
 
   initiative
-    .command("remove-project <initiative> <project>")
-    .description("Unlink a project from an initiative")
+    .command("remove-project")
+    .argument("<initiative>", "initiative name or UUID")
+    .argument("<project>", "project identifier (e.g. P-TES-123), name, or UUID")
+    .description("Unlink a project from an initiative (project identifier, name, or UUID)")
     .action(
       action(async (ctx: Context, _opts, initiativeArg: string, projectArg: string) => {
         const link = await svc.findProjectLink(ctx.client, initiativeArg, projectArg);

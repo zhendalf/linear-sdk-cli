@@ -9,8 +9,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createProgram } from "../../src/cli.js";
 import { Context } from "../../src/context.js";
-import { createIssue, moveIssueState, startIssue } from "../../src/services/issue.js";
+import {
+  createIssue,
+  moveIssueState,
+  prepareIssueCreate,
+  startIssue,
+} from "../../src/services/issue.js";
 import { resolveTemplateId } from "../../src/lib/resolve.js";
+import { notFound } from "../../src/lib/errors.js";
 import { connection, payload } from "./_fakes.js";
 
 const TEAM_ID = "aaaaaaaa-0000-0000-0000-000000000001";
@@ -66,6 +72,12 @@ function fakeClient(opts: { parentProject?: { id: string } | null } = {}) {
           ? [{ id: PROJECT_ID, name: "Explicit" }]
           : [],
       ),
+    project: async (reference: string) => {
+      if (reference === "P-TES-123" || reference === PROJECT_ID) {
+        return { id: PROJECT_ID, identifier: "P-TES-123", name: "Explicit" };
+      }
+      throw notFound("Project not found");
+    },
     createIssue: async (input: any) => {
       createInputs.push(input);
       return payload("issue", {
@@ -158,6 +170,27 @@ describe("resolveTemplateId — scope and preference", () => {
 });
 
 describe("createIssue — a sub-issue joins its parent's project (TES-639)", () => {
+  it.each(["configured", "explicit"])(
+    "resolves the %s project identifier in the mutation plan without creating an issue",
+    async (source) => {
+      const plan = await prepareIssueCreate(
+        fakeClient(),
+        {
+          title: "t",
+          team: "TES",
+          ...(source === "configured" ? { defaultProject: "P-TES-123" } : { project: "P-TES-123" }),
+        },
+        undefined,
+      );
+      expect(plan).toMatchObject({
+        operation: "issue.create",
+        input: { title: "t", teamId: TEAM_ID, projectId: PROJECT_ID },
+      });
+      expect(createInputs).toEqual([]);
+      expect(updateInputs).toEqual([]);
+    },
+  );
+
   it("uses the configured fallback when the parent has no project, including milestone resolution", async () => {
     const client = fakeClient({ parentProject: null });
     client.project = async (id: string) => {

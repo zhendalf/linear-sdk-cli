@@ -14,7 +14,7 @@ import {
   inheritPaginationMetadata,
   pageSize,
 } from "../lib/pagination.js";
-import { usageError, notFound, ambiguous } from "../lib/errors.js";
+import { usageError, notFound, ambiguous, normalizeError } from "../lib/errors.js";
 import { assertMutation, unwrapMutation } from "../lib/mutation.js";
 import {
   resolveTeam,
@@ -27,6 +27,7 @@ import { resolveProjectStatusId } from "./project-status.js";
 
 export interface ProjectRow {
   id: string;
+  identifier: string | null;
   name: string;
   state: string | null;
   progress: number | null;
@@ -42,6 +43,7 @@ export interface ProjectRow {
 /** The row's shape as `linear commands` advertises it (TES-610); checked against the interface. */
 export const PROJECT_ROW_SHAPE = shape<ProjectRow>({
   id: "string",
+  identifier: "string|null",
   name: "string",
   state: "string|null",
   progress: "number|null",
@@ -67,7 +69,7 @@ const LIST_QUERY = `
 query CliProjects($filter: ProjectFilter, $first: Int!, $after: String, $includeArchived: Boolean) {
   projects(filter: $filter, first: $first, after: $after, includeArchived: $includeArchived) {
     nodes {
-      id name state progress url startDate targetDate archivedAt trashed
+      id identifier name state progress url startDate targetDate archivedAt trashed
       status { name }
       lead { displayName }
     }
@@ -119,6 +121,7 @@ export async function listProjects(
     limit,
     (n) => ({
       id: n.id,
+      identifier: n.identifier ?? null,
       name: n.name,
       state: n.state ?? null,
       progress: n.progress ?? null,
@@ -142,6 +145,7 @@ export async function listProjects(
  */
 export interface ProjectDetail {
   id: string;
+  identifier: string | null;
   name: string;
   description: string | null;
   /** The project's markdown body (Project.content), not the one-line description. */
@@ -169,6 +173,7 @@ export interface ProjectDetail {
 /** The detail's shape; checked against `ProjectDetail`. */
 export const PROJECT_DETAIL_SHAPE = shape<ProjectDetail>({
   id: "string",
+  identifier: "string|null",
   name: "string",
   description: "string|null",
   content: "string|null",
@@ -195,9 +200,10 @@ export const PROJECT_DETAIL_SHAPE = shape<ProjectDetail>({
 /**
  * Everything `project view` shows, in one round-trip: the name lookup, the
  * project, and its relations, which the SDK-model path fetched one request
- * each (7 requests, measured). A UUID filters by id; anything else is a
- * case-insensitive name match — the same rule as `resolveProjectId`, with the
- * same not-found/ambiguous outcomes. An id finds an archived project too (as
+ * each (7 requests, measured). A UUID filters by id; otherwise try an exact
+ * case-insensitive live name, then canonical `project(id:)` lookup for supported
+ * identifiers, matching `resolveProjectId`'s precedence and error behavior.
+ * An id or identifier finds an archived project too (as
  * `client.project(id)` did); a name matches live projects only (as
  * `resolveProjectId` does), so an archived namesake cannot make a live project
  * ambiguous.
@@ -207,19 +213,25 @@ export const PROJECT_DETAIL_SHAPE = shape<ProjectDetail>({
  * 50-item connections was refused as too complex (49 975 against a cap of
  * 10 000, verified live).
  */
-const DETAIL_QUERY = `
-query CliProjectDetail($filter: ProjectFilter!, $includeArchived: Boolean!) {
-  projects(filter: $filter, first: 2, includeArchived: $includeArchived) {
-    nodes {
-      id name description content state health progress priority priorityLabel url
+const DETAIL_FIELDS = `
+      id identifier name description content state health progress priority priorityLabel url
       startDate targetDate createdAt updatedAt completedAt archivedAt trashed
       status { id name type }
       lead { id displayName email }
       labels(first: 50) { nodes { id name } }
       teams(first: 50) { nodes { id key name } }
-      members(first: 50) { nodes { id displayName email } }
-    }
+      members(first: 50) { nodes { id displayName email } }`;
+
+const DETAIL_QUERY = `
+query CliProjectDetail($filter: ProjectFilter!, $includeArchived: Boolean!) {
+  projects(filter: $filter, first: 2, includeArchived: $includeArchived) {
+    nodes { ${DETAIL_FIELDS} }
   }
+}`;
+
+const REFERENCE_DETAIL_QUERY = `
+query CliProjectReferenceDetail($id: String!) {
+  project(id: $id) { ${DETAIL_FIELDS} }
 }`;
 
 export async function getProjectDetail(
@@ -232,15 +244,26 @@ export async function getProjectDetail(
     (client as any).client.rawRequest(DETAIL_QUERY, { filter, includeArchived: byId }),
   );
   const nodes: any[] = data.data?.projects?.nodes ?? [];
-  if (nodes.length === 0)
-    throw notFound(`No project matching '${idArg}'. Run 'linear project list' to see the options.`);
   if (nodes.length > 1)
     throw ambiguous(
       `Multiple projects match '${idArg}': ${nodes.map((p) => p.name).join(", ")}. Pass the project id instead.`,
     );
-  const p = nodes[0];
+  let p = nodes[0];
+  if (!p && !byId) {
+    try {
+      const canonical: any = await withRetry(() =>
+        (client as any).client.rawRequest(REFERENCE_DETAIL_QUERY, { id: idArg }),
+      );
+      p = canonical.data?.project;
+    } catch (err) {
+      if (normalizeError(err).code !== "not_found") throw err;
+    }
+  }
+  if (!p)
+    throw notFound(`No project matching '${idArg}'. Run 'linear project list' to see the options.`);
   return {
     id: p.id,
+    identifier: p.identifier ?? null,
     name: p.name,
     description: p.description || null,
     content: p.content || null,

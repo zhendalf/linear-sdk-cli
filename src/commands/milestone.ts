@@ -36,7 +36,7 @@ export function formatMilestoneProgress(progress: number | null): string {
 
 const PROJECT_SCOPE = [
   "-p, --project <name>",
-  "the milestone's project, when <id> is a name (names are unique per project only)",
+  "project identifier, name, or UUID; required when the milestone <id> is a name",
 ] as const;
 
 export function registerMilestone(program: Command): void {
@@ -47,9 +47,10 @@ export function registerMilestone(program: Command): void {
 
   // list --------------------------------------------------------------------
   milestone
-    .command("list <project>")
+    .command("list")
+    .argument("<project>", "project identifier (e.g. P-TES-123), name, or UUID")
     .alias("ls")
-    .description("List milestones in a project")
+    .description("List milestones in a project (project identifier, name, or UUID)")
     .action(
       action(async (ctx: Context, _opts, project: string) => {
         const rows = await svc.listMilestones(ctx.client, project, ctx.limit);
@@ -86,9 +87,10 @@ export function registerMilestone(program: Command): void {
 
   // create ------------------------------------------------------------------
   const create = milestone
-    .command("create <project>")
+    .command("create")
+    .argument("<project>", "project identifier (e.g. P-TES-123), name, or UUID")
     .alias("new")
-    .description("Create a milestone in a project")
+    .description("Create a milestone in a project (project identifier, name, or UUID)")
     .option("--name <name>", "milestone name")
     .option("-d, --description <text>", "milestone description (body)")
     .option("--description-file <path>", "read description from a file ('-' = stdin)")

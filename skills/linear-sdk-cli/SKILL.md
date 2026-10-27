@@ -152,7 +152,7 @@ forbidden errors include stable `error.details` with the required scope and reme
 ## Agent best practices
 
 Folder defaults: `linear config set project "My Project" --path .linear.toml` associates the
-current folder and descendants with a Linear project (name or UUID). Include `team` and
+current folder and descendants with a Linear project (identifier, name, or UUID). Include `team` and
 `workspace` in that file when needed; discovery reads the nearest config without merging
 ancestor files. Omit `--path` to edit the discovered config, or create one at the Git root
 (cwd outside Git). `linear config show --json` reports `project` and `origins.project`.
@@ -160,6 +160,9 @@ ancestor files. Omit `--path` to edit the discovered config, or create one at th
 takes precedence over it, and `--no-project` suppresses config, parent, and template defaults.
 `LINEAR_PROJECT` overrides file defaults. List/search/update commands do not inherit this
 project selection. Remove the config's `project` line to clear the association.
+Project references accept UUIDs, exact case-insensitive names, or identifiers resolved by Linear
+(for example `P-TES-123`). Exact names take precedence and ambiguous names fail; project list/view
+JSON includes `identifier: string|null` to correlate references without inspecting descriptions.
 
 This CLI is built for non-interactive use. Follow these and it will never hang and
 always emit parseable output.
@@ -303,6 +306,15 @@ the positional `[body]` arg (comments: `linear comment add TES-42 "lgtm"`), or
 `--body` (status updates). There is no `-b` short flag. The CLI rejects an inline
 body containing literal `\n` sequences and points back to stdin; never encode a
 multiline body by inserting `\n` inside an ordinary quoted argument.
+
+### Attach URLs with an explicit title
+
+URL attachments require both `--url` and `--title`; the CLI does not derive a title from the URL.
+Use a descriptive title for the linked resource:
+
+```bash
+linear attachment create TES-123 --url https://example.invalid/pr/1 --title 'PR #1' --json
+```
 
 ### Mentions require explicit intent
 

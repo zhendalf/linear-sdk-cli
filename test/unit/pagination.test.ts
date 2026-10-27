@@ -121,6 +121,114 @@ describe("collectRawQuery pagination metadata", () => {
   });
 });
 
+describe("collectRawQuery progress guards", () => {
+  function collectPages(
+    pages: Array<{ nodes: number[]; hasNextPage: boolean; endCursor?: string | null }>,
+    limit = Infinity,
+    unique = true,
+  ) {
+    const calls: Array<Record<string, any>> = [];
+    const client = {
+      client: {
+        rawRequest: async (_query: string, vars: Record<string, any>) => {
+          calls.push(vars);
+          const page = pages[calls.length - 1];
+          if (!page) throw new Error("Unexpected extra request");
+          return {
+            data: {
+              results: {
+                nodes: page.nodes,
+                pageInfo: { hasNextPage: page.hasNextPage, endCursor: page.endCursor },
+              },
+            },
+          };
+        },
+      },
+    };
+    return {
+      calls,
+      result: collectRawQuery(client, "query", {}, "results", limit, (node) => node, {
+        uniqueBy: unique ? (node) => String(node) : undefined,
+      }),
+    };
+  }
+
+  it("keeps first occurrence order across overlapping pages and forwards cursors", async () => {
+    const { result, calls } = collectPages([
+      { nodes: [1, 1, 2], hasNextPage: true, endCursor: "a" },
+      { nodes: [2, 3], hasNextPage: false },
+    ]);
+    const rows = await result;
+    expect(rows).toEqual([1, 2, 3]);
+    expect(hasMoreResults(rows)).toBe(false);
+    expect(calls.map((vars) => vars.after)).toEqual([undefined, "a"]);
+  });
+
+  it("counts a unique sentinel rather than duplicate rows as evidence of more", async () => {
+    const exact = collectPages(
+      [
+        { nodes: [1, 1], hasNextPage: true, endCursor: "a" },
+        { nodes: [1, 2, 2], hasNextPage: false },
+      ],
+      2,
+    );
+    const rows = await exact.result;
+    expect(rows).toEqual([1, 2]);
+    expect(hasMoreResults(rows)).toBe(false);
+
+    const more = await collectPages([{ nodes: [1, 1, 2, 3], hasNextPage: false }], 2).result;
+    expect(more).toEqual([1, 2]);
+    expect(hasMoreResults(more)).toBe(true);
+  });
+
+  it("rejects repeated pages even if the server changes the cursor", async () => {
+    for (const limit of [6, Infinity]) {
+      const { result, calls } = collectPages(
+        [
+          { nodes: [1, 2], hasNextPage: true, endCursor: "a" },
+          { nodes: [1, 2], hasNextPage: true, endCursor: "b" },
+        ],
+        limit,
+      );
+      await expect(result).rejects.toMatchObject({
+        code: "api",
+        details: { connection: "results", reason: "no_new_results", uniqueResults: 2 },
+        suggestion: expect.stringContaining("do not increase --limit"),
+      });
+      expect(calls).toHaveLength(2);
+    }
+  });
+
+  it("rejects missing and cycling cursors without relying on node identity", async () => {
+    for (const cursor of [undefined, null, ""]) {
+      await expect(
+        collectPages([{ nodes: [1], hasNextPage: true, endCursor: cursor }], Infinity, false)
+          .result,
+      ).rejects.toMatchObject({
+        details: { reason: "missing_cursor" },
+      });
+    }
+    const { result, calls } = collectPages(
+      [
+        { nodes: [1], hasNextPage: true, endCursor: "a" },
+        { nodes: [2], hasNextPage: true, endCursor: "b" },
+        { nodes: [3], hasNextPage: true, endCursor: "a" },
+      ],
+      Infinity,
+      false,
+    );
+    await expect(result).rejects.toMatchObject({ details: { reason: "repeated_cursor" } });
+    expect(calls).toHaveLength(3);
+  });
+
+  it("rejects empty continuing pages but permits an empty terminal page", async () => {
+    await expect(
+      collectPages([{ nodes: [], hasNextPage: true, endCursor: "a" }]).result,
+    ).rejects.toMatchObject({ details: { reason: "no_new_results" } });
+    expect(await collectPages([{ nodes: [], hasNextPage: false }]).result).toEqual([]);
+  });
+});
+
 describe("collectWithMore", () => {
   it("reports more when the source outruns the limit", async () => {
     const { items, hasMore } = await collectWithMore(fakeConnection(180, 100), 150);

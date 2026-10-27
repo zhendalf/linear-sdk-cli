@@ -63,7 +63,7 @@ const CANDIDATE_FIELDS = `
 `;
 
 const CANDIDATES_QUERY = `
-query CliDelegateCandidates($teamId: String!, $after: String) {
+query CliDelegateCandidates($teamId: ID!, $after: String) {
   users(first: ${PAGE_SIZE}, after: $after, includeDisabled: true, includeArchived: true) {
     nodes { ${CANDIDATE_FIELDS} }
     pageInfo { hasNextPage endCursor }
@@ -72,7 +72,7 @@ query CliDelegateCandidates($teamId: String!, $after: String) {
 `;
 
 const CANDIDATE_QUERY = `
-query CliDelegateCandidate($id: String!, $teamId: String!) {
+query CliDelegateCandidate($id: String!, $teamId: ID!) {
   user(id: $id) { ${CANDIDATE_FIELDS} }
 }
 `;

@@ -1,4 +1,6 @@
 import { describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
+import { buildSchema, getVariableValues, Kind, parse, validate } from "graphql";
 import { delegateOperands } from "../../src/commands/issue.js";
 import { resolveDelegate } from "../../src/lib/delegation.js";
 import {
@@ -12,6 +14,19 @@ import { connection, payload } from "./_fakes.js";
 
 const TEAM_ID = "aaaaaaaa-0000-0000-0000-000000000001";
 const AGENT_ID = "bbbbbbbb-0000-0000-0000-000000000001";
+const schema = buildSchema(
+  readFileSync(new URL("../fixtures/delegation-schema.graphql", import.meta.url), "utf8"),
+);
+
+function validateCandidateQuery(query: string, variables: Record<string, unknown>) {
+  const document = parse(query);
+  expect(validate(schema, document).map((error) => error.message)).toEqual([]);
+  const operation = document.definitions.find((node) => node.kind === Kind.OPERATION_DEFINITION)!;
+  const wire = JSON.parse(JSON.stringify(variables));
+  expect(
+    getVariableValues(schema, operation.variableDefinitions ?? [], wire).errors,
+  ).toBeUndefined();
+}
 
 describe("delegateOperands", () => {
   it("treats a lone agent UUID as the branch-inferred value", () => {
@@ -46,6 +61,7 @@ function client(
     team: async () => ({ id: TEAM_ID, key: "TES", private: options.privateTeam ?? false }),
     client: {
       rawRequest: async (query: string, variables: any) => {
+        validateCandidateQuery(query, variables);
         if (options.error) throw options.error;
         if (query.includes("CliDelegateCandidate(")) {
           return {
@@ -188,7 +204,11 @@ describe("issue delegation mutation plans", () => {
         return payload("issue", issue);
       },
       client: {
-        rawRequest: async (query: string) => {
+        rawRequest: async (query: string, variables: Record<string, unknown>) => {
+          validateCandidateQuery(query, variables);
+          if (query.includes("CliDelegateCandidate(")) {
+            return { data: { user: agent } };
+          }
           if (query.includes("CliDelegateCandidates")) {
             return {
               data: {
@@ -205,11 +225,11 @@ describe("issue delegation mutation plans", () => {
     } as any;
   }
 
-  it("keeps assignee and delegate as distinct create fields", async () => {
+  it.each([AGENT_ID, "Codex"])("keeps assignee and delegate distinct for %s", async (delegate) => {
     const calls = { create: [] as any[], update: [] as any[] };
     const plan = await prepareIssueCreate(
       mutationClient(calls),
-      { title: "t", team: "TES", assignee: "me", delegate: "Codex" },
+      { title: "t", team: "TES", assignee: "me", delegate },
       undefined,
     );
     expect(plan.input).toMatchObject({

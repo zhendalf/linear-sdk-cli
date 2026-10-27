@@ -46,7 +46,7 @@ projects: Array<{id: string, name: string, status: {name: string, type: string} 
 
 ### `linear initiative add-project`
 
-Link a project to an initiative
+Link a project to an initiative (project identifier, name, or UUID)
 
 ```
 linear initiative add-project [options] <initiative> <project>
@@ -162,7 +162,7 @@ trashed: boolean
 
 ### `linear initiative remove-project`
 
-Unlink a project from an initiative
+Unlink a project from an initiative (project identifier, name, or UUID)
 
 ```
 linear initiative remove-project [options] <initiative> <project>

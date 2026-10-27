@@ -741,8 +741,10 @@ describe("schpet issue subcommands land in view with a pointer", () => {
     expect(m).toMatch(/missing required argument 'file'/i);
     expect(m).not.toContain("not available");
   });
-  it("link → attachment create --url", async () => {
-    expect(await errorFor("link")).toContain("attachment create <issue> --url");
+  it("link → attachment create with every required option", async () => {
+    expect(await errorFor("link")).toContain(
+      "attachment create <issue> --url <url> --title <title>",
+    );
   });
   it("commits → says so and offers git log", async () => {
     expect(await errorFor("commits")).toContain("git log");

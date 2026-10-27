@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createProgram } from "../../src/cli.js";
 import { Context } from "../../src/context.js";
+import { CliError } from "../../src/lib/errors.js";
 import { noteWorkspaceWide } from "../../src/commands/project.js";
 import {
   buildFilter,
@@ -87,6 +88,7 @@ describe("project list lifecycle and pagination", () => {
     const all = [
       {
         id: "p1",
+        identifier: "P-TES-123",
         name: "Live",
         url: "u1",
         archivedAt: null,
@@ -123,6 +125,7 @@ describe("project list lifecycle and pagination", () => {
       undefined,
     );
     expect(rows).toHaveLength(3);
+    expect(rows.map((row) => row.identifier)).toEqual(["P-TES-123", null, null]);
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({
       includeArchived: true,
@@ -264,6 +267,7 @@ describe("createProject / updateProject (input building)", () => {
 describe("getProjectDetail (one round-trip, structured relations)", () => {
   const node = {
     id: UUID,
+    identifier: "P-TES-123",
     name: "Auth",
     description: "one-liner",
     content: "# Body",
@@ -316,6 +320,7 @@ describe("getProjectDetail (one round-trip, structured relations)", () => {
     // A name matches live projects only, case-insensitively — as resolveProjectId does.
     expect(vars).toEqual({ filter: { name: { eqIgnoreCase: "auth" } }, includeArchived: false });
     expect(d.id).toBe(UUID);
+    expect(d.identifier).toBe("P-TES-123");
   });
 
   it("a UUID filters by id and reaches archived projects too", async () => {
@@ -348,6 +353,7 @@ describe("getProjectDetail (one round-trip, structured relations)", () => {
       stub([
         {
           ...node,
+          identifier: undefined,
           status: null,
           lead: null,
           labels: { nodes: [] },
@@ -359,6 +365,7 @@ describe("getProjectDetail (one round-trip, structured relations)", () => {
       "auth",
     );
     expect(d.status).toBeNull();
+    expect(d.identifier).toBeNull();
     expect(d.lead).toBeNull();
     expect(d.teams).toEqual([]);
     expect(d.description).toBeNull();
@@ -372,6 +379,53 @@ describe("getProjectDetail (one round-trip, structured relations)", () => {
       code: "ambiguous",
       message: expect.stringContaining("Auth, Auth"),
     });
+  });
+
+  it("falls back to canonical project lookup for an identifier and maps the same detail", async () => {
+    const calls: Array<{ query: string; vars: any }> = [];
+    const client = {
+      client: {
+        rawRequest: async (query: string, vars: any) => {
+          calls.push({ query, vars });
+          return query.includes("CliProjectReferenceDetail")
+            ? { data: { project: node } }
+            : { data: { projects: { nodes: [] } } };
+        },
+      },
+    } as any;
+    const detail = await getProjectDetail(client, "P-TES-123");
+    expect(detail).toEqual(await getProjectDetail(stub([node]), UUID));
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.query).toContain("project(id: $id)");
+    expect(calls[1]!.query).toContain("id identifier name");
+    expect(calls[1]!.vars).toEqual({ id: "P-TES-123" });
+  });
+
+  it("keeps name precedence for identifier-shaped names", async () => {
+    const calls: Array<{ query: string; vars: any }> = [];
+    const detail = await getProjectDetail(
+      stub([{ ...node, name: "P-TES-123" }], calls),
+      "P-TES-123",
+    );
+    expect(detail.name).toBe("P-TES-123");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("normalizes canonical misses and propagates other canonical failures", async () => {
+    for (const code of ["not_found", "auth", "forbidden", "api"] as const) {
+      const error = new CliError("lookup failed", code);
+      const client = {
+        client: {
+          rawRequest: async (query: string) => {
+            if (query.includes("CliProjectReferenceDetail")) throw error;
+            return { data: { projects: { nodes: [] } } };
+          },
+        },
+      } as any;
+      await expect(getProjectDetail(client, "P-TES-999")).rejects.toMatchObject({ code });
+      if (code !== "not_found")
+        await expect(getProjectDetail(client, "P-TES-999")).rejects.toBe(error);
+    }
   });
 });
 

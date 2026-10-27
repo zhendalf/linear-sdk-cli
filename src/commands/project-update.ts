@@ -17,9 +17,10 @@ export function registerProjectUpdate(program: Command): void {
   // create ------------------------------------------------------------------
   addUpdateFlags(
     group
-      .command("create <project>")
+      .command("create")
+      .argument("<project>", "project identifier (e.g. P-TES-123), name, or UUID")
       .alias("new")
-      .description("Post a status update on a project (by name or id)"),
+      .description("Post a status update on a project (by identifier, name, or UUID)"),
   ).action(
     action(async (ctx: Context, opts, projectArg: string) => {
       const body = resolveUpdateBody(ctx, opts);
@@ -35,9 +36,10 @@ export function registerProjectUpdate(program: Command): void {
 
   // list --------------------------------------------------------------------
   group
-    .command("list <project>")
+    .command("list")
+    .argument("<project>", "project identifier (e.g. P-TES-123), name, or UUID")
     .alias("ls")
-    .description("List a project's status updates")
+    .description("List a project's status updates (project identifier, name, or UUID)")
     .action(
       action(async (ctx: Context, _opts, projectArg: string) => {
         const rows = await svc.listProjectUpdates(ctx.client, projectArg, ctx.limit);

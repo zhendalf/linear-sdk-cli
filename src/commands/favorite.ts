@@ -40,7 +40,7 @@ export function registerFavorite(program: Command): void {
     .alias("new")
     .description("Favorite an issue, project, or document (exactly one)")
     .option("--issue <id>", "issue id or identifier (e.g. TES-123)")
-    .option("--project <id|name>", "project name or id")
+    .option("--project <id|name>", "project identifier, name, or UUID")
     .option("--document <id>", "document id (UUID)")
     .action(
       action(async (ctx: Context, opts) => {

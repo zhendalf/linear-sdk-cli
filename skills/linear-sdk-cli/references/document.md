@@ -54,7 +54,7 @@ linear document create [options]
 | `--title <title>`       | document title                                                                 |
 | `--content <text>`      | document content (markdown body)                                               |
 | `--content-file <path>` | read content from a file ('-' = stdin)                                         |
-| `-p, --project <name>`  | attach to a project (name or id)                                               |
+| `-p, --project <name>`  | attach to a project (identifier, name, or UUID)                                |
 | `--issue <id>`          | attach to an issue (identifier or id)                                          |
 | `--initiative <name>`   | attach to an initiative (name or id)                                           |
 | `--cycle <n>`           | attach to a cycle (number, name, id, or 'current'; team from --team or config) |
@@ -98,7 +98,7 @@ linear document list [options]
 
 | Option                 | Description                                                                                     |
 | ---------------------- | ----------------------------------------------------------------------------------------------- |
-| `-p, --project <name>` | only documents attached to a project (name or id)                                               |
+| `-p, --project <name>` | only documents attached to a project (identifier, name, or UUID)                                |
 | `--issue <id>`         | only documents attached to an issue (identifier or id)                                          |
 | `--initiative <name>`  | only documents attached to an initiative (name or id)                                           |
 | `--cycle <n>`          | only documents attached to a cycle (number, name, id, or 'current'; team from --team or config) |
@@ -134,7 +134,7 @@ linear document update [options] <id>
 | `--title <title>`       | new title                                                                        |
 | `--content <text>`      | new content (markdown body)                                                      |
 | `--content-file <path>` | read content from a file ('-' = stdin)                                           |
-| `-p, --project <name>`  | re-point to a project (name or id)                                               |
+| `-p, --project <name>`  | re-point to a project (identifier, name, or UUID)                                |
 | `--issue <id>`          | re-point to an issue (identifier or id)                                          |
 | `--initiative <name>`   | re-point to an initiative (name or id)                                           |
 | `--cycle <n>`           | re-point to a cycle (number, name, id, or 'current'; team from --team or config) |
