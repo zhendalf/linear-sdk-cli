@@ -277,7 +277,7 @@ describe("resolveMilestoneRef", () => {
     await expect(resolveMilestoneRef(client(seen), "Beta", undefined)).rejects.toMatchObject({
       code: "usage",
       message:
-        "'Beta' is not a milestone id; pass --project <name|id> to look a milestone up by name.",
+        "'Beta' is not a milestone id; pass --project <identifier|name|UUID> to look a milestone up by name.",
     });
     expect(seen).toEqual([]);
   });

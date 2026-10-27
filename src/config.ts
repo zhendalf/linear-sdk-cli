@@ -131,7 +131,7 @@ export interface ResolvedConfig {
   team?: string;
   /** Non-secret display workspace setting (separate from credentialWorkspace). */
   workspace?: string;
-  /** Default Linear project name or id for issue creation only. */
+  /** Default Linear project identifier, name, or UUID for issue creation only. */
   project?: string;
   sort: string;
   /** Where `sort` came from, so an invalid value can be blamed precisely. */

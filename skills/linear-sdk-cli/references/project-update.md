@@ -20,7 +20,7 @@ linear project-update [options]
 
 ### `linear project-update create`
 
-Post a status update on a project (by name or id)
+Post a status update on a project (by identifier, name, or UUID)
 
 Aliases: `new`
 
@@ -48,7 +48,7 @@ url: string
 
 ### `linear project-update list`
 
-List a project's status updates
+List a project's status updates (project identifier, name, or UUID)
 
 Aliases: `ls`
 

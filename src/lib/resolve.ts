@@ -8,7 +8,7 @@
 
 import type { LinearClient, Issue } from "@linear/sdk";
 import { withRetry } from "../client.js";
-import { notFound, ambiguous, usageError } from "./errors.js";
+import { notFound, ambiguous, usageError, normalizeError } from "./errors.js";
 import { collectWithMore, type Connection } from "./pagination.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -381,20 +381,30 @@ export async function firstStateOfType(
   return ofType[0]!.id;
 }
 
-/** Resolve a project by name or id. */
+/**
+ * Resolve a project UUID, exact case-insensitive live name, or server-supported
+ * identifier. Names retain their existing precedence and ambiguity behavior;
+ * canonical lookup handles current/custom/previous identifiers without guessing
+ * their syntax or enumerating private project content.
+ */
 export async function resolveProjectId(client: LinearClient, input: string): Promise<string> {
   if (isUuid(input)) return input;
   const conn = await withRetry(() =>
     client.projects({ filter: { name: { eqIgnoreCase: input } } as any, first: RESOLVE_PAGE }),
   );
   const nodes = await scanAll<any>(conn as any, "projects", "linear project list");
-  if (nodes.length === 0)
-    throw notFound(`No project matching '${input}'. Run 'linear project list' to see the options.`);
   if (nodes.length > 1)
     throw ambiguous(
       `Multiple projects match '${input}': ${nodes.map((p: any) => p.name).join(", ")}`,
     );
-  return nodes[0]!.id;
+  if (nodes.length === 1) return nodes[0]!.id;
+  try {
+    const project = await withRetry(() => client.project(input));
+    if (project) return project.id;
+  } catch (err) {
+    if (normalizeError(err).code !== "not_found") throw err;
+  }
+  throw notFound(`No project matching '${input}'. Run 'linear project list' to see the options.`);
 }
 
 /** The reserved cycle words, so help text and tests share one list. */

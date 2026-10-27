@@ -354,7 +354,7 @@ describe("searchIssues", () => {
     const rows = await searchIssues(client, "login", {}, 50, undefined);
     expect(calls).toBe(1);
     expect(sentQuery).toContain("searchIssues(term: $term");
-    expect(sentVars).toMatchObject({ term: "login", first: 50 });
+    expect(sentVars).toMatchObject({ term: "login", first: 51 });
     // Comment bodies are opt-in: they widen a title/description search a lot.
     expect(sentVars.includeComments).toBe(false);
     // No filters and no default team → no IssueFilter at all, not an empty object.

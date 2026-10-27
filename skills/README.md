@@ -5,9 +5,28 @@ repository. Each skill uses the open `SKILL.md` convention and must remain usabl
 by both Codex and Claude Code without agent-specific instructions.
 
 Claude Code receives the listed skills through `.claude-plugin/plugin.json` when
-this repository is installed as its plugin. A Codex user can add or install the
-same skill directory in their Codex skills location; scheduled Codex tasks can
-also invoke a repository skill explicitly by path.
+this repository is installed as its plugin. For Codex, install the CLI skill in
+`~/.agents/skills/linear-sdk-cli`. The [README installation command](../README.md#scripting--agents)
+resolves the bundled source from a global Bun or npm installation and creates
+the link without overwriting an existing skill.
+
+From a repository clone, you can instead link the canonical directory directly:
+
+```bash
+# Run from the repository root; the destination must not already exist.
+mkdir -p "$HOME/.agents/skills"
+bun -e '
+  import { realpathSync, symlinkSync } from "node:fs";
+  import { homedir } from "node:os";
+  import { join } from "node:path";
+  const source = realpathSync("skills/linear-sdk-cli");
+  const target = join(homedir(), ".agents", "skills", "linear-sdk-cli");
+  symlinkSync(source, target, "dir");
+'
+```
+
+Start a new Codex session after installation. Scheduled Codex tasks can also
+invoke a repository skill explicitly by path.
 
 The cloud maintenance routine reads
 `skills/linear-sdk-cli-maintenance/SKILL.md` before it acts. Keep routine-specific

@@ -362,7 +362,9 @@ A few ideas run through every command:
   envelope](#scripting--agents)); status and progress always go to stderr.
 - **Forgiving inputs.** Resolve things by how you think about them: `--assignee me`, assignee by
   email or name, team key `TES`, `--cycle current`, workflow state and label by name (case-
-  insensitively). Ambiguous names produce a clear error (exit `3`), not a wrong guess.
+  insensitively). Projects accept a UUID, exact case-insensitive name, or a server-supported
+  identifier such as `P-TES-123`. Exact names take precedence; ambiguous names produce a clear
+  error (exit `3`). Project list/view JSON includes nullable `identifier` for correlation.
 
 ## Common workflows
 
@@ -376,6 +378,12 @@ linear issue label TES-42 --set-group 'Team=QA'
 linear issue delegate TES-42 Codex
 linear issue comment TES-42 "ready for another look"
 linear issue archive TES-42 --yes
+```
+
+**Attach a URL** — provide both the URL and a title; the CLI does not infer a title from the link.
+
+```sh
+linear attachment create TES-123 --url https://example.invalid/pr/1 --title 'PR #1' --json
 ```
 
 **Agent delegation (Developer Preview)** — the assignee remains the human owner; the delegate is
@@ -834,8 +842,33 @@ claude plugin install linear-sdk-cli
 ln -s "$PWD/skills/linear-sdk-cli" ~/.claude/skills/linear-sdk-cli
 ```
 
-For Codex, install or link the same directory into its skills location; no forked prompt is
-needed. The scheduled Claude Code maintenance routine invokes
+For Codex, link the bundled CLI skill into `~/.agents/skills/` after a global Bun or npm
+install. Run this from any directory; it follows the installed `lin` executable's symlink instead
+of assuming a package-manager-specific global directory. Using `lin` also avoids a `linear`
+binary collision with another CLI:
+
+```bash
+bun -e '
+  import { existsSync, mkdirSync, realpathSync, symlinkSync } from "node:fs";
+  import { homedir } from "node:os";
+  import { dirname, join, resolve } from "node:path";
+  const source = resolve(dirname(realpathSync(process.argv[1])), "../../skills/linear-sdk-cli");
+  if (!existsSync(join(source, "SKILL.md"))) throw new Error("Bundled CLI skill not found");
+  const parent = join(homedir(), ".agents", "skills");
+  mkdirSync(parent, { recursive: true });
+  const target = join(parent, "linear-sdk-cli");
+  symlinkSync(source, target, "dir");
+  console.log(target);
+' "$(command -v lin)"
+```
+
+The command refuses to overwrite an existing destination (`EEXIST`). Start a new Codex session and check
+that `linear-sdk-cli` appears in its skill catalog. The link follows package updates at the same
+location; if you change package managers or move the install, inspect and remove only the old
+link before running the command again. See [Codex skills](https://developers.openai.com/codex/skills/)
+for supported skill locations.
+
+The scheduled Claude Code maintenance routine invokes
 `skills/linear-sdk-cli-maintenance/SKILL.md` directly, keeping its schedule separate from the
 versioned maintenance policy. See [`skills/README.md`](skills/README.md) for the interoperability
 contract.
@@ -888,6 +921,11 @@ Their query filters all exist here too, under the same names — `issue list`, `
 | `--search-comments`                  | `--search-comments` | `issue search` only — the plain list query has nowhere to put it                                                                                                |
 | `issue update --team`                | same                | a real team move: the issue is renumbered, and Linear remaps its state while dropping the cycle, team-scoped labels and any project the new team is not part of |
 
+`issue search` returns each issue ID once, preserving its first position in the API's relevance
+order. Its pagination warning requires an additional unique issue beyond `--limit`. If the API
+repeats a page or fails to advance its cursor, the command exits 1 with an `api` error and no
+partial stdout result; narrow the filters instead of increasing the limit or switching to `--all`.
+
 Four differences we deliberately did **not** adopt: their
 `issue list` is an alias of `mine` (a `list` that silently filters to you and hides started work is
 the worst transition hazard, so we added `issue mine` instead of changing `list`); their JSON shape
@@ -928,7 +966,7 @@ all TOML data and use the same locked, atomic rewrite as credential updates:
 linear config init                    # pick a team from a list → <git root>/.linear.toml
 linear config init --team TES         # …or say which (scripts); --sort, --path, --force
 linear config set sort updated        # edit one key in the project config in effect
-linear config set project "My Project" # default Linear project for new issues (name or UUID)
+linear config set project "My Project" # default Linear project for new issues (identifier, name, or UUID)
 linear config set team ENG --user     # legacy top-level user fallback (backward compatible)
 linear config set team ENG --user --workspace acme # validated default for the acme profile
 linear config                         # show the result, with each value's source
@@ -940,7 +978,7 @@ To associate a particular folder and its descendants with a Linear project, run
 Keep `team` and `workspace` in the same file when needed: discovery reads the nearest config
 file, without merging ancestor files.
 
-`issue create` (also `issue new`) uses this project automatically. `--project <name|id>` overrides
+`issue create` (also `issue new`) uses this project automatically. `--project <identifier|name|UUID>` overrides
 it; sub-issues inherit their parent's project ahead of the configured default. `--no-project`
 creates outside any project, including parent and template defaults. `LINEAR_PROJECT` overrides
 the configured value for an invocation. A configured project is resolved before creation, so

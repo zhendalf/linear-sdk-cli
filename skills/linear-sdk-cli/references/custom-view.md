@@ -48,22 +48,22 @@ Aliases: `new`
 linear custom-view create [options]
 ```
 
-| Option                          | Description                                    |
-| ------------------------------- | ---------------------------------------------- |
-| `--name <name>`                 | view name                                      |
-| `--type <type>`                 | entity type                                    |
-| `--owner <who>`                 | owner (me\|email\|name\|id)                    |
-| `--color <hex>`                 | icon color                                     |
-| `--icon <icon>`                 | emoji or decorative icon identifier            |
-| `--scope-team <key\|name\|id>`  | attach the view to a team                      |
-| `--scope-project <id\|name>`    | attach the view to a project                   |
-| `--scope-initiative <id\|name>` | attach the view to an initiative               |
-| `-d, --description <text>`      | view description                               |
-| `--description-file <path>`     | read description from a file ('-' = stdin)     |
-| `--filter <json>`               | typed Linear filter as a JSON object           |
-| `--filter-file <path>`          | read the filter JSON from a file ('-' = stdin) |
-| `--shared`                      | share the view with the workspace              |
-| `--personal`                    | make the view owner-only                       |
+| Option                          | Description                                              |
+| ------------------------------- | -------------------------------------------------------- |
+| `--name <name>`                 | view name                                                |
+| `--type <type>`                 | entity type                                              |
+| `--owner <who>`                 | owner (me\|email\|name\|id)                              |
+| `--color <hex>`                 | icon color                                               |
+| `--icon <icon>`                 | emoji or decorative icon identifier                      |
+| `--scope-team <key\|name\|id>`  | attach the view to a team                                |
+| `--scope-project <id\|name>`    | attach the view to a project (identifier, name, or UUID) |
+| `--scope-initiative <id\|name>` | attach the view to an initiative                         |
+| `-d, --description <text>`      | view description                                         |
+| `--description-file <path>`     | read description from a file ('-' = stdin)               |
+| `--filter <json>`               | typed Linear filter as a JSON object                     |
+| `--filter-file <path>`          | read the filter JSON from a file ('-' = stdin)           |
+| `--shared`                      | share the view with the workspace                        |
+| `--personal`                    | make the view owner-only                                 |
 
 **Output (`--json`)**: a receipt object
 

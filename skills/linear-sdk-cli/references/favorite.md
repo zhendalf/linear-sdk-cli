@@ -31,7 +31,7 @@ linear favorite add [options]
 | Option                 | Description                           |
 | ---------------------- | ------------------------------------- |
 | `--issue <id>`         | issue id or identifier (e.g. TES-123) |
-| `--project <id\|name>` | project name or id                    |
+| `--project <id\|name>` | project identifier, name, or UUID     |
 | `--document <id>`      | document id (UUID)                    |
 
 **Output (`--json`)**: a receipt object

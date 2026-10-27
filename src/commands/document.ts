@@ -31,7 +31,7 @@ const ROW_COLUMNS: Column<svc.DocumentRow>[] = [
  */
 function addTargetOptions(cmd: Command, verb: string): Command {
   return cmd
-    .option("-p, --project <name>", `${verb} a project (name or id)`)
+    .option("-p, --project <name>", `${verb} a project (identifier, name, or UUID)`)
     .option("--issue <id>", `${verb} an issue (identifier or id)`)
     .option("--initiative <name>", `${verb} an initiative (name or id)`)
     .option(

@@ -159,10 +159,10 @@ export function registerCustomView(program: Command): void {
       ]),
     )
     .addOption(
-      new Option("--scope-project <id|name>", "attach the view to a project").conflicts([
-        "scopeTeam",
-        "scopeInitiative",
-      ]),
+      new Option(
+        "--scope-project <id|name>",
+        "attach the view to a project (identifier, name, or UUID)",
+      ).conflicts(["scopeTeam", "scopeInitiative"]),
     )
     .addOption(
       new Option("--scope-initiative <id|name>", "attach the view to an initiative").conflicts([

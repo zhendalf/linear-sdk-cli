@@ -450,6 +450,7 @@ export async function searchIssues(
     "searchIssues",
     limit,
     toIssueRow,
+    { uniqueBy: (node) => node.id },
   );
 }
 

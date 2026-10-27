@@ -13,7 +13,7 @@ import { listUpdates } from "./project.js";
 
 export type { UpdateRow };
 
-/** List a project's status updates (by project name or id). */
+/** List a project's status updates (by project identifier, name, or UUID). */
 export const listProjectUpdates = listUpdates;
 
 export interface CreateProjectUpdateOptions {
@@ -21,7 +21,7 @@ export interface CreateProjectUpdateOptions {
   health?: Health;
 }
 
-/** Create a status update on a project (resolved by name or id). Returns a normalized row. */
+/** Create a status update on a project (identifier, name, or UUID). Returns a normalized row. */
 export async function createProjectUpdate(
   client: LinearClient,
   idArg: string,

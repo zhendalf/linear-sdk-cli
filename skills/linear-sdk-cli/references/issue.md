@@ -378,7 +378,7 @@ linear issue create [options]
 | `-s, --state <name>`        | workflow state name or type                                                                          |
 | `-P, --priority <0-4>`      | priority                                                                                             |
 | `-l, --label <name>`        | label (repeatable / comma-separated)                                                                 |
-| `-p, --project <name>`      | project name or id (overrides the configured default)                                                |
+| `-p, --project <name>`      | project identifier, name, or UUID (overrides the configured default)                                 |
 | `--no-project`              | create outside any project, ignoring configured and parent defaults                                  |
 | `--milestone <name>`        | project milestone (requires an explicit, configured, or parent project)                              |
 | `--cycle <n>`               | cycle number, name, id, or 'current'                                                                 |
@@ -614,7 +614,7 @@ linear issue list [options]
 | `-s, --state <name>`     | filter by workflow state name/type (repeatable)                      |
 | `-a, --assignee <who>`   | filter by assignee (me\|email\|name)                                 |
 | `-U, --unassigned`       | only issues with no assignee                                         |
-| `-p, --project <name>`   | filter by project                                                    |
+| `-p, --project <name>`   | filter by project identifier, name, or UUID                          |
 | `--project-label <name>` | filter by the project's label (excludes --project)                   |
 | `--milestone <name>`     | filter by project milestone                                          |
 | `-l, --label <name>`     | filter by label (repeat to narrow)                                   |
@@ -663,7 +663,7 @@ linear issue mine [options]
 | ------------------------ | -------------------------------------------------------------------- |
 | `-t, --team <key>`       | filter by team key (repeatable; default: configured team)            |
 | `-s, --state <name>`     | filter by workflow state name/type (repeatable)                      |
-| `-p, --project <name>`   | filter by project                                                    |
+| `-p, --project <name>`   | filter by project identifier, name, or UUID                          |
 | `--project-label <name>` | filter by the project's label (excludes --project)                   |
 | `--milestone <name>`     | filter by project milestone                                          |
 | `-l, --label <name>`     | filter by label (repeat to narrow)                                   |
@@ -782,7 +782,7 @@ linear issue search [options] <text>
 | `-s, --state <name>`     | filter by workflow state name/type (repeatable)                      |
 | `-a, --assignee <who>`   | filter by assignee (me\|email\|name)                                 |
 | `-U, --unassigned`       | only issues with no assignee                                         |
-| `-p, --project <name>`   | filter by project                                                    |
+| `-p, --project <name>`   | filter by project identifier, name, or UUID                          |
 | `--project-label <name>` | filter by the project's label (excludes --project)                   |
 | `--milestone <name>`     | filter by project milestone                                          |
 | `-l, --label <name>`     | filter by label (repeat to narrow)                                   |
@@ -939,7 +939,7 @@ linear issue update [options] [id]
 | `--delegate <agent>`        | delegate to an eligible agent app user (name or id)            |
 | `-s, --state <name>`        | workflow state name or type                                    |
 | `-P, --priority <0-4>`      | priority                                                       |
-| `-p, --project <name>`      | project name or id                                             |
+| `-p, --project <name>`      | project identifier, name, or UUID                              |
 | `--milestone <name>`        | project milestone                                              |
 | `--cycle <n>`               | cycle number, name, id, or 'current'                           |
 | `--estimate <n>`            | estimate points                                                |

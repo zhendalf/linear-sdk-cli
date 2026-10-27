@@ -646,7 +646,7 @@ export function addCoreFilterOptions(cmd: Command, set: FilterOptionSet = {}): C
     cmd.addOption(new Option("-U, --unassigned", "only issues with no assignee"));
   }
   cmd
-    .addOption(new Option("-p, --project <name>", "filter by project"))
+    .addOption(new Option("-p, --project <name>", "filter by project identifier, name, or UUID"))
     .addOption(
       new Option("--project-label <name>", "filter by the project's label (excludes --project)"),
     )

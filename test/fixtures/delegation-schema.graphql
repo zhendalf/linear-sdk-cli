@@ -1,0 +1,50 @@
+# Linear schema subset used by delegate candidate resolution.
+# IDComparator.eq is ID, as confirmed by the current API validation in issue #102.
+# Output fields and arguments are limited to these read-only operations.
+
+input IDComparator {
+  eq: ID
+}
+
+input TeamFilter {
+  id: IDComparator
+}
+
+type Team {
+  id: ID!
+}
+
+type TeamConnection {
+  nodes: [Team!]!
+}
+
+type User {
+  id: ID!
+  displayName: String!
+  name: String!
+  active: Boolean!
+  app: Boolean!
+  isAssignable: Boolean!
+  canAccessAnyPublicTeam: Boolean!
+  teams(filter: TeamFilter, first: Int): TeamConnection!
+}
+
+type PageInfo {
+  hasNextPage: Boolean!
+  endCursor: String
+}
+
+type UserConnection {
+  nodes: [User!]!
+  pageInfo: PageInfo!
+}
+
+type Query {
+  user(id: String!): User!
+  users(
+    first: Int
+    after: String
+    includeDisabled: Boolean
+    includeArchived: Boolean
+  ): UserConnection!
+}

@@ -100,14 +100,16 @@ export function registerProject(program: Command): void {
 
   // view --------------------------------------------------------------------
   project
-    .command("view <id>", { isDefault: true })
+    .command("view", { isDefault: true })
+    .argument("<id>", "project identifier (e.g. P-TES-123), name, or UUID")
     .alias("show")
-    .description("Show a project (by name or id)")
+    .description("Show a project (by identifier, name, or UUID)")
     .action(
       action(async (ctx: Context, _opts, idArg: string) => {
         const detail = await svc.getProjectDetail(ctx.client, idArg);
         ctx.output.detail(detail, [
           ["Project", detail.name],
+          ["Identifier", detail.identifier],
           [
             "Trashed",
             detail.trashed ? `YES (deleted ${detail.archivedAt ?? "at an unknown time"})` : null,
@@ -232,9 +234,10 @@ export function registerProject(program: Command): void {
 
   // update ------------------------------------------------------------------
   const update = project
-    .command("update <id>")
+    .command("update")
+    .argument("<id>", "project identifier (e.g. P-TES-123), name, or UUID")
     .alias("edit")
-    .description("Update a project")
+    .description("Update a project (by identifier, name, or UUID)")
     .option("--name <name>", "new name")
     .option("-d, --description <text>", "new description (one-line summary)")
     .option("--description-file <path>", "read description from a file ('-' = stdin)")
@@ -310,8 +313,9 @@ export function registerProject(program: Command): void {
 
   // archive -----------------------------------------------------------------
   project
-    .command("archive <id>")
-    .description("Archive a project")
+    .command("archive")
+    .argument("<id>", "project identifier (e.g. P-TES-123), name, or UUID")
+    .description("Archive a project (by identifier, name, or UUID)")
     .action(
       action(async (ctx: Context, _opts, idArg: string) => {
         const proj = await svc.getProjectDetail(ctx.client, idArg);
@@ -325,9 +329,12 @@ export function registerProject(program: Command): void {
 
   // delete ------------------------------------------------------------------
   project
-    .command("delete <id>")
+    .command("delete")
+    .argument("<id>", "project identifier (e.g. P-TES-123), name, or UUID")
     .alias("rm")
-    .description("Delete (trash) a project — `archive` keeps it, read-only")
+    .description(
+      "Delete (trash) a project (by identifier, name, or UUID); archive keeps it read-only",
+    )
     .action(
       action(async (ctx: Context, _opts, idArg: string) => {
         const proj = await svc.getProjectDetail(ctx.client, idArg);
@@ -341,8 +348,9 @@ export function registerProject(program: Command): void {
 
   // milestones --------------------------------------------------------------
   project
-    .command("milestones <id>")
-    .description("List a project's milestones")
+    .command("milestones")
+    .argument("<id>", "project identifier (e.g. P-TES-123), name, or UUID")
+    .description("List a project's milestones (project identifier, name, or UUID)")
     .action(
       action(async (ctx: Context, _opts, idArg: string) => {
         const rows = await svc.listMilestones(ctx.client, idArg, ctx.limit);

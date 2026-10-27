@@ -194,7 +194,7 @@ export async function resolveMilestoneRef(
   if (isUuid(input)) return input;
   if (!projectInput) {
     throw usageError(
-      `'${input}' is not a milestone id; pass --project <name|id> to look a milestone up by name.`,
+      `'${input}' is not a milestone id; pass --project <identifier|name|UUID> to look a milestone up by name.`,
     );
   }
   const projectId = await resolveProjectId(client, projectInput);

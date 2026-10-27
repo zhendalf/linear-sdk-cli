@@ -44,7 +44,7 @@ linear config init [options]
 | Option                 | Description                                                        |
 | ---------------------- | ------------------------------------------------------------------ |
 | `--team <key>`         | default team key (otherwise chosen from a list)                    |
-| `--project <name\|id>` | default Linear project for new issues                              |
+| `--project <name\|id>` | default Linear project for new issues (identifier, name, or UUID)  |
 | `--sort <order>`       | default issue-list sort (priority \| manual \| updated \| created) |
 | `--path <file>`        | write this file instead of <git root>/.linear.toml                 |
 | `--force`              | overwrite an existing file                                         |
