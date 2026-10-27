@@ -6,14 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.9.2](https://github.com/zhendalf/linear-sdk-cli/compare/v0.9.1...v0.9.2) (2026-10-27)
 
-
 ### Bug Fixes
 
-* **attachment:** include required titles in workflow examples and migration hints ([8991cb2](https://github.com/zhendalf/linear-sdk-cli/commit/8991cb276d270e4be597b43caf74267302a493af))
-* **delegation:** use the correct GraphQL team ID type ([8991cb2](https://github.com/zhendalf/linear-sdk-cli/commit/8991cb276d270e4be597b43caf74267302a493af))
-* **docs:** provide an actionable Codex skill installation command ([8991cb2](https://github.com/zhendalf/linear-sdk-cli/commit/8991cb276d270e4be597b43caf74267302a493af))
-* **project:** resolve project identifiers and expose them in JSON ([8991cb2](https://github.com/zhendalf/linear-sdk-cli/commit/8991cb276d270e4be597b43caf74267302a493af))
-* **search:** return unique issues and stop stalled pagination ([8991cb2](https://github.com/zhendalf/linear-sdk-cli/commit/8991cb276d270e4be597b43caf74267302a493af))
+- **attachment:** include required titles in workflow examples and migration hints ([8991cb2](https://github.com/zhendalf/linear-sdk-cli/commit/8991cb276d270e4be597b43caf74267302a493af))
+- **delegation:** use the correct GraphQL team ID type ([8991cb2](https://github.com/zhendalf/linear-sdk-cli/commit/8991cb276d270e4be597b43caf74267302a493af))
+- **docs:** provide an actionable Codex skill installation command ([8991cb2](https://github.com/zhendalf/linear-sdk-cli/commit/8991cb276d270e4be597b43caf74267302a493af))
+- **project:** resolve project identifiers and expose them in JSON ([8991cb2](https://github.com/zhendalf/linear-sdk-cli/commit/8991cb276d270e4be597b43caf74267302a493af))
+- **search:** return unique issues and stop stalled pagination ([8991cb2](https://github.com/zhendalf/linear-sdk-cli/commit/8991cb276d270e4be597b43caf74267302a493af))
 
 ## [0.9.1](https://github.com/zhendalf/linear-sdk-cli/compare/v0.9.0...v0.9.1) (2026-10-22)
 
