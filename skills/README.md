@@ -28,7 +28,7 @@ bun -e '
 Start a new Codex session after installation. Scheduled Codex tasks can also
 invoke a repository skill explicitly by path.
 
-The cloud maintenance routine reads
-`skills/linear-sdk-cli-maintenance/SKILL.md` before it acts. Keep routine-specific
-schedule and notification settings in the routine; keep maintenance procedure and
-guardrails in the skill.
+The cloud maintenance routine and the issue-response routine, which a newly opened GitHub
+issue starts, read `skills/linear-sdk-cli-maintenance/SKILL.md` before they act. Keep
+routine-specific schedule, trigger, and notification settings in the routine; keep
+maintenance procedure and guardrails in the skill.
