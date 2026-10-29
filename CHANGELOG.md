@@ -6,10 +6,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.9.3](https://github.com/zhendalf/linear-sdk-cli/compare/v0.9.2...v0.9.3) (2026-10-29)
 
-
 ### Bug Fixes
 
-* disclose that Linear assigns update health when --health is omitted ([#109](https://github.com/zhendalf/linear-sdk-cli/issues/109)) ([29077dd](https://github.com/zhendalf/linear-sdk-cli/commit/29077dd0176b5e26cee964820ad3ecfd6fe426b9))
+- disclose that Linear assigns update health when --health is omitted ([#109](https://github.com/zhendalf/linear-sdk-cli/issues/109)) ([29077dd](https://github.com/zhendalf/linear-sdk-cli/commit/29077dd0176b5e26cee964820ad3ecfd6fe426b9))
 
 ## [0.9.2](https://github.com/zhendalf/linear-sdk-cli/compare/v0.9.1...v0.9.2) (2026-10-27)
 
