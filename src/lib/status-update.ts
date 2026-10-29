@@ -55,13 +55,22 @@ export async function normalizeUpdatePayload(
   };
 }
 
+/**
+ * Every Linear status update carries a health (`ProjectUpdate.health` and
+ * `InitiativeUpdate.health` are non-null in the schema). The CLI sends none when
+ * `--health` is omitted, so Linear picks one; the help says so, since
+ * discovery is the only place an agent can learn it before writing.
+ */
+const HEALTH_DESCRIPTION =
+  "status health; every update records one, so if omitted Linear assigns it (the CLI sends none)";
+
 /** Add the shared `--body` / `--body-file` / `--editor` / `--health` flags to a `create` command. */
 export function addUpdateFlags(cmd: Command): Command {
   return cmd
     .option("--body <text>", "update body (markdown)")
     .option("--body-file <path>", "read body from a file ('-' = stdin)")
     .option("--editor", "compose the body in $EDITOR")
-    .addOption(new Option("--health <state>", "status health").choices([...HEALTH_CHOICES]));
+    .addOption(new Option("--health <state>", HEALTH_DESCRIPTION).choices([...HEALTH_CHOICES]));
 }
 
 /**

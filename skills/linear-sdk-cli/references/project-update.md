@@ -28,12 +28,12 @@ Aliases: `new`
 linear project-update create [options] <project>
 ```
 
-| Option               | Description                         |
-| -------------------- | ----------------------------------- |
-| `--body <text>`      | update body (markdown)              |
-| `--body-file <path>` | read body from a file ('-' = stdin) |
-| `--editor`           | compose the body in $EDITOR         |
-| `--health <state>`   | status health                       |
+| Option               | Description                                                                                   |
+| -------------------- | --------------------------------------------------------------------------------------------- |
+| `--body <text>`      | update body (markdown)                                                                        |
+| `--body-file <path>` | read body from a file ('-' = stdin)                                                           |
+| `--editor`           | compose the body in $EDITOR                                                                   |
+| `--health <state>`   | status health; every update records one, so if omitted Linear assigns it (the CLI sends none) |
 
 **Output (`--json`)**: a receipt object
 
