@@ -195,6 +195,17 @@ describe("project-update / initiative-update command wiring", () => {
     expect(help).toContain("--health");
   });
 
+  // #108: Linear's schema makes an update's `health` non-null, so omitting
+  // --health still yields one, chosen by Linear. Discovery must say so.
+  it("--health discloses that Linear assigns a health when it is omitted", () => {
+    for (const groupName of ["project-update", "initiative-update"]) {
+      const create = find(groupName)!.commands.find((c) => c.name() === "create")!;
+      const health = create.options.find((o) => o.long === "--health")!;
+      expect(health.description).toMatch(/omitted/);
+      expect(health.description).toMatch(/Linear assigns/);
+    }
+  });
+
   it("rejects an invalid --health choice", async () => {
     const program = createProgram();
     await expect(
